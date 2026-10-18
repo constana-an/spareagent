@@ -12,7 +12,7 @@ class ExecutionRequest:
     task_id: str
     attempt_id: str
     user_id: str
-    resource_scope: Literal["PUBLIC_MARKETPLACE", "OWNER_ONLY"]
+    resource_scope: Literal["PUBLIC_MARKETPLACE", "OWNER_ONLY", "EXPERIMENTAL_SHARED_SUBSCRIPTION"]
     prompt: str
     repository_url: str | None
     commit_sha: str | None
@@ -21,6 +21,8 @@ class ExecutionRequest:
     # Extension to the architecture interface: lets deterministic adapters vary per attempt.
     attempt_number: int = 1
     task_type: str = "CODE_FIX"
+    # W4: authorization record an experimental (shared) lease relies on, if any.
+    authorization_ref: str | None = None
 
 
 @dataclass(frozen=True)

@@ -1,0 +1,84 @@
+{
+  "run": "3a30133d",
+  "execution_mode": "SIMULATED",
+  "steps": [
+    {
+      "step": "group ready",
+      "group_id": "17298ae7-a3cb-4f74-b792-a69faf7c98a2",
+      "authorization": "OPERATOR_VERIFIED",
+      "live_execution_enabled": false
+    },
+    {
+      "step": "sharing without consent refused",
+      "status": 422
+    },
+    {
+      "step": "awaiting owner approval",
+      "status": "QUEUED",
+      "reasons": [
+        "OWNER_APPROVAL_MISSING"
+      ]
+    },
+    {
+      "step": "owner rejected",
+      "status": "CANCELLED"
+    },
+    {
+      "step": "approved task finished",
+      "status": "SUCCEEDED",
+      "mode": "SIMULATED",
+      "artifacts": [
+        "LOG",
+        "PATCH",
+        "SUMMARY",
+        "TEST_REPORT"
+      ]
+    },
+    {
+      "step": "rate limit observed",
+      "task": "FAILED",
+      "plan_remaining": "NOT_AVAILABLE",
+      "capacity": "LIMITED",
+      "rate_limited_until": "2026-10-18T15:52:49.792179Z"
+    },
+    {
+      "step": "paused node refuses new tasks",
+      "status": 404
+    },
+    {
+      "step": "kill switch",
+      "groups_disabled": 1,
+      "tasks_cancelled": 0
+    },
+    {
+      "step": "audit",
+      "decisions": [
+        [
+          "DENY",
+          "SIMULATED",
+          [
+            "OWNER_APPROVAL_MISSING"
+          ]
+        ],
+        [
+          "DENY",
+          "SIMULATED",
+          [
+            "OWNER_APPROVAL_MISSING"
+          ]
+        ],
+        [
+          "ALLOW",
+          "SIMULATED",
+          []
+        ],
+        [
+          "ALLOW",
+          "SIMULATED",
+          []
+        ]
+      ]
+    }
+  ],
+  "result": "PASS"
+}

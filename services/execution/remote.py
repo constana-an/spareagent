@@ -14,7 +14,7 @@ from typing import Any
 
 from sqlalchemy import select
 
-from db.models import Task, TaskAttempt, WorkerNode
+from db.models import Resource, Task, TaskAttempt, WorkerNode
 from packages.provider_sdk.mock import CODE_MODEL, PROVIDER_NAME
 from packages.provider_sdk.types import ArtifactPayload, UsageReport
 from services.context import AppContext
@@ -48,6 +48,7 @@ def assignment(task: Task, attempt: TaskAttempt, lease_seconds: int) -> dict[str
         "leased_until": attempt.leased_until.isoformat(),
         "lease_seconds": lease_seconds,
         "execution_profile": task.execution_profile,
+        "resource_scope": task.resource_scope,
         "task": {
             "task_id": str(task.id),
             "task_type": task.task_type,
@@ -121,16 +122,51 @@ class RemoteWorkerService:
                     .limit(1)
                 )
             ).first()
-        if row is None:
-            return None
-        attempt, task = row
-        return assignment(task, attempt, self.ctx.settings.lease_seconds)
+            if row is None:
+                return None
+            attempt, task = row
+            out = assignment(task, attempt, self.ctx.settings.lease_seconds)
+            if task.resource_scope == "EXPERIMENTAL_SHARED_SUBSCRIPTION":
+                from db.models import ExperimentalDispatchAudit
+
+                # The authorization the ALLOW decision relied on travels with the lease, so
+                # the owner's device can refuse shared work that is not tied to one.
+                auth_id = (
+                    await session.execute(
+                        select(ExperimentalDispatchAudit.authorization_id).where(
+                            ExperimentalDispatchAudit.attempt_id == attempt.id,
+                            ExperimentalDispatchAudit.decision == "ALLOW",
+                        )
+                    )
+                ).scalar_one_or_none()
+                out["authorization_ref"] = str(auth_id) if auth_id else None
+        return out
+
+    async def _claimer(self, worker_id: uuid.UUID):
+        """A personal (owner's own) device claims only LIVE experimental tasks through the
+        separate ExperimentalDispatcher; every other node uses the public Dispatcher, which
+        never selects personal resources (unchanged)."""
+        async with self.ctx.sessionmaker() as session:
+            rtype = (
+                await session.execute(
+                    select(Resource.resource_type)
+                    .join(WorkerNode, WorkerNode.resource_id == Resource.id)
+                    .where(WorkerNode.id == worker_id)
+                )
+            ).scalar_one_or_none()
+        if rtype == "PERSONAL_SUBSCRIPTION":
+            from services.experiments.dispatcher import ExperimentalDispatcher
+
+            experimental = ExperimentalDispatcher(self.ctx)
+            return lambda: experimental.dispatch_once((worker_id,), profiles=("CODEX_LIVE",))
+        return lambda: self.dispatcher.dispatch_once((worker_id,))
 
     async def poll(self, node: NodePrincipal, wait_seconds: float, is_disconnected) -> dict | None:
         """Bounded long poll: return an existing reservation or claim one atomically."""
         wait = max(0.0, min(wait_seconds, self.ctx.settings.lease_poll_max_wait_seconds))
         deadline = time.monotonic() + wait
         first = True
+        claim = await self._claimer(node.worker_id)
         while True:
             # Only the start of a poll may bring a node back ONLINE. Later iterations only
             # refresh liveness, so a node that announced OFFLINE/DRAINING while this request
@@ -141,7 +177,7 @@ class RemoteWorkerService:
                 return None
             found = await self._reserved_for(node.worker_id)
             if found is None:
-                if await self.dispatcher.dispatch_once((node.worker_id,)) is not None:
+                if await claim() is not None:
                     found = await self._reserved_for(node.worker_id)
             if found is not None:
                 return found
@@ -180,6 +216,17 @@ class RemoteWorkerService:
                 input_tokens=0,
                 output_tokens=0,
                 estimated_cost_cents=self.ctx.settings.code_task_estimate_cents,
+                billable=False,
+            )
+        if task.execution_profile == "CODEX_LIVE":
+            # Included plan usage on the owner's own account: never priced or billed.
+            return UsageReport(
+                provider_name="codex-subscription",
+                provider_request_id=f"codex-live-{attempt.id}",
+                model_name="codex-default",
+                input_tokens=estimate_tokens(task.prompt),
+                output_tokens=0,
+                estimated_cost_cents=0,
                 billable=False,
             )
         request = execution_request(task, attempt.id, attempt.attempt_number)

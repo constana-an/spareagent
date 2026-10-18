@@ -250,3 +250,45 @@ Modules: `services/execution/{repository_manager,sandbox,catalog,patch_policy,te
 `0005_code_execution.sql`. Compose profile `code`: `fixtures`, `verifier`, `code-worker`;
 `sandbox-image` (profile `build-only`). Both local (in-process, MOCK only) and remote nodes use
 the same lifecycle; only sandbox-capable, allow-listed nodes receive CODE leases.
+
+## 13. Week 4 addendum — experimental subscription-sharing scope (as implemented)
+
+```text
+owner device (Alice)                         SpareAgent API / scheduler
+  codex login (ChatGPT)  ── stays local ──x  (no credential ever crosses this line)
+  spareagent-worker codex-check              POST /v1/subscriptions/connect  (auth_method=CHATGPT, no tokens)
+    CodexSubscriptionAdapter (OWNER_ONLY)    PUT/POST /v1/sharing/{preferences,enable,pause,revoke}
+      codex -c forced_login_method=chatgpt   POST /v1/experimental-tasks  (Bob, active member)
+        exec --json  (env: no API keys)        └─ experimental_task_consents: PENDING ─► owner approve/reject
+  spareagent-worker sharing pause            ExperimentalDispatcher (scope EXPERIMENTAL_SHARED_SUBSCRIPTION only)
+                                               └─ ExperimentalSharingPolicy(snapshot from DB) ─► experimental_dispatch_audit
+                                               └─ ALLOW (SIMULATED | LIVE) ─► attempt+lease on owner's node
+                                                    ─► existing LeaseService ─► verifier ─► artifacts
+public Dispatcher: PUBLIC_MARKETPLACE + ResourceEligibilityPolicy only (unchanged)
+```
+
+- Two independent authorities: `ResourceEligibilityPolicy` (public, unchanged; personal
+  subscriptions never eligible) and `ExperimentalSharingPolicy` (experimental scope only).
+- Two experimental modes: SIMULATED (MOCK profile, `services/experiments/simulation.py`)
+  and LIVE (Milestone D, `CODEX_LIVE` profile). LIVE runs on the owner's own device, which
+  enrolls through `POST /v1/subscriptions/enrollment-tokens`. It is gated by:
+  `EXPERIMENT_LIVE_ENABLED`; a verified authorization covering `CODEX_CLI_EXEC` with
+  `max_participants` and `expires_at` (OpenAI ticket 10766658 scope); the owner's
+  codex-check and no-purchased-credits attestations; and an executor-capable node. The DB
+  trigger `require_authorized_live_dispatch` (0008) re-checks every LIVE ALLOW.
+
+```text
+owner device: spareagent-worker start --executor codex-subscription
+                 --accept-shared-tasks --attest-no-purchased-credits
+  poll ─► RemoteWorkerService: personal node ⇒ ExperimentalDispatcher(profiles=CODEX_LIVE)
+  lease {execution_profile=CODEX_LIVE, resource_scope, authorization_ref}
+  CodexSubscriptionAdapter: local pause? auth ref? ChatGPT login? ─► RepositoryManager checkout
+    ─► codex exec (read-only | workspace-write) ─► SUMMARY [+ PATCH]
+  complete ─► verify_codex_live (structure + patch policy) ─► SUCCEEDED | FAILED
+```
+
+- Modules: `packages/worker/{subscription_auth,codex_runtime,local_controls}.py`,
+  `packages/provider_sdk/codex_subscription.py`, `services/subscriptions/{policy,usage}.py`,
+  `services/experiments/{participation,dispatcher,simulation}.py`,
+  `apps/api/routes/experiments.py`, migrations `0007_experimental_subscriptions.sql` and
+  `0008_experimental_live_execution.sql`.

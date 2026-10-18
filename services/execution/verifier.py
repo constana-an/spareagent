@@ -37,6 +37,36 @@ def verify(artifacts: tuple[ArtifactPayload, ...]) -> VerificationReport:
     return VerificationReport(True)
 
 
+def verify_codex_live(task_type: str, artifacts: tuple[ArtifactPayload, ...]) -> VerificationReport:
+    """W4 Milestone D: platform checks for a LIVE experimental result from an owner's Codex
+    CLI. The repository is not re-run by the platform (only catalog repositories can be),
+    so this is a structural gate: a SUMMARY always, and for WRITE_TESTS/CODE_FIX a PATCH
+    that passes the same patch policy used for sandboxed CODE tasks."""
+    from services.execution.patch_policy import PatchRejected, inspect_patch
+
+    kinds = [a.kind for a in artifacts]
+    if len(kinds) != len(set(kinds)):
+        return VerificationReport(False, "duplicate artifact kinds")
+    if not set(kinds) <= {"SUMMARY", "PATCH", "LOG"}:
+        return VerificationReport(False, "unexpected artifact kinds")
+    if "SUMMARY" not in kinds:
+        return VerificationReport(False, "missing artifacts: ['SUMMARY']")
+    patch = next((a for a in artifacts if a.kind == "PATCH"), None)
+    if task_type in ("WRITE_TESTS", "CODE_FIX") and patch is None:
+        return VerificationReport(False, "missing artifacts: ['PATCH']")
+    if task_type == "CODE_REVIEW" and patch is not None:
+        return VerificationReport(False, "a review must not modify the repository")
+    for artifact in artifacts:
+        if len(artifact.content) > MAX_ARTIFACT_BYTES:
+            return VerificationReport(False, f"{artifact.kind} exceeds size limit")
+    if patch is not None:
+        try:
+            inspect_patch(patch.content)
+        except PatchRejected as exc:
+            return VerificationReport(False, f"patch rejected: {exc.reason}")
+    return VerificationReport(True)
+
+
 CODE_REQUIRED_KINDS = frozenset({"SUMMARY", "PATCH", "TEST_REPORT", "EXECUTION_LOG"})
 WORKER_KINDS = frozenset({"SUMMARY", "PATCH", "TEST_REPORT", "EXECUTION_LOG", "LOG"})
 

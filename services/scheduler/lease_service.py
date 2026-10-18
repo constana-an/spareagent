@@ -302,7 +302,10 @@ class LeaseService:
         if data.succeeded:
             attempt.status = "VERIFYING"
             await transition(session, task, TaskStatus.VERIFYING, attempt_id=attempt.id)
-            report = verifier.verify(data.artifacts)
+            if task.execution_profile == "CODEX_LIVE":
+                report = verifier.verify_codex_live(task.task_type, data.artifacts)
+            else:
+                report = verifier.verify(data.artifacts)
             if report.ok:
                 await self._store_artifacts(session, task, attempt, data.artifacts)
                 await close_attempt(session, attempt, "SUCCEEDED")

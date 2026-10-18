@@ -188,6 +188,66 @@ class NodeAuthService:
             )
         return IssuedSecret(token.id, secret, token.expires_at)
 
+    async def create_personal_enrollment_token(
+        self, principal: Principal, ttl_seconds: int
+    ) -> tuple[uuid.UUID, IssuedSecret]:
+        """Week 4 Milestone D: an experiment member enrolls their OWN device for the
+        experimental scope. Creates a non-public PERSONAL_SUBSCRIPTION resource owned by the
+        caller. The database (0008) re-checks owner == issuer and active group membership;
+        marketplace enrollment of personal resources stays impossible."""
+        from db.models import ExperimentalGroup, ExperimentalGroupMember
+
+        if not self.ctx.settings.experiment_enabled:
+            raise forbidden("EXPERIMENT_DISABLED", "The experiment is disabled")
+        if ttl_seconds > self.ctx.settings.enrollment_token_max_ttl_seconds:
+            raise DomainError(422, "VALIDATION_ERROR", "ttl_seconds exceeds the maximum")
+        async with self.ctx.sessionmaker() as session, session.begin():
+            member = (
+                await session.execute(
+                    select(ExperimentalGroupMember.id)
+                    .join(
+                        ExperimentalGroup, ExperimentalGroup.id == ExperimentalGroupMember.group_id
+                    )
+                    .where(
+                        ExperimentalGroupMember.user_id == principal.user_id,
+                        ExperimentalGroupMember.status == "ACTIVE",
+                        ExperimentalGroup.status == "ACTIVE",
+                    )
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if member is None:
+                raise forbidden("NOT_A_MEMBER", "Only active experiment members enroll devices")
+            resource = Resource(
+                id=uuid.uuid4(),
+                owner_id=principal.user_id,
+                resource_type=PERSONAL_SUBSCRIPTION,
+                authorization_status="PENDING",
+                public_eligible=False,
+                license_reference="EXPERIMENTAL_OWNER_DEVICE",
+            )
+            session.add(resource)
+            await session.flush()
+            secret = self._new_secret(ENROLLMENT_PREFIX)
+            now = utcnow()
+            token = EnrollmentToken(
+                id=uuid.uuid4(),
+                token_hash=self.digest(secret),
+                resource_id=resource.id,
+                issued_by=principal.user_id,
+                created_at=now,
+                expires_at=now + timedelta(seconds=ttl_seconds),
+            )
+            session.add(token)
+            self._audit(
+                session,
+                "enrollment_token.create.personal",
+                resource.id,
+                principal.user_id,
+                token=str(token.id),
+            )
+        return resource.id, IssuedSecret(token.id, secret, token.expires_at)
+
     async def register(
         self,
         authorization: str | None,
@@ -226,8 +286,14 @@ class NodeAuthService:
             if token.resource_id != resource_id:
                 raise forbidden("ENROLLMENT_SCOPE", "Enrollment token is for a different resource")
             resource = await session.get(Resource, resource_id)
-            if resource is None or resource.resource_type == PERSONAL_SUBSCRIPTION:
+            if resource is None:
                 raise DomainError(422, "POLICY_VIOLATION", "Resource cannot host workers")
+            if resource.resource_type == PERSONAL_SUBSCRIPTION:
+                # Only the owner's self-issued experimental device token (0008 trigger
+                # enforced at issue time); such a node runs one task at a time.
+                if token.issued_by != resource.owner_id or resource.public_eligible:
+                    raise DomainError(422, "POLICY_VIOLATION", "Resource cannot host workers")
+                max_concurrency = 1
             worker = WorkerNode(
                 id=uuid.uuid4(),
                 resource_id=resource_id,

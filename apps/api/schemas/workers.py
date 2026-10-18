@@ -66,7 +66,12 @@ class LeaseAssignment(BaseModel):
     attempt_number: int
     leased_until: datetime
     lease_seconds: int
-    execution_profile: Literal["MOCK", "CODE"] = "MOCK"
+    execution_profile: Literal["MOCK", "CODE", "CODEX_LIVE"] = "MOCK"
+    # W4: experimental leases name their scope and the authorization record they rely on.
+    resource_scope: Literal["PUBLIC_MARKETPLACE", "EXPERIMENTAL_SHARED_SUBSCRIPTION"] = (
+        "PUBLIC_MARKETPLACE"
+    )
+    authorization_ref: uuid.UUID | None = None
     task: LeaseTask
 
 
@@ -99,6 +104,11 @@ WorkerErrorCode = Literal[
     "WORKER_SHUTDOWN",
     "CANCELLED",
     "EXECUTION_ERROR",
+    # W4 owner-device Codex runtime outcomes (never retried; see D-52).
+    "SUBSCRIPTION_USAGE_LIMIT",
+    "SUBSCRIPTION_AUTH_UNAVAILABLE",
+    "OWNER_ONLY_VIOLATION",
+    "SHARED_WORK_REFUSED",
 ]
 
 

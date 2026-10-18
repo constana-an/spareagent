@@ -21,6 +21,7 @@ from packages.provider_sdk.base import ProviderAdapter, ProviderError
 from packages.provider_sdk.mock import MockProviderAdapter
 from packages.provider_sdk.types import ExecutionRequest, ExecutionResult, ProgressEvent
 from packages.worker.lease_client import NodeClient, TransportError, WorkerApiError
+from packages.worker.local_controls import LocalSharingControl
 
 log = logging.getLogger("spareagent.worker.agent")
 
@@ -28,6 +29,7 @@ FATAL_AUTH_CODES = frozenset(
     {"NODE_CREDENTIAL_REVOKED", "NODE_KEY_EXPIRED", "NODE_AUTH_INVALID", "NODE_AUTH_REQUIRED"}
 )
 ROTATE_BEFORE = timedelta(days=7)
+EXPERIMENTAL_SCOPE = "EXPERIMENTAL_SHARED_SUBSCRIPTION"
 
 
 @dataclass
@@ -71,6 +73,8 @@ class WorkerAgent:
         adapter: ProviderAdapter | None = None,
         *,
         code_adapter: ProviderAdapter | None = None,
+        sharing_control: LocalSharingControl | None = None,
+        live_adapter: ProviderAdapter | None = None,
     ) -> None:
         self.client = client
         self.config = config or AgentConfig()
@@ -79,6 +83,11 @@ class WorkerAgent:
         self.adapters: dict[str, ProviderAdapter] = {"MOCK": self.adapter}
         if code_adapter is not None:
             self.adapters["CODE"] = code_adapter
+        if live_adapter is not None:
+            # W4 Milestone D: the owner's own Codex CLI for authorized experimental leases.
+            self.adapters["CODEX_LIVE"] = live_adapter
+        # Week 4: experimental (cross-user) leases need an explicit, un-paused local opt-in.
+        self.sharing_control = sharing_control
         self.fatal: WorkerApiError | None = None
         self.completed: list[tuple[str, str]] = []  # (attempt_id, task_status)
         self.claimed: list[str] = []
@@ -177,6 +186,16 @@ class WorkerAgent:
     async def execute(self, a: dict[str, Any]) -> str | None:
         lease_id, attempt_id = a["lease_id"], a["attempt_id"]
         task = a["task"]
+        scope = a.get("resource_scope") or "PUBLIC_MARKETPLACE"
+        if scope == EXPERIMENTAL_SCOPE and not (
+            self.sharing_control is not None
+            and self.sharing_control.allows_shared_work()
+            and a.get("authorization_ref")
+            and a.get("execution_profile") in self.adapters
+        ):
+            # Local kill switch wins over the server: never accept; the reservation lapses.
+            log.info("experimental lease declined: local sharing paused or not opted in")
+            return None
         try:
             await self.client.accept(lease_id)
         except WorkerApiError as exc:
@@ -189,7 +208,7 @@ class WorkerAgent:
             task_id=task["task_id"],
             attempt_id=attempt_id,
             user_id="redacted",
-            resource_scope="PUBLIC_MARKETPLACE",
+            resource_scope=scope,
             prompt=task["prompt"],
             repository_url=task["repository_url"],
             commit_sha=task["commit_sha"],
@@ -197,6 +216,7 @@ class WorkerAgent:
             max_budget_cents=task["max_budget_cents"],
             attempt_number=a["attempt_number"],
             task_type=task["task_type"],
+            authorization_ref=a.get("authorization_ref"),
         )
         adapter = self.adapters.get(a.get("execution_profile", "MOCK"))
         if adapter is None:
