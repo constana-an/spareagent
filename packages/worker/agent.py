@@ -21,6 +21,7 @@ from packages.provider_sdk.base import ProviderAdapter, ProviderError
 from packages.provider_sdk.mock import MockProviderAdapter
 from packages.provider_sdk.types import ExecutionRequest, ExecutionResult, ProgressEvent
 from packages.worker.lease_client import NodeClient, TransportError, WorkerApiError
+from packages.worker.local_controls import LocalSharingControl
 
 log = logging.getLogger("spareagent.worker.agent")
 
@@ -28,6 +29,7 @@ FATAL_AUTH_CODES = frozenset(
     {"NODE_CREDENTIAL_REVOKED", "NODE_KEY_EXPIRED", "NODE_AUTH_INVALID", "NODE_AUTH_REQUIRED"}
 )
 ROTATE_BEFORE = timedelta(days=7)
+EXPERIMENTAL_SCOPE = "EXPERIMENTAL_SHARED_SUBSCRIPTION"
 
 
 @dataclass
@@ -71,6 +73,7 @@ class WorkerAgent:
         adapter: ProviderAdapter | None = None,
         *,
         code_adapter: ProviderAdapter | None = None,
+        sharing_control: LocalSharingControl | None = None,
     ) -> None:
         self.client = client
         self.config = config or AgentConfig()
@@ -79,6 +82,8 @@ class WorkerAgent:
         self.adapters: dict[str, ProviderAdapter] = {"MOCK": self.adapter}
         if code_adapter is not None:
             self.adapters["CODE"] = code_adapter
+        # Week 4: experimental (cross-user) leases need an explicit, un-paused local opt-in.
+        self.sharing_control = sharing_control
         self.fatal: WorkerApiError | None = None
         self.completed: list[tuple[str, str]] = []  # (attempt_id, task_status)
         self.claimed: list[str] = []
@@ -177,6 +182,12 @@ class WorkerAgent:
     async def execute(self, a: dict[str, Any]) -> str | None:
         lease_id, attempt_id = a["lease_id"], a["attempt_id"]
         task = a["task"]
+        if a.get("resource_scope") == EXPERIMENTAL_SCOPE and not (
+            self.sharing_control is not None and self.sharing_control.allows_shared_work()
+        ):
+            # Local kill switch wins over the server: never accept; the reservation lapses.
+            log.info("experimental lease declined: local sharing paused or not opted in")
+            return None
         try:
             await self.client.accept(lease_id)
         except WorkerApiError as exc:

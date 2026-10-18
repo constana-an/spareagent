@@ -5,6 +5,8 @@
     spareagent-worker start    [--mock-step-delay 0] [--poll-wait 20]
     spareagent-worker status
     spareagent-worker stop
+    spareagent-worker codex-check [--prompt "..."] [--codex-bin codex]
+    spareagent-worker sharing {pause,resume,status}
 
 State (node id + node key, mode 0600) lives in $SPAREAGENT_WORKER_HOME (default
 ~/.spareagent-worker). The worker needs no database or Redis credentials.
@@ -201,6 +203,90 @@ def cmd_stop(args: argparse.Namespace) -> int:
     return 1
 
 
+async def cmd_codex_check(args: argparse.Namespace) -> int:
+    """Milestone A proof, run by the owner on their own device with their own login.
+
+    Verifies the official Codex CLI is logged in with ChatGPT (not an API key), runs one
+    owner-only read-only prompt with API-billing variables stripped, and prints a report.
+    Nothing is sent to SpareAgent; credentials are never read."""
+    from packages.provider_sdk.codex_subscription import CodexSubscriptionAdapter
+    from packages.provider_sdk.types import ExecutionRequest, ExecutionResult
+    from packages.worker.codex_runtime import CodexRuntime, CodexRuntimeConfig
+    from packages.worker.subscription_auth import forbidden_env_present
+
+    owner = "local-owner"
+    adapter = CodexSubscriptionAdapter(
+        owner_ref=owner,
+        runtime=CodexRuntime(CodexRuntimeConfig(codex_bin=args.codex_bin, model=args.model)),
+    )
+    auth = await adapter.check_auth()
+    report: dict = {
+        "auth_method": auth.method.value,
+        "auth_detail": auth.detail,
+        "api_billing_env_in_shell": forbidden_env_present(),
+        "api_billing_env_passed_to_codex": [],
+        "forced_login_method": "chatgpt",
+        "inference": None,
+    }
+    if not auth.eligible:
+        report["result"] = "FAILED_CLOSED"
+        _print(report)
+        return 1
+    if args.skip_inference:
+        report["result"] = "AUTH_OK_INFERENCE_SKIPPED"
+        _print(report)
+        return 0
+    request = ExecutionRequest(
+        task_id="codex-check",
+        attempt_id=f"codex-check-{int(time.time())}",
+        user_id=owner,
+        resource_scope="OWNER_ONLY",
+        prompt=args.prompt,
+        repository_url=None,
+        commit_sha=None,
+        max_duration_seconds=args.timeout,
+        max_budget_cents=1,
+        task_type="CODE_REVIEW",
+    )
+    try:
+        result = None
+        async for item in adapter.execute(request):
+            if isinstance(item, ExecutionResult):
+                result = item
+    except Exception as exc:  # noqa: BLE001 - report every failure mode, fail closed
+        report["result"] = "FAILED"
+        report["error"] = f"{type(exc).__name__}: {exc}"
+        _print(report)
+        return 1
+    assert result is not None  # noqa: S101
+    report["inference"] = {
+        "completed": True,
+        "input_tokens": result.usage.input_tokens,
+        "output_tokens": result.usage.output_tokens,
+        "billable": result.usage.billable,
+        "summary_excerpt": result.summary[:200],
+    }
+    report["result"] = "OWNER_ONLY_SUBSCRIPTION_RUN_OK"
+    report["note"] = (
+        "Confirms a ChatGPT-login Codex run with no API key in the child environment. "
+        "Codex does not expose plan-quota consumption; confirm in ChatGPT usage settings."
+    )
+    _print(report)
+    return 0
+
+
+def cmd_sharing(args: argparse.Namespace) -> int:
+    from packages.worker.local_controls import LocalSharingControl
+
+    control = LocalSharingControl(state_dir(args.state_dir))
+    if args.action == "pause":
+        control.pause()
+    elif args.action == "resume":
+        control.resume()
+    _print({"sharing_paused": control.paused})
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="spareagent-worker", description=__doc__.split("\n")[0])
     parser.add_argument("--state-dir", default=None)
@@ -242,6 +328,21 @@ def build_parser() -> argparse.ArgumentParser:
 
     stop = sub.add_parser("stop", help="gracefully stop a running worker")
     stop.add_argument("--timeout", type=float, default=30.0)
+
+    check = sub.add_parser(
+        "codex-check", help="owner-only proof: ChatGPT-login Codex run with no API key"
+    )
+    check.add_argument("--codex-bin", default=os.environ.get("SPAREAGENT_CODEX_BIN", "codex"))
+    check.add_argument("--model", default=None)
+    check.add_argument("--timeout", type=int, default=300)
+    check.add_argument("--skip-inference", action="store_true")
+    check.add_argument(
+        "--prompt",
+        default="Reply with exactly: SPAREAGENT_OWNER_ONLY_OK. Do not run any commands.",
+    )
+
+    sharing = sub.add_parser("sharing", help="local kill switch for experimental sharing")
+    sharing.add_argument("action", choices=("pause", "resume", "status"))
     return parser
 
 
@@ -259,6 +360,10 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(cmd_start(args))
     if args.command == "status":
         return asyncio.run(cmd_status(args))
+    if args.command == "codex-check":
+        return asyncio.run(cmd_codex_check(args))
+    if args.command == "sharing":
+        return cmd_sharing(args)
     return cmd_stop(args)
 
 

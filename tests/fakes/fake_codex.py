@@ -1,0 +1,110 @@
+#!/usr/bin/env python3
+"""Deterministic stand-in for the official Codex CLI (tests only; no network, no auth).
+
+Behaviour is selected by `$CODEX_HOME/mode` (CODEX_HOME is the only channel that survives
+the adapter's environment allow-list, exactly like a real owner's Codex home). Every
+invocation records its argv and environment *names and API-key presence* to
+`$CODEX_HOME/calls.jsonl` so tests can prove no API key reached the child.
+"""
+
+import json
+import os
+import sys
+import time
+
+home = os.environ.get("CODEX_HOME", "")
+mode = "chatgpt"
+if home and os.path.exists(os.path.join(home, "mode")):
+    mode = open(os.path.join(home, "mode")).read().strip()
+
+if home:
+    with open(os.path.join(home, "calls.jsonl"), "a") as fh:
+        fh.write(
+            json.dumps(
+                {
+                    "argv": sys.argv[1:],
+                    "env_names": sorted(os.environ),
+                    "api_key_seen": any(
+                        os.environ.get(k) for k in ("OPENAI_API_KEY", "CODEX_API_KEY")
+                    ),
+                }
+            )
+            + "\n"
+        )
+
+args = sys.argv[1:]
+if args[:2] == ["login", "status"]:
+    if mode in ("logged_out",):
+        print("Not logged in")
+        sys.exit(1)
+    if mode == "apikey":
+        print("Logged in using an API key - sk-proj-****")
+        sys.exit(0)
+    if mode == "garbled":
+        print("???")
+        sys.exit(0)
+    print("Logged in using ChatGPT")
+    sys.exit(0)
+
+if "exec" not in args:
+    print("unsupported", file=sys.stderr)
+    sys.exit(2)
+
+if 'forced_login_method="chatgpt"' not in args:
+    print("fake: refusing to run without forced_login_method", file=sys.stderr)
+    sys.exit(3)
+
+prompt = sys.stdin.read()
+
+
+def emit(obj):
+    print(json.dumps(obj), flush=True)
+
+
+emit({"type": "thread.started", "thread_id": "fake-thread-0001"})
+emit({"type": "turn.started"})
+if mode == "expired":
+    emit({"type": "turn.failed", "error": {"message": "401 Unauthorized: refresh token expired"}})
+    sys.exit(1)
+if mode == "limit":
+    emit(
+        {
+            "type": "error",
+            "message": "You've hit your usage limit. Try again in 2 hours 13 minutes.",
+        }
+    )
+    sys.exit(1)
+if mode == "crash":
+    print("boom: internal error", file=sys.stderr)
+    sys.exit(70)
+emit({"type": "item.started", "item": {"id": "i1", "type": "command_execution", "command": "ls"}})
+if mode == "slow":
+    time.sleep(30)
+emit(
+    {
+        "type": "item.completed",
+        "item": {"id": "i1", "type": "command_execution", "status": "completed"},
+    }
+)
+emit(
+    {
+        "type": "item.completed",
+        "item": {
+            "id": "i2",
+            "type": "agent_message",
+            "text": f"Reviewed: {prompt.strip()[:60]} (token=abcd1234secret)",
+        },
+    }
+)
+emit(
+    {
+        "type": "turn.completed",
+        "usage": {
+            "input_tokens": 120,
+            "cached_input_tokens": 20,
+            "output_tokens": 40,
+            "reasoning_output_tokens": 8,
+        },
+    }
+)
+sys.exit(0)

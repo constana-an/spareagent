@@ -12,7 +12,7 @@ class ExecutionRequest:
     task_id: str
     attempt_id: str
     user_id: str
-    resource_scope: Literal["PUBLIC_MARKETPLACE", "OWNER_ONLY"]
+    resource_scope: Literal["PUBLIC_MARKETPLACE", "OWNER_ONLY", "EXPERIMENTAL_SHARED_SUBSCRIPTION"]
     prompt: str
     repository_url: str | None
     commit_sha: str | None
