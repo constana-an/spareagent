@@ -43,6 +43,9 @@ PUBLIC_RESOURCE = uuid.UUID("33333333-3333-4333-8333-333333333333")
 PUBLIC_WORKER = uuid.UUID("44444444-4444-4444-8444-444444444444")
 
 TABLES = (
+    "experimental_dispatch_audit, experimental_task_consents, subscription_usage_observations, "
+    "subscription_sharing_preferences, subscription_connections, experimental_authorizations, "
+    "experimental_group_members, experimental_groups, "
     "verification_results, node_credentials, enrollment_tokens, audit_logs, usage_records, "
     "gateway_requests, artifacts, execution_events, task_attempts, tasks, worker_nodes, "
     "resources, users"
