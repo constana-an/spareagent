@@ -17,6 +17,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_LOCAL_WORKER = "44444444-4444-4444-8444-444444444444"
 DEFAULT_MOCK_CHAT_RESOURCE = "33333333-3333-4333-8333-333333333333"
+# Development-only HMAC pepper for credential digests; refused outside APP_ENV=local.
+DEV_NODE_TOKEN_PEPPER = "dev-only-node-token-pepper-change-me"  # noqa: S105
 
 
 class ConfigError(ValueError):
@@ -50,6 +52,16 @@ class Settings(BaseSettings):
     sse_keepalive_seconds: float = Field(default=15.0, gt=0, le=300)
     worker_poll_seconds: float = Field(default=1.0, gt=0, le=60)
 
+    # Week 2 remote worker protocol
+    node_token_pepper: SecretStr = SecretStr(DEV_NODE_TOKEN_PEPPER)
+    node_access_token_ttl_seconds: int = Field(default=900, ge=10, le=3600)
+    node_key_ttl_seconds: int = Field(default=30 * 86400, ge=60, le=90 * 86400)
+    enrollment_token_max_ttl_seconds: int = Field(default=86400, ge=60, le=7 * 86400)
+    max_node_concurrency: int = Field(default=4, ge=1, le=100)
+    lease_poll_max_wait_seconds: float = Field(default=25.0, ge=0, le=60)
+    lease_poll_interval_seconds: float = Field(default=0.5, gt=0, le=10)
+    max_completion_artifact_bytes: int = Field(default=5 * 1024 * 1024, ge=1024)
+
     local_worker_node_ids: str = DEFAULT_LOCAL_WORKER
     mock_chat_resource_id: uuid.UUID = uuid.UUID(DEFAULT_MOCK_CHAT_RESOURCE)
 
@@ -69,6 +81,13 @@ class Settings(BaseSettings):
             raise ConfigError(
                 "DEV_AUTH_ONLY=true is only permitted with APP_ENV=local; refusing to start."
             )
+        if (
+            self.app_env != "local"
+            and self.node_token_pepper.get_secret_value() == DEV_NODE_TOKEN_PEPPER
+        ):
+            raise ConfigError("NODE_TOKEN_PEPPER must be set to a secret value outside local")
+        if len(self.node_token_pepper.get_secret_value()) < 16:
+            raise ConfigError("NODE_TOKEN_PEPPER must be at least 16 characters")
         # Validate CIDRs eagerly so a typo cannot silently widen or break the trust boundary.
         self.trusted_networks  # noqa: B018
         return self

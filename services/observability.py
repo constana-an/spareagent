@@ -17,6 +17,8 @@ request_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 REDACTED = "[REDACTED]"
 
 _SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
+    # SpareAgent node credentials: enrollment tokens, node keys, access tokens.
+    re.compile(r"\bsa_(?:enr|nk|at)_[A-Za-z0-9_\-]{16,}"),
     re.compile(r"sk-(?:proj-|ant-|live-|test-)?[A-Za-z0-9_\-]{16,}"),
     re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}\b"),
     re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}\b"),
@@ -88,13 +90,13 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, default=str)
 
 
-def configure_logging(level: str = "INFO") -> None:
+def configure_logging(level: str = "INFO", stream=None) -> None:
     root = logging.getLogger()
     root.setLevel(level.upper())
     for handler in list(root.handlers):
         if getattr(handler, "_spareagent", False):
             root.removeHandler(handler)
-    handler = logging.StreamHandler(sys.stdout)
+    handler = logging.StreamHandler(stream or sys.stdout)
     handler.setFormatter(JsonFormatter())
     handler.addFilter(RedactingFilter())
     handler._spareagent = True  # type: ignore[attr-defined]
