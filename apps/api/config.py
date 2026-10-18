@@ -62,6 +62,17 @@ class Settings(BaseSettings):
     lease_poll_interval_seconds: float = Field(default=0.5, gt=0, le=10)
     max_completion_artifact_bytes: int = Field(default=5 * 1024 * 1024, ge=1024)
 
+    # Week 3 sandboxed code execution (disabled by default; D-35)
+    code_execution_enabled: bool = False
+    code_execution_resource_ids: str = ""
+    code_task_estimate_cents: int = Field(default=25, ge=1, le=100000)
+    repo_fixture_root: str | None = None
+    sandbox_image: str = "spareagent-sandbox:dev"
+    verification_timeout_seconds: float = Field(default=60.0, ge=1, le=600)
+    verification_memory_mb: int = Field(default=512, ge=64, le=8192)
+    verification_max_errors: int = Field(default=3, ge=1, le=20)
+    verification_claim_seconds: int = Field(default=300, ge=10, le=3600)
+
     local_worker_node_ids: str = DEFAULT_LOCAL_WORKER
     mock_chat_resource_id: uuid.UUID = uuid.UUID(DEFAULT_MOCK_CHAT_RESOURCE)
 
@@ -88,6 +99,9 @@ class Settings(BaseSettings):
             raise ConfigError("NODE_TOKEN_PEPPER must be set to a secret value outside local")
         if len(self.node_token_pepper.get_secret_value()) < 16:
             raise ConfigError("NODE_TOKEN_PEPPER must be at least 16 characters")
+        if self.repo_fixture_root and self.app_env != "local":
+            raise ConfigError("REPO_FIXTURE_ROOT (local Git mirrors) is only allowed in local")
+        self.code_resource_ids  # noqa: B018 - validate UUIDs eagerly
         # Validate CIDRs eagerly so a typo cannot silently widen or break the trust boundary.
         self.trusted_networks  # noqa: B018
         return self
@@ -104,6 +118,12 @@ class Settings(BaseSettings):
             except ValueError as exc:
                 raise ConfigError(f"Invalid DEV_AUTH_TRUSTED_CIDRS entry: {raw!r}") from exc
         return tuple(nets)
+
+    @cached_property
+    def code_resource_ids(self) -> frozenset[uuid.UUID]:
+        return frozenset(
+            uuid.UUID(p.strip()) for p in self.code_execution_resource_ids.split(",") if p.strip()
+        )
 
     @cached_property
     def local_worker_ids(self) -> tuple[uuid.UUID, ...]:

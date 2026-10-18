@@ -96,7 +96,13 @@ async def list_artifacts(
     items = await service.list_artifacts(principal, parse_uuid_or_404(task_id, "TASK_NOT_FOUND"))
     return ArtifactList(
         items=[
-            ArtifactOut(id=a.id, kind=a.kind, sha256=a.sha256.strip(), media_type=a.media_type)
+            ArtifactOut(
+                id=a.id,
+                kind=a.kind,
+                sha256=a.sha256.strip(),
+                media_type=a.media_type,
+                source=a.source,
+            )
             for a in items
         ]
     )

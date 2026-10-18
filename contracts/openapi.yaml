@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SpareAgent MVP API
-  version: 1.1.0
+  version: 1.2.0
   description: 'W1: Tasks, Events, Models, Chat nonstream, health. W2: remote worker enrollment, node credentials and lease protocol.'
 servers:
   - url: http://localhost:8000
@@ -448,12 +448,14 @@ components:
         result_summary: {type: [string, 'null']}
     Artifact:
       type: object
-      required: [id, kind, sha256, media_type]
+      required: [id, kind, sha256, media_type, source]
+      description: 'Only published artifacts are listed. For CODE tasks, worker artifacts are published only after independent platform verification passes; VERIFICATION_REPORT is always platform-sourced.'
       properties:
         id: {type: string, format: uuid}
-        kind: {type: string, enum: [PATCH, TEST_REPORT, LOG, SUMMARY]}
+        kind: {type: string, enum: [PATCH, TEST_REPORT, LOG, SUMMARY, EXECUTION_LOG, VERIFICATION_REPORT]}
         sha256: {type: string}
         media_type: {type: string}
+        source: {type: string, enum: [WORKER, PLATFORM]}
     Model:
       type: object
       required: [id, object, owned_by]
@@ -560,6 +562,7 @@ components:
         attempt_number: {type: integer}
         leased_until: {type: string, format: date-time}
         lease_seconds: {type: integer}
+        execution_profile: {type: string, enum: [MOCK, CODE], default: MOCK, description: 'W3: CODE leases require the sandboxed code executor'}
         task:
           type: object
           required: [task_id, task_type, repository_url, commit_sha, prompt, max_duration_seconds, max_budget_cents]
@@ -596,7 +599,7 @@ components:
             additionalProperties: false
             required: [kind, name, media_type, content_base64]
             properties:
-              kind: {type: string, enum: [PATCH, TEST_REPORT, LOG, SUMMARY]}
+              kind: {type: string, enum: [PATCH, TEST_REPORT, LOG, SUMMARY, EXECUTION_LOG]}
               name: {type: string, pattern: '^[A-Za-z0-9._-]{1,100}$'}
               media_type: {type: string, enum: [text/plain, text/x-diff, application/json]}
               content_base64: {type: string}

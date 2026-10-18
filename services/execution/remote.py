@@ -47,6 +47,7 @@ def assignment(task: Task, attempt: TaskAttempt, lease_seconds: int) -> dict[str
         "attempt_number": attempt.attempt_number,
         "leased_until": attempt.leased_until.isoformat(),
         "lease_seconds": lease_seconds,
+        "execution_profile": task.execution_profile,
         "task": {
             "task_id": str(task.id),
             "task_type": task.task_type,
@@ -154,6 +155,16 @@ class RemoteWorkerService:
         attempt, task = row
         if attempt.worker_id != worker_id:
             raise forbidden("LEASE_NOT_OWNED", "Lease belongs to a different worker")
+        if task.execution_profile == "CODE":
+            return UsageReport(
+                provider_name="sandbox",
+                provider_request_id=f"code-task-{attempt.id}",
+                model_name="deterministic-code-v1",
+                input_tokens=0,
+                output_tokens=0,
+                estimated_cost_cents=self.ctx.settings.code_task_estimate_cents,
+                billable=False,
+            )
         request = execution_request(task, attempt.id, attempt.attempt_number)
         output_tokens = 0
         if produced_output:

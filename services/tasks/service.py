@@ -40,6 +40,20 @@ def request_digest(normalized: dict[str, Any]) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
+def execution_profile_for(ctx: AppContext, normalized: dict[str, Any]) -> str:
+    """Server-side decision: only allow-listed (repository, commit) pairs become CODE tasks,
+    and only when code execution is explicitly enabled. Everything else stays MOCK."""
+    from services.execution.catalog import lookup
+
+    if (
+        ctx.settings.code_execution_enabled
+        and normalized["task_type"] == "CODE_FIX"
+        and lookup(normalized["repository_url"], normalized["commit_sha"]) is not None
+    ):
+        return "CODE"
+    return "MOCK"
+
+
 class TaskService:
     def __init__(self, ctx: AppContext) -> None:
         self.ctx = ctx
@@ -50,6 +64,7 @@ class TaskService:
         """Returns (task, created). Owner identity comes only from the principal."""
         digest = request_digest(normalized)
         created = False
+        profile = execution_profile_for(self.ctx, normalized)
         async with self.ctx.sessionmaker() as session, session.begin():
             stmt = (
                 pg_insert(Task)
@@ -65,6 +80,7 @@ class TaskService:
                     status=TaskStatus.CREATED.value,
                     max_budget_cents=normalized["max_budget_cents"],
                     max_duration_seconds=normalized["max_duration_seconds"],
+                    execution_profile=profile,
                 )
                 .on_conflict_do_nothing(constraint="uniq_consumer_idempotency")
                 .returning(Task.id)
@@ -155,7 +171,7 @@ class TaskService:
                 raise not_found("TASK_NOT_FOUND", "Task not found")
             stmt = (
                 select(Artifact)
-                .where(Artifact.task_id == task.id)
+                .where(Artifact.task_id == task.id, Artifact.published.is_(True))
                 .order_by(Artifact.created_at, Artifact.kind)
             )
             return list((await session.execute(stmt)).scalars())
@@ -169,7 +185,11 @@ class TaskService:
                 raise not_found("TASK_NOT_FOUND", "Task not found")
             artifact = (
                 await session.execute(
-                    select(Artifact).where(Artifact.id == artifact_id, Artifact.task_id == task.id)
+                    select(Artifact).where(
+                        Artifact.id == artifact_id,
+                        Artifact.task_id == task.id,
+                        Artifact.published.is_(True),
+                    )
                 )
             ).scalar_one_or_none()
         if artifact is None:
