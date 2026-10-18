@@ -66,6 +66,7 @@ class CodexRunResult:
     returncode: int | None = None
     cancelled: bool = False
     timed_out: bool = False
+    completed_turns: int = 0
 
     @property
     def succeeded(self) -> bool:
@@ -74,6 +75,7 @@ class CodexRunResult:
             and not self.cancelled
             and not self.timed_out
             and self.returncode == 0
+            and self.completed_turns > 0
         )
 
 
@@ -99,7 +101,7 @@ def classify_error(message: str) -> tuple[str, str | None]:
 
 
 def _int(value: Any) -> int:
-    return value if isinstance(value, int) and value >= 0 else 0
+    return value if type(value) is int and value >= 0 else 0
 
 
 def parse_event(raw: dict[str, Any]) -> CodexEvent | None:
@@ -107,11 +109,15 @@ def parse_event(raw: dict[str, Any]) -> CodexEvent | None:
     etype = raw.get("type")
     if etype == "thread.started":
         tid = raw.get("thread_id")
-        return CodexEvent("thread", thread_id=str(tid)[:128] if tid else None)
+        return CodexEvent("thread", thread_id=redact(str(tid))[:128] if tid else None)
     if etype == "turn.started":
         return CodexEvent("progress", "Codex turn started")
     if etype == "turn.completed":
-        u = raw.get("usage") or {}
+        u = raw.get("usage")
+        if not isinstance(u, dict) or any(
+            type(u.get(k)) is not int or u[k] < 0 for k in ("input_tokens", "output_tokens")
+        ):
+            return CodexEvent("failed", "Invalid Codex usage event", error_class="RUNTIME")
         return CodexEvent(
             "completed",
             usage=CodexUsage(
@@ -130,7 +136,9 @@ def parse_event(raw: dict[str, Any]) -> CodexEvent | None:
             "failed", redact(message)[:500], error_class=error_class, reset_hint=reset
         )
     if etype in ("item.started", "item.completed"):
-        item = raw.get("item") or {}
+        item = raw.get("item")
+        if not isinstance(item, dict):
+            return None
         itype = str(item.get("type") or item.get("item_type") or "item")
         if etype == "item.completed" and itype in ("agent_message", "assistant_message"):
             return CodexEvent("message", redact(str(item.get("text") or ""))[:20000])
@@ -148,6 +156,35 @@ class CodexRuntimeConfig:
     extra_env: dict[str, str] | None = None  # test hook; still passed through sanitization
 
 
+def shared_permission_args(sandbox: SandboxMode) -> list[str]:
+    access = "read" if sandbox == "read-only" else "write"
+    profile = (
+        'permissions={spareagent={filesystem={":minimal"="read",'
+        f'":workspace_roots"="{access}"'
+        "},network={enabled=false}}}"
+    )
+    return [
+        "-c",
+        profile,
+        "-c",
+        'default_permissions="spareagent"',
+        "-c",
+        'approval_policy="never"',
+        "-c",
+        'model_provider="openai"',
+        "-c",
+        "allow_login_shell=false",
+        "-c",
+        "agents.enabled=false",
+        "-c",
+        "mcp_servers={}",
+        "-c",
+        "apps._default.enabled=false",
+        "-c",
+        'web_search="disabled"',
+    ]
+
+
 class CodexRuntime:
     """One owner, one device. Holds no credentials: Codex uses its own saved login."""
 
@@ -155,8 +192,9 @@ class CodexRuntime:
         self.config = config or CodexRuntimeConfig()
         self._procs: dict[str, asyncio.subprocess.Process] = {}
         self._cancelled: set[str] = set()
+        self._busy = False
 
-    def argv(self, sandbox: SandboxMode | None = None) -> list[str]:
+    def argv(self, sandbox: SandboxMode | None = None, workdir: Path | None = None) -> list[str]:
         cfg = self.config
         args = [
             cfg.codex_bin,
@@ -165,10 +203,16 @@ class CodexRuntime:
             "exec",
             "--json",
             "--ephemeral",
+            "--ignore-user-config",
+            "--ignore-rules",
             "--skip-git-repo-check",
-            "--sandbox",
-            sandbox or cfg.sandbox,
         ]
+        if sandbox is not None and workdir is not None:
+            # Shared prompts get filesystem reads scoped to their checkout, not the owner's
+            # home. The Codex parent still uses its own login; its tools cannot read it.
+            args += shared_permission_args(sandbox)
+        else:
+            args += ["--sandbox", cfg.sandbox]
         if cfg.model:
             args += ["--model", cfg.model]
         args.append("-")  # prompt is read from stdin, never interpolated into argv
@@ -192,9 +236,18 @@ class CodexRuntime:
         """Yields CodexEvents, then exactly one CodexRunResult. `sandbox` can only choose
         between Codex's read-only and workspace-write modes (never full access)."""
         result = CodexRunResult()
+        if self._busy:
+            result.error_class, result.error_message = "RUNTIME", "Codex runtime is already busy"
+            yield result
+            return
+        if not 0 < timeout_seconds <= 3600:
+            result.error_class, result.error_message = "RUNTIME", "Invalid task timeout"
+            yield result
+            return
+        self._busy = True
         try:
             proc = await asyncio.create_subprocess_exec(
-                *self.argv(sandbox),
+                *self.argv(sandbox, workdir),
                 cwd=str(workdir),
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
@@ -204,6 +257,7 @@ class CodexRuntime:
                 limit=MAX_LINE_BYTES,
             )
         except (FileNotFoundError, PermissionError) as exc:
+            self._busy = False
             result.error_class = "RUNTIME"
             result.error_message = f"codex CLI not runnable: {type(exc).__name__}"
             yield result
@@ -212,11 +266,11 @@ class CodexRuntime:
         stderr_task = asyncio.create_task(self._drain(proc.stderr))
         try:
             assert proc.stdin is not None and proc.stdout is not None  # noqa: S101
-            proc.stdin.write(prompt.encode())
-            with contextlib.suppress(BrokenPipeError, ConnectionResetError):
-                await proc.stdin.drain()
-            proc.stdin.close()
             async with asyncio.timeout(timeout_seconds):
+                proc.stdin.write(prompt.encode())
+                with contextlib.suppress(BrokenPipeError, ConnectionResetError):
+                    await proc.stdin.drain()
+                proc.stdin.close()
                 async for line in proc.stdout:
                     event = self._parse_line(line)
                     if event is None:
@@ -230,8 +284,15 @@ class CodexRuntime:
         except asyncio.CancelledError:
             await self._kill(proc)
             raise
+        except Exception as exc:  # malformed/oversized streams fail closed
+            result.error_class = "RUNTIME"
+            result.error_message = f"Invalid Codex stream: {type(exc).__name__}"
+            await self._kill(proc)
         finally:
+            await self._kill(proc)
+
             self._procs.pop(run_id, None)
+            self._busy = False
             stderr = await self._finish(stderr_task)
         if run_id in self._cancelled:
             self._cancelled.discard(run_id)
@@ -267,6 +328,7 @@ class CodexRuntime:
         elif event.kind == "message":
             result.final_message = event.message
         elif event.kind == "completed" and event.usage is not None:
+            result.completed_turns += 1
             u, n = result.usage, event.usage
             result.usage = CodexUsage(
                 u.input_tokens + n.input_tokens,
@@ -298,13 +360,16 @@ class CodexRuntime:
 
     @staticmethod
     async def _kill(proc: asyncio.subprocess.Process) -> None:
-        if proc.returncode is not None:
-            return
+        # Signal the group even after its leader exits: background descendants may remain.
         for sig in (signal.SIGTERM, signal.SIGKILL):
-            with contextlib.suppress(ProcessLookupError, PermissionError):
+            try:
                 os.killpg(proc.pid, sig)
+            except (ProcessLookupError, PermissionError):
+                break
             try:
                 await asyncio.wait_for(proc.wait(), KILL_GRACE_SECONDS)
-                return
             except TimeoutError:
                 continue
+            # The leader exited; immediately reap any surviving descendants with SIGKILL.
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(proc.wait(), KILL_GRACE_SECONDS)

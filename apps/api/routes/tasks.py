@@ -172,6 +172,10 @@ async def stream_events(
         last_sent = time.monotonic()
         yield "retry: 2000\n\n"
         while True:
+            try:
+                await get_principal(request)
+            except DomainError:
+                return  # A revoked/expired browser session must not keep its old stream.
             async with ctx.sessionmaker() as session:
                 # Status is read BEFORE events: a terminal status implies every event up to
                 # and including the terminal one is already committed and visible.

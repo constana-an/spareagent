@@ -107,3 +107,21 @@ def lookup(
         ):
             return recipe
     return None
+
+
+# LIVE WRITE_TESTS has a separate recipe: immutable correct source and baseline tests;
+# only one additional test module may change. Passing proves execution, not test quality.
+LIVE_WRITE_TESTS_CATALOG = (
+    Recipe(
+        repository="spareagent-fixtures/python-test-target",
+        commit_sha="0c1bded2a0a0461d1f96d20b5c5df0c6dd68c6cb",
+        language="python",
+        framework="unittest",
+        edits=(),
+        test_command=UNITTEST,
+        verify_command=UNITTEST,
+        allowed_paths=frozenset({"test_added.py"}),
+        expected_passed=4,
+        summary="Run three immutable baseline tests plus one added unittest.",
+    ),
+)

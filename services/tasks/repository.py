@@ -5,10 +5,10 @@ import json
 import uuid
 from datetime import datetime
 
-from sqlalchemy import select, tuple_
+from sqlalchemy import or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import ExecutionEvent, Task, TaskAttempt, WorkerNode
+from db.models import ExecutionEvent, ExperimentalTaskConsent, Task, TaskAttempt, WorkerNode
 from services.errors import DomainError
 
 TERMINAL_EVENT_TYPES = ("task.succeeded", "task.failed", "task.cancelled", "task.timed_out")
@@ -47,8 +47,16 @@ async def lock_worker(session: AsyncSession, worker_id: uuid.UUID) -> WorkerNode
 async def get_owned_task(
     session: AsyncSession, task_id: uuid.UUID, owner_id: uuid.UUID, *, for_update: bool = False
 ) -> Task | None:
-    """Row-level ownership: a task is only visible to its consumer."""
-    stmt = select(Task).where(Task.id == task_id, Task.consumer_id == owner_id)
+    """Consumer or the explicitly selected experimental device owner; never group-wide."""
+    owner_consent = (
+        select(ExperimentalTaskConsent.id)
+        .where(
+            ExperimentalTaskConsent.task_id == Task.id,
+            ExperimentalTaskConsent.owner_id == owner_id,
+        )
+        .exists()
+    )
+    stmt = select(Task).where(Task.id == task_id, or_(Task.consumer_id == owner_id, owner_consent))
     if for_update:
         stmt = stmt.with_for_update().execution_options(populate_existing=True)
     return (await session.execute(stmt)).scalar_one_or_none()

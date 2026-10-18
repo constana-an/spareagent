@@ -268,11 +268,15 @@ async def test_live_task_runs_on_owner_device_end_to_end(lclient, lctx):
     assert lease["resource_scope"] == "EXPERIMENTAL_SHARED_SUBSCRIPTION"
     assert lease["authorization_ref"] == auth_id
     assert "sk-proj-AAAA" not in lease["task"]["prompt"]  # redacted before leaving the API
-    assert done["task_status"] == "SUCCEEDED"
+    assert done["task_status"] == "VERIFYING"
+    from services.verification.service import from_settings
+
+    assert await from_settings(lctx).run_once() == "SUCCEEDED"
     t = await get_task(lclient, task["id"])
     assert t["status"] == "SUCCEEDED" and t["last_decision"]["execution_mode"] == "LIVE"
     arts = await ok(await lclient.get(f"/v1/tasks/{task['id']}/artifacts", headers=headers(BOB)))
-    assert [a["kind"] for a in arts["items"]] == ["SUMMARY"]
+    assert {a["kind"] for a in arts["items"]} == {"SUMMARY", "VERIFICATION_REPORT"}
+    assert t["verification_status"] == "UNVERIFIED"
     assert await fetch_val(lctx, "SELECT estimated_cost_cents FROM usage_records") == 0
     assert (
         await fetch_val(lctx, "SELECT event||'/'||source FROM subscription_usage_observations")
@@ -414,10 +418,10 @@ async def test_personal_device_never_receives_public_or_simulated_work(lclient, 
 @pytest.mark.parametrize(
     ("task_type", "artifacts", "expected"),
     [
-        ("CODE_REVIEW", (("SUMMARY", b"ok"),), "SUCCEEDED"),
+        ("CODE_REVIEW", (("SUMMARY", b"ok"),), "VERIFYING"),
         ("CODE_REVIEW", (("SUMMARY", b"ok"), ("PATCH", PATCH)), "FAILED"),  # reviews don't edit
         ("WRITE_TESTS", (("SUMMARY", b"ok"),), "FAILED"),  # tests task without a patch
-        ("WRITE_TESTS", (("SUMMARY", b"ok"), ("PATCH", PATCH)), "SUCCEEDED"),
+        ("WRITE_TESTS", (("SUMMARY", b"ok"), ("PATCH", PATCH)), "VERIFYING"),
         (
             "CODE_FIX",
             (("SUMMARY", b"ok"), ("PATCH", PATCH.replace(b"test_added.py", b".github/x.yml"))),
@@ -481,7 +485,7 @@ async def test_device_reported_expired_login_blocks_until_reconnect(lclient):
         201,
     )
     _, done = await run_on_device(lclient, node)
-    assert done["task_status"] == "SUCCEEDED"
+    assert done["task_status"] == "VERIFYING"
 
 
 # ====================================================================== enrollment & DB guards

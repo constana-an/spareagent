@@ -224,7 +224,7 @@ class RemoteWorkerService:
                 provider_name="codex-subscription",
                 provider_request_id=f"codex-live-{attempt.id}",
                 model_name="codex-default",
-                input_tokens=estimate_tokens(task.prompt),
+                input_tokens=0,  # financial ledger: actual counts are separate runtime observations
                 output_tokens=0,
                 estimated_cost_cents=0,
                 billable=False,

@@ -1,0 +1,18 @@
+{
+  "kind": "REAL_OS_SANDBOX_NO_INFERENCE",
+  "passed": true,
+  "checks": {
+    "read-only": {
+      "exit_code": 0,
+      "checkout_read": true,
+      "outside_read_blocked": true,
+      "checkout_write_allowed": false
+    },
+    "workspace-write": {
+      "exit_code": 0,
+      "checkout_read": true,
+      "outside_read_blocked": true,
+      "checkout_write_allowed": true
+    }
+  }
+}

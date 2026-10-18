@@ -43,6 +43,8 @@ class UsageReport:
     output_tokens: int
     estimated_cost_cents: int
     billable: bool = False
+    cached_input_tokens: int = 0
+    reasoning_output_tokens: int = 0
 
 
 @dataclass(frozen=True)

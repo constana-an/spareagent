@@ -22,7 +22,7 @@ spareagent-worker stop
 
 On your own machine, after `codex login` with your ChatGPT account:
 
-    spareagent-worker codex-check            # proves a ChatGPT-login run with no API key
+    spareagent-worker codex-check --attest-no-purchased-credits  # after account checks
     spareagent-worker sharing pause|resume   # local kill switch for experimental leases
 
 `codex-check` never reads or uploads credentials and sends nothing to SpareAgent. It refuses
@@ -42,3 +42,18 @@ Only use `--attest-no-purchased-credits` if your ChatGPT account holds no purcha
 credits and auto-reload is off. `spareagent-worker sharing pause` stops shared work on this
 device immediately, whatever the server says. You approve each incoming task unless you
 granted scoped advance consent.
+
+## Week 5 owner validation and friends beta
+
+Before real inference use the [macOS runbook](../../docs/WEEK5_LOCAL_CODEX_RUNBOOK.md).
+`codex-check` now requires `--attest-no-purchased-credits` unless `--skip-inference` is used.
+Confirm no additional purchased/granted credits and no auto-reload; the runtime cannot
+inspect their balance. Token event counts are observations, not quota or a billing receipt.
+
+Shared tasks use a named checkout-only Codex permission profile (minimal system reads,
+no home reads, networking, escalation, user configuration/rules, MCP, apps or web search).
+The CLI must support these controls; there is no weaker fallback. Run the no-inference
+`scripts/codex_sandbox_check.py` probe after installing/updating Codex. A local pause blocks
+new acceptance; interrupt/stop the worker to immediately terminate running work.
+The [friends runbook](../../docs/WEEK5_FRIENDS_BETA_RUNBOOK.md) covers enrollment, explicit
+per-task approval, revocation, disconnects and manual LIVE activation.

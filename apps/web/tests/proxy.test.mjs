@@ -1,0 +1,117 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { allowed, relay } from "../lib/proxy.mjs";
+const env = {
+  FRIENDS_WEB_ORIGIN: "https://friends.example",
+  SPAREAGENT_API_URL: "https://api.example",
+};
+test("relay refuses arbitrary URLs, admin routes, traversal and wrong methods", () => {
+  for (const path of [
+    "https://evil.example",
+    "../friends/me",
+    "workers/register",
+    "friends/invites",
+    "experiments/kill-switch",
+  ])
+    assert.equal(allowed("POST", path), false);
+  assert.equal(allowed("POST", "friends/login"), true);
+  assert.equal(allowed("GET", "friends/login"), false);
+});
+test("browser writes require configured origin", async () => {
+  const r = await relay(
+    new Request("https://friends.example/api/friends/login", {
+      method: "POST",
+      headers: { origin: "https://evil.example" },
+    }),
+    "friends/login",
+    env,
+    () => assert.fail("must not contact API"),
+  );
+  assert.equal(r.status, 403);
+});
+test("relay strips development identities, bearer credentials and foreign cookies", async () => {
+  const r = await relay(
+    new Request("https://friends.example/api/friends/me?evil=1", {
+      headers: {
+        "x-dev-user-id": "admin",
+        authorization: "Bearer secret",
+        cookie:
+          "other=secret; sa_friends_session=abcdefghijklmnopqrstuvwxyz0123456789",
+      },
+    }),
+    "friends/me",
+    env,
+    async (url, opts) => {
+      assert.equal(url.href, "https://api.example/v1/friends/me");
+      assert.equal(opts.headers.has("authorization"), false);
+      assert.equal(opts.headers.has("x-dev-user-id"), false);
+      assert.equal(
+        opts.headers.get("cookie"),
+        "sa_friends_session=abcdefghijklmnopqrstuvwxyz0123456789",
+      );
+      assert.equal(opts.redirect, "error");
+      return Response.json({ role: "CONSUMER" });
+    },
+  );
+  assert.equal(r.headers.get("cache-control"), "no-store");
+});
+test("SSE resume cursor and streaming body pass without buffering", async () => {
+  const body = new ReadableStream({
+    start(c) {
+      c.enqueue(
+        new TextEncoder().encode("id: 9\nevent: task.progress\ndata: {}\n\n"),
+      );
+      c.close();
+    },
+  });
+  const r = await relay(
+    new Request("https://friends.example/api/tasks/x/events", {
+      headers: { "Last-Event-ID": "8" },
+    }),
+    "tasks/aaaaaaaa-0000-4000-8000-00000000000a/events",
+    env,
+    async (_, opts) => {
+      assert.equal(opts.headers.get("last-event-id"), "8");
+      return new Response(body, {
+        headers: { "content-type": "text/event-stream" },
+      });
+    },
+  );
+  assert.equal(r.headers.get("content-type"), "text/event-stream");
+  assert.match(await r.text(), /id: 9/);
+});
+test("invalid upstream configuration cannot become an open proxy", async () => {
+  const r = await relay(
+    new Request("https://friends.example/api/friends/me"),
+    "friends/me",
+    { ...env, SPAREAGENT_API_URL: "http://169.254.169.254" },
+    () => assert.fail(),
+  );
+  assert.equal(r.status, 503);
+});
+test("login preserves secure cookie; artifact integrity header is forwarded", async () => {
+  const r = await relay(
+    new Request("https://friends.example/api/friends/login", {
+      method: "POST",
+      headers: {
+        origin: env.FRIENDS_WEB_ORIGIN,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ token: "private-invite" }),
+    }),
+    "friends/login",
+    env,
+    async (_, opts) => {
+      assert.equal(opts.headers.get("origin"), env.FRIENDS_WEB_ORIGIN);
+      return new Response("{}", {
+        headers: {
+          "Set-Cookie":
+            "sa_friends_session=opaque; Secure; HttpOnly; SameSite=Strict",
+          "X-Artifact-SHA256": "abc",
+        },
+      });
+    },
+  );
+  assert.match(r.headers.get("set-cookie"), /HttpOnly/);
+  assert.equal(r.headers.get("x-artifact-sha256"), "abc");
+});

@@ -160,6 +160,10 @@ PYTHON_TIMEOUT = {
 
 FIXTURES: dict[str, dict[str, str]] = {
     "python-calc": PYTHON_CALC,
+    "python-test-target": {
+        **PYTHON_CALC,
+        "calc.py": PYTHON_CALC["calc.py"].replace("return a - b", "return a + b"),
+    },
     "ts-strings": TS_STRINGS,
     "python-probe": PYTHON_PROBE,
     "python-timeout": PYTHON_TIMEOUT,

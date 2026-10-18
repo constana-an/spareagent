@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
@@ -73,6 +73,8 @@ class CompletionInput:
     timed_out: bool = False
     artifacts: tuple[ArtifactPayload, ...] = field(default_factory=tuple)
     usage: UsageReport | None = None
+    observed_usage: dict[str, int] | None = None
+    reset_hint: str | None = None
 
 
 @dataclass(frozen=True)
@@ -154,6 +156,35 @@ class LeaseService:
                 raise conflict("LEASE_EXPIRED", "Lease has expired")
             if attempt.status != "RESERVED" or task.status != TaskStatus.RESERVED:
                 raise conflict("LEASE_REVOKED", "Lease is no longer valid")
+            if task_deadline_passed(task, now):
+                raise conflict("LEASE_EXPIRED", "Task deadline has passed")
+            if task.execution_profile == "CODEX_LIVE":
+                from db.models import ExperimentalTaskConsent
+                from services.experiments.dispatcher import ONLINE_STATUSES, ExperimentalDispatcher
+                from services.subscriptions.policy import ExperimentalSharingPolicy, Mode
+
+                consent = (
+                    await session.execute(
+                        select(ExperimentalTaskConsent).where(
+                            ExperimentalTaskConsent.task_id == task.id
+                        )
+                    )
+                ).scalar_one()
+                snap, _, _ = await ExperimentalDispatcher(self.ctx).snapshot(session, task, consent)
+                worker = await repo.lock_worker(session, worker_id)
+                snap = replace(
+                    snap,
+                    active_tasks_on_connection=max(0, snap.active_tasks_on_connection - 1),
+                    node_online=(
+                        worker.status in ONLINE_STATUSES
+                        and worker.last_heartbeat is not None
+                        and worker.last_heartbeat
+                        >= now - timedelta(seconds=self.ctx.settings.worker_heartbeat_ttl_seconds)
+                    ),
+                )
+                decision = ExperimentalSharingPolicy.evaluate(snap, mode=Mode.LIVE)
+                if not decision.allowed:
+                    raise conflict("EXPERIMENT_POLICY_DENIED", ", ".join(decision.reasons))
             attempt.status = "RUNNING"
             attempt.started_at = now
             attempt.leased_until = now + self.lease_window
@@ -241,6 +272,38 @@ class LeaseService:
 
         attempt.finalization_key = data.finalization_key
         attempt.completed_at = now
+        if task.execution_profile == "CODEX_LIVE":
+            from db.models import ExperimentalTaskConsent
+            from services.subscriptions.usage import SubscriptionUsageMonitor
+
+            conn_id = (
+                await session.execute(
+                    select(ExperimentalTaskConsent.connection_id).where(
+                        ExperimentalTaskConsent.task_id == task.id
+                    )
+                )
+            ).scalar_one()
+            event = (
+                "TASK_COMPLETED"
+                if data.succeeded
+                else {
+                    "SUBSCRIPTION_USAGE_LIMIT": "RATE_LIMITED",
+                    "SUBSCRIPTION_AUTH_UNAVAILABLE": "AUTH_EXPIRED",
+                }.get(data.error_code or "", "TASK_FAILED")
+            )
+            await SubscriptionUsageMonitor.record(
+                session,
+                conn_id,
+                event=event,
+                source="LOCAL_RUNTIME",
+                attempt_id=attempt.id,
+                duration_ms=int((now - attempt.started_at).total_seconds() * 1000)
+                if attempt.started_at
+                else None,
+                capacity_state="LIMITED" if event == "RATE_LIMITED" else "UNKNOWN",
+                reset_hint=redact(data.reset_hint or "") or None,
+                **(data.observed_usage or {}),
+            )
         if data.usage is not None:
             await record_usage(session, data.usage, task_attempt_id=attempt.id)
 
@@ -276,8 +339,12 @@ class LeaseService:
             )
             return CompletionOutcome(task.status, replayed=False)
 
-        if data.succeeded and task.execution_profile == "CODE":
-            submission = verifier.verify_code_submission(data.artifacts)
+        if data.succeeded and task.execution_profile in ("CODE", "CODEX_LIVE"):
+            submission = (
+                verifier.verify_codex_live(task.task_type, data.artifacts)
+                if task.execution_profile == "CODEX_LIVE"
+                else verifier.verify_code_submission(data.artifacts)
+            )
             if submission.ok:
                 # Independent verification happens asynchronously on platform infrastructure;
                 # the worker's claim alone never completes the task (D-37).

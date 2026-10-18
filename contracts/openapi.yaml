@@ -1,12 +1,13 @@
 openapi: 3.1.0
 info:
   title: SpareAgent MVP API
-  version: 1.4.0
+  version: 1.5.0
   description: 'W1: Tasks, Events, Models, Chat nonstream, health. W2: remote worker enrollment, node credentials and lease protocol.'
 servers:
   - url: http://localhost:8000
 security:
   - bearerAuth: []
+  - friendsSession: []
 paths:
   /healthz:
     get:
@@ -1032,8 +1033,144 @@ paths:
           $ref: '#/components/responses/ApiError'
         '409':
           $ref: '#/components/responses/ApiError'
+  /v1/friends/invites:
+    post:
+      tags:
+      - friends
+      summary: Create Invite
+      operationId: createFriendsLoginInvite
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FriendsInviteCreate'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendsInvite'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      security:
+      - friendsSession: []
+  /v1/friends/login:
+    post:
+      tags:
+      - friends
+      summary: Login
+      operationId: loginFriends
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FriendsLogin'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendsIdentity'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      security: []
+  /v1/friends/me:
+    get:
+      tags:
+      - friends
+      summary: Me
+      operationId: getFriendsIdentity
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendsIdentity'
+      security:
+      - friendsSession: []
+  /v1/friends/logout:
+    post:
+      tags:
+      - friends
+      summary: Logout
+      operationId: logoutFriends
+      responses:
+        '204':
+          description: Successful Response
+      security:
+      - friendsSession: []
+  /v1/friends/sessions/{user_id}/revoke:
+    post:
+      tags:
+      - friends
+      summary: Revoke Sessions
+      operationId: revokeFriendsSessions
+      parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: User Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      security:
+      - friendsSession: []
+  /v1/friends/groups/{group_id}/audit:
+    get:
+      tags:
+      - friends
+      summary: Friends Audit
+      operationId: getFriendsAudit
+      parameters:
+      - name: group_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Group Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FriendsAuditEntry'
+                title: Response Getfriendsaudit
+        '422':
+          $ref: '#/components/responses/ApiError'
+      security:
+      - friendsSession: []
 components:
   securitySchemes:
+    friendsSession:
+      type: apiKey
+      in: cookie
+      name: sa_friends_session
     bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
     enrollmentToken: {type: http, scheme: bearer, description: 'single-use sa_enr_ token'}
     nodeKey: {type: http, scheme: bearer, description: 'long-lived sa_nk_ node key (token exchange only)'}
@@ -1230,28 +1367,69 @@ components:
         leased_until: {type: [string, 'null'], format: date-time}
         cancel_requested: {type: boolean}
     LeaseCompletion:
-      type: object
-      additionalProperties: false
-      required: [finalization_key, succeeded]
       properties:
-        finalization_key: {type: string, minLength: 8, maxLength: 128}
-        succeeded: {type: boolean}
-        result_summary: {type: string, maxLength: 2000}
-        retryable: {type: boolean, default: false}
-        error_code: {type: string, enum: [TRANSIENT_PROVIDER_ERROR, PERMANENT_PROVIDER_ERROR, NO_RESULT, WORKER_SHUTDOWN, CANCELLED, EXECUTION_ERROR, SUBSCRIPTION_USAGE_LIMIT, SUBSCRIPTION_AUTH_UNAVAILABLE, OWNER_ONLY_VIOLATION, SHARED_WORK_REFUSED]}
-        timed_out: {type: boolean, default: false}
+        finalization_key:
+          type: string
+          maxLength: 128
+          minLength: 8
+          pattern: ^[A-Za-z0-9._:-]+$
+          title: Finalization Key
+        succeeded:
+          type: boolean
+          title: Succeeded
+        result_summary:
+          anyOf:
+          - type: string
+            maxLength: 2000
+          - type: 'null'
+          title: Result Summary
+        retryable:
+          type: boolean
+          title: Retryable
+          default: false
+        error_code:
+          anyOf:
+          - type: string
+            enum:
+            - TRANSIENT_PROVIDER_ERROR
+            - PERMANENT_PROVIDER_ERROR
+            - NO_RESULT
+            - WORKER_SHUTDOWN
+            - CANCELLED
+            - EXECUTION_ERROR
+            - SUBSCRIPTION_USAGE_LIMIT
+            - SUBSCRIPTION_AUTH_UNAVAILABLE
+            - OWNER_ONLY_VIOLATION
+            - SHARED_WORK_REFUSED
+          - type: 'null'
+          title: Error Code
+        timed_out:
+          type: boolean
+          title: Timed Out
+          default: false
         artifacts:
+          items:
+            $ref: '#/components/schemas/ArtifactIn'
           type: array
           maxItems: 8
-          items:
-            type: object
-            additionalProperties: false
-            required: [kind, name, media_type, content_base64]
-            properties:
-              kind: {type: string, enum: [PATCH, TEST_REPORT, LOG, SUMMARY, EXECUTION_LOG]}
-              name: {type: string, pattern: '^[A-Za-z0-9._-]{1,100}$'}
-              media_type: {type: string, enum: [text/plain, text/x-diff, application/json]}
-              content_base64: {type: string}
+          title: Artifacts
+          default: []
+        observed_usage:
+          anyOf:
+          - $ref: '#/components/schemas/ObservedCodexUsage'
+          - type: 'null'
+        reset_hint:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Reset Hint
+      additionalProperties: false
+      type: object
+      required:
+      - finalization_key
+      - succeeded
+      title: LeaseCompletion
     ExperimentalGroupCreate:
       type: object
       properties:
@@ -1796,71 +1974,117 @@ components:
       required:
       - items
     SubscriptionUsage:
-      type: object
       properties:
         connection_id:
           type: string
           format: uuid
+          title: Connection Id
         subscription_type:
           type: string
+          title: Subscription Type
         auth_state:
           type: string
+          title: Auth State
         active_sessions:
           type: integer
+          title: Active Sessions
         tasks_completed:
           type: integer
+          title: Tasks Completed
         tasks_failed:
           type: integer
+          title: Tasks Failed
         throttling_errors:
           type: integer
+          title: Throttling Errors
         auth_errors:
           type: integer
+          title: Auth Errors
         total_duration_ms:
           type: integer
+          title: Total Duration Ms
         observed_input_tokens:
           type: integer
+          title: Observed Input Tokens
         observed_output_tokens:
           type: integer
+          title: Observed Output Tokens
+        observed_cached_input_tokens:
+          type: integer
+          title: Observed Cached Input Tokens
+        observed_reasoning_output_tokens:
+          type: integer
+          title: Observed Reasoning Output Tokens
+        token_source:
+          type: string
+          title: Token Source
         tasks_started_last_24h:
           type: integer
+          title: Tasks Started Last 24H
         local_limits:
           anyOf:
-          - type: object
+          - additionalProperties:
+              type: integer
+            type: object
           - type: 'null'
+          title: Local Limits
         plan_remaining:
           type: string
-          const: NOT_AVAILABLE
+          title: Plan Remaining
         plan_limits:
           type: string
-          const: NOT_AVAILABLE
+          title: Plan Limits
         capacity_state:
           type: string
-          enum:
-          - UNKNOWN
-          - AVAILABLE
-          - LIMITED
+          title: Capacity State
         reset_hint:
           anyOf:
           - type: string
           - type: 'null'
+          title: Reset Hint
         rate_limited_until:
           anyOf:
           - type: string
             format: date-time
           - type: 'null'
+          title: Rate Limited Until
         last_observation_at:
           anyOf:
           - type: string
             format: date-time
           - type: 'null'
+          title: Last Observation At
         last_observation_age_seconds:
           anyOf:
           - type: integer
           - type: 'null'
+          title: Last Observation Age Seconds
+      type: object
       required:
       - connection_id
+      - subscription_type
+      - auth_state
+      - active_sessions
+      - tasks_completed
+      - tasks_failed
+      - throttling_errors
+      - auth_errors
+      - total_duration_ms
+      - observed_input_tokens
+      - observed_output_tokens
+      - observed_cached_input_tokens
+      - observed_reasoning_output_tokens
+      - token_source
+      - tasks_started_last_24h
+      - local_limits
       - plan_remaining
+      - plan_limits
       - capacity_state
+      - reset_hint
+      - rate_limited_until
+      - last_observation_at
+      - last_observation_age_seconds
+      title: UsageOut
     SubscriptionUsageList:
       type: object
       properties:
@@ -1951,83 +2175,99 @@ components:
       - max_duration_seconds
       additionalProperties: false
     ExperimentalTask:
-      type: object
       properties:
         id:
           type: string
           format: uuid
+          title: Id
         status:
           type: string
+          title: Status
         task_type:
           type: string
+          title: Task Type
         resource_scope:
           type: string
-          const: EXPERIMENTAL_SHARED_SUBSCRIPTION
+          title: Resource Scope
         execution_mode:
           type: string
           enum:
           - SIMULATED
           - LIVE
+          title: Execution Mode
+          default: SIMULATED
         group_id:
           type: string
           format: uuid
+          title: Group Id
         connection_id:
           type: string
           format: uuid
+          title: Connection Id
         requester_id:
           type: string
           format: uuid
+          title: Requester Id
         owner_id:
           type: string
           format: uuid
+          title: Owner Id
+        repository_url:
+          type: string
+          title: Repository Url
+        commit_sha:
+          type: string
+          title: Commit Sha
+        prompt:
+          type: string
+          title: Prompt
+        max_duration_seconds:
+          type: integer
+          title: Max Duration Seconds
+        verification_status:
+          type: string
+          title: Verification Status
+          default: NOT_RUN
         approval_status:
           type: string
-          enum:
-          - PENDING
-          - APPROVED
-          - REJECTED
-          - WITHDRAWN
+          title: Approval Status
         approval_source:
           anyOf:
           - type: string
-            enum:
-            - OWNER_APPROVAL
-            - ADVANCE_CONSENT
           - type: 'null'
+          title: Approval Source
         last_decision:
           anyOf:
-          - type: object
-            properties:
-              decision:
-                type: string
-              reasons:
-                type: array
-                items:
-                  type: string
-              execution_mode:
-                type: string
-              created_at:
-                type: string
-                format: date-time
-            required:
-            - decision
-            - reasons
-            - execution_mode
-            - created_at
+          - $ref: '#/components/schemas/ExperimentalLastDecision'
           - type: 'null'
         created_at:
           type: string
           format: date-time
+          title: Created At
         result_summary:
           anyOf:
           - type: string
           - type: 'null'
+          title: Result Summary
+      type: object
       required:
       - id
       - status
+      - task_type
       - resource_scope
-      - execution_mode
+      - group_id
+      - connection_id
+      - requester_id
+      - owner_id
+      - repository_url
+      - commit_sha
+      - prompt
+      - max_duration_seconds
       - approval_status
+      - approval_source
+      - last_decision
+      - created_at
+      title: ExperimentalTaskOut
     ExperimentalTaskList:
       type: object
       properties:
@@ -2059,3 +2299,242 @@ components:
         token_id: {type: string, format: uuid}
         token: {type: string}
         expires_at: {type: string, format: date-time}
+    FriendsIdentity:
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          title: User Id
+        role:
+          type: string
+          title: Role
+        terms_version:
+          type: string
+          title: Terms Version
+        live_enabled:
+          type: boolean
+          title: Live Enabled
+      type: object
+      required:
+      - user_id
+      - role
+      - terms_version
+      - live_enabled
+      title: Identity
+    FriendsInviteCreate:
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          title: User Id
+        ttl_seconds:
+          type: integer
+          maximum: 3600.0
+          minimum: 60.0
+          title: Ttl Seconds
+          default: 900
+      additionalProperties: false
+      type: object
+      required:
+      - user_id
+      title: InviteCreate
+    FriendsInvite:
+      properties:
+        token:
+          type: string
+          title: Token
+        expires_at:
+          type: string
+          format: date-time
+          title: Expires At
+      type: object
+      required:
+      - token
+      - expires_at
+      title: InviteOut
+    FriendsLogin:
+      properties:
+        token:
+          type: string
+          maxLength: 256
+          minLength: 20
+          title: Token
+      additionalProperties: false
+      type: object
+      required:
+      - token
+      title: Login
+    FriendsValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/FriendsValidationDetail'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    FriendsValidationDetail:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+    ObservedCodexUsage:
+      properties:
+        input_tokens:
+          type: integer
+          maximum: 1000000000.0
+          minimum: 0.0
+          title: Input Tokens
+        output_tokens:
+          type: integer
+          maximum: 1000000000.0
+          minimum: 0.0
+          title: Output Tokens
+        cached_input_tokens:
+          type: integer
+          maximum: 1000000000.0
+          minimum: 0.0
+          title: Cached Input Tokens
+          default: 0
+        reasoning_output_tokens:
+          type: integer
+          maximum: 1000000000.0
+          minimum: 0.0
+          title: Reasoning Output Tokens
+          default: 0
+      additionalProperties: false
+      type: object
+      required:
+      - input_tokens
+      - output_tokens
+      title: ObservedCodexUsage
+    ArtifactIn:
+      properties:
+        kind:
+          type: string
+          enum:
+          - PATCH
+          - TEST_REPORT
+          - LOG
+          - SUMMARY
+          - EXECUTION_LOG
+          title: Kind
+        name:
+          type: string
+          maxLength: 100
+          minLength: 1
+          pattern: ^[A-Za-z0-9._-]+$
+          title: Name
+        media_type:
+          type: string
+          enum:
+          - text/plain
+          - text/x-diff
+          - application/json
+          title: Media Type
+        content_base64:
+          type: string
+          maxLength: 8388608
+          title: Content Base64
+      additionalProperties: false
+      type: object
+      required:
+      - kind
+      - name
+      - media_type
+      - content_base64
+      title: ArtifactIn
+    FriendsAuditEntry:
+      properties:
+        id:
+          type: integer
+          title: Id
+        task_id:
+          type: string
+          format: uuid
+          title: Task Id
+        connection_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Connection Id
+        authorization_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Authorization Id
+        decision:
+          type: string
+          title: Decision
+        reasons:
+          items:
+            type: string
+          type: array
+          title: Reasons
+        execution_mode:
+          type: string
+          title: Execution Mode
+        attempt_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Attempt Id
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - id
+      - task_id
+      - connection_id
+      - authorization_id
+      - decision
+      - reasons
+      - execution_mode
+      - attempt_id
+      - created_at
+      title: AuditOut
+    ExperimentalLastDecision:
+      properties:
+        decision:
+          type: string
+          title: Decision
+        reasons:
+          items:
+            type: string
+          type: array
+          title: Reasons
+        execution_mode:
+          type: string
+          title: Execution Mode
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - decision
+      - reasons
+      - execution_mode
+      - created_at
+      title: DecisionOut

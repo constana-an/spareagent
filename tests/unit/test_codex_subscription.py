@@ -131,7 +131,7 @@ async def test_owner_only_execution_works_without_api_key(codex_home):
     assert isinstance(result, ExecutionResult)
     assert any(isinstance(i, ProgressEvent) for i in items)
     assert result.usage.billable is False and result.usage.estimated_cost_cents == 0
-    assert result.usage.input_tokens == 120 and result.usage.output_tokens == 48
+    assert result.usage.input_tokens == 120 and result.usage.output_tokens == 40
     kinds = {a.kind for a in result.artifacts}
     assert kinds == {"SUMMARY", "LOG"}
     log = next(a for a in result.artifacts if a.kind == "LOG").content.decode()
@@ -232,7 +232,8 @@ async def test_shared_review_runs_read_only_on_pinned_checkout(codex_home, tmp_p
     result = (await run_all(shared_adapter(tmp_path, fixture_root), shared_request()))[-1]
     assert {a.kind for a in result.artifacts} == {"SUMMARY", "LOG"}  # a review changes nothing
     exec_argv = [c for c in calls(codex_home) if "exec" in c["argv"]][0]["argv"]
-    assert exec_argv[exec_argv.index("--sandbox") + 1] == "read-only"
+    assert any('":workspace_roots"="read"' in a for a in exec_argv)
+    assert 'default_permissions="spareagent"' in exec_argv
     assert (codex_home / "last_prompt.txt").read_text().startswith("You are running a task")
     assert result.usage.billable is False and result.usage.estimated_cost_cents == 0
 
@@ -247,7 +248,8 @@ async def test_shared_write_tests_returns_patch_with_new_files(codex_home, tmp_p
     patch = next(a for a in result.artifacts if a.kind == "PATCH").content
     assert b"test_added_by_codex.py" in patch
     exec_argv = [c for c in calls(codex_home) if "exec" in c["argv"]][0]["argv"]
-    assert exec_argv[exec_argv.index("--sandbox") + 1] == "workspace-write"
+    assert any('":workspace_roots"="write"' in a for a in exec_argv)
+    assert 'default_permissions="spareagent"' in exec_argv
     assert "danger-full-access" not in exec_argv
 
 
@@ -334,7 +336,19 @@ def test_codex_check_cli_reports_subscription_run(codex_home, tmp_path, capsys):
     from packages.worker.cli import main
 
     set_mode(codex_home, "chatgpt")
-    assert main(["--state-dir", str(tmp_path / "s"), "codex-check", "--codex-bin", FAKE]) == 0
+    assert (
+        main(
+            [
+                "--state-dir",
+                str(tmp_path / "s"),
+                "codex-check",
+                "--codex-bin",
+                FAKE,
+                "--attest-no-purchased-credits",
+            ]
+        )
+        == 0
+    )
     report = json.loads(capsys.readouterr().out)
     assert report["result"] == "OWNER_ONLY_SUBSCRIPTION_RUN_OK"
     assert report["auth_method"] == "CHATGPT"

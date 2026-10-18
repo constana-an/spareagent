@@ -1,0 +1,28 @@
+{
+  "executed_at": "2026-10-18",
+  "kind": "REAL_OWNER_RUN",
+  "owner_authorized": true,
+  "codex_version": "codex-cli 0.163.0-alpha.10.2",
+  "host": "macOS Apple Silicon",
+  "auth_method": "CHATGPT",
+  "api_billing_env_in_shell": [],
+  "api_billing_env_passed_to_codex": [],
+  "forced_login_method": "chatgpt",
+  "sandbox": "read-only",
+  "timeout_seconds": 60,
+  "inference": {
+    "completed": true,
+    "input_tokens": 16264,
+    "output_tokens": 11,
+    "billable": false,
+    "summary_excerpt": "SPAREAGENT_OWNER_ONLY_OK"
+  },
+  "credits_restriction": "OWNER_ATTESTED_NOT_MACHINE_VERIFIED",
+  "credits_owner_statement": "Owner confirmed Plus, no additional purchased/granted credits, auto-reload off before execution",
+  "credits_post_run_check": "OWNER_CONFIRMED_SUBSCRIPTION_ONLY_CREDITS_UNCHANGED",
+  "result": "OWNER_ONLY_SUBSCRIPTION_RUN_OK",
+  "cross_user_live_run": "NOT_RUN",
+  "timeout_and_cancel_real_subscription": "NOT_RUN; subprocess behavior tested without subscription consumption",
+  "installation_signature": "Developer ID Application: OpenAI OpCo, LLC (2DC432GLL2); notarization ticket stapled; arm64",
+  "installation_signature_verification": "codesign --verify --deep --strict bundle and --verify --strict executable both exited 0 outside tool sandbox"
+}

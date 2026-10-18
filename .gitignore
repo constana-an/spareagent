@@ -9,3 +9,9 @@ coverage.xml
 htmlcov/
 var/
 .demo-artifacts/
+node_modules/
+.next/
+*.tsbuildinfo
+playwright-report/
+test-results/
+output/playwright/

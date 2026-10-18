@@ -1,0 +1,21 @@
+{
+  "kind": "BROWSER_QA_SIMULATED_ONLY",
+  "date": "2026-10-18",
+  "production_build": true,
+  "api_dev_auth_enabled": false,
+  "LIVE_enabled": false,
+  "verified": [
+    "one-time Alice/Bob login and logout",
+    "Bob submits SIMULATED CODE_REVIEW",
+    "Alice sees pinned repository, prompt and timeout and approves",
+    "persisted SSE task events and result state",
+    "browser SHA-256 verified summary download",
+    "participant-scoped audit history",
+    "dashboard pause and revoke state changes",
+    "1440px desktop and 390px mobile layout",
+    "no post-login browser console errors",
+    "mobile sign-out visible and successfully revokes the browser session"
+  ],
+  "subscription_consumption": "NONE; deterministic simulation only",
+  "screenshots": "Local output/playwright/week5-desktop.png and week5-mobile.png (ignored, not shipped credentials)"
+}

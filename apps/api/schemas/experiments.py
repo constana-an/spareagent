@@ -228,6 +228,9 @@ class UsageOut(BaseModel):
     total_duration_ms: int
     observed_input_tokens: int
     observed_output_tokens: int
+    observed_cached_input_tokens: int
+    observed_reasoning_output_tokens: int
+    token_source: str
     tasks_started_last_24h: int
     local_limits: dict[str, int] | None
     plan_remaining: str
@@ -288,6 +291,11 @@ class ExperimentalTaskOut(BaseModel):
     connection_id: uuid.UUID
     requester_id: uuid.UUID
     owner_id: uuid.UUID
+    repository_url: str
+    commit_sha: str
+    prompt: str
+    max_duration_seconds: int
+    verification_status: str = "NOT_RUN"
     approval_status: str
     approval_source: str | None
     last_decision: DecisionOut | None
