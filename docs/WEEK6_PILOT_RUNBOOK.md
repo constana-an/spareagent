@@ -61,7 +61,7 @@ Use your own ChatGPT Plus login. Setup verifies wheel bytes, installs into a new
 venv, and prints next steps. It never logs in, registers, starts the worker, changes
 shell files, enables sharing/LIVE, installs the backend or runs inference. It refuses
 to overwrite an existing installation. Use `SPAREAGENT_PYTHON=/absolute/python3.12` or
-`SPAREAGENT_CODEX_BIN=/absolute/codex` if needed. For non-macOS, create a Python 3.12
+`SPAREAGENT_CODEX_BIN=/absolute/codex` if needed. For Linux, create a Python 3.12
 venv and pip-install the same reviewed wheel; pilot isolation must pass on that OS too.
 
 ### Registration and local consent

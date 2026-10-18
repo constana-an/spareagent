@@ -181,3 +181,13 @@ def test_node_state_rejects_insecure_permissions_and_symlinks(tmp_path):
     path.symlink_to(tmp_path / "other.json")
     with pytest.raises(ValueError, match="symlinks"):
         load_state(tmp_path)
+
+
+def test_node_state_rejects_fifo_without_blocking(tmp_path):
+    import os
+
+    from packages.worker.state import load_state
+
+    os.mkfifo(tmp_path / "node.json", 0o600)
+    with pytest.raises(ValueError, match="regular file"):
+        load_state(tmp_path)

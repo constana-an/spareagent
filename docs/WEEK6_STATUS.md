@@ -52,7 +52,7 @@ funding confirmation. Those components were reused. Actual first-pilot gaps were
   inspection and approval, timeline/results, export, installation instructions, metrics,
   desktop/mobile and sign-out. `reports/week6_browser_qa.json` records the actual checks.
 
-Final local full regression: **507 passed in 205.34 seconds, 90.73% coverage** (80%
+Final local full regression: **508 passed in 173.61 seconds, 90.70% coverage** (80%
 required), with hardened sandbox and real public-GitHub checkout tests enabled. Ruff,
 format check, OpenAPI validation, Next production build/typecheck, 7 Node tests, shell
 syntax, empty-venv wheel install and actual macOS installer checks pass. The earlier

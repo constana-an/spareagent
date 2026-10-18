@@ -47,7 +47,12 @@ def load_state(directory: Path) -> NodeState | None:
     if not path.exists():
         return None
     info = path.lstat()
-    if path.is_symlink() or stat.S_IMODE(info.st_mode) & 0o077 or info.st_uid != os.getuid():
+    if (
+        not stat.S_ISREG(info.st_mode)
+        or path.is_symlink()
+        or stat.S_IMODE(info.st_mode) & 0o077
+        or info.st_uid != os.getuid()
+    ):
         raise ValueError("node.json must be an owner-only regular file (chmod 600); no symlinks")
     return NodeState(**json.loads(path.read_text(encoding="utf-8")))
 
