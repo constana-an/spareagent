@@ -22,6 +22,9 @@ x-app-env: &app-env
   NODE_TOKEN_PEPPER: ${NODE_TOKEN_PEPPER:-dev-only-node-token-pepper-change-me}
   CODE_EXECUTION_ENABLED: ${CODE_EXECUTION_ENABLED:-false}
   CODE_EXECUTION_RESOURCE_IDS: ${CODE_EXECUTION_RESOURCE_IDS:-}
+  # Week 4 experimental scope; both off unless explicitly enabled by the operator.
+  EXPERIMENT_ENABLED: ${EXPERIMENT_ENABLED:-false}
+  EXPERIMENT_LIVE_ENABLED: ${EXPERIMENT_LIVE_ENABLED:-false}
   ARTIFACT_ROOT: /var/lib/spareagent/artifacts
   # The API port is published on 127.0.0.1 only (see `ports`). Requests forwarded by Docker's
   # port proxy arrive from a private bridge address, so those ranges are trusted for dev auth.

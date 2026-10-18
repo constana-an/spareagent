@@ -26,8 +26,8 @@ On your own machine, after `codex login` with your ChatGPT account:
     spareagent-worker sharing pause|resume   # local kill switch for experimental leases
 
 `codex-check` never reads or uploads credentials and sends nothing to SpareAgent. It refuses
-(`FAILED_CLOSED`) if Codex is logged in with an API key or not logged in. Cross-user use of a
-personal plan is not enabled; see `docs/WEEK4_SUBSCRIPTION_STATUS.md`.
+(`FAILED_CLOSED`) if Codex is logged in with an API key or not logged in. Shared (cross-user)
+work is a separate, explicit opt-in; see below and `docs/WEEK4_SUBSCRIPTION_STATUS.md`.
 
 ## Week 4 Milestone D: sharing your device with your experiment group
 
