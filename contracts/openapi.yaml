@@ -1,0 +1,341 @@
+openapi: 3.1.0
+info:
+  title: SpareAgent MVP API
+  version: 1.0.0
+  description: 'W1 implemented subset is Tasks, Events, Models, Chat nonstream, and health. Worker endpoints are contracted for W2.'
+servers:
+  - url: http://localhost:8000
+security:
+  - bearerAuth: []
+paths:
+  /healthz:
+    get:
+      operationId: health
+      security: []
+      responses:
+        '200': {description: alive}
+  /readyz:
+    get:
+      operationId: ready
+      security: []
+      responses:
+        '200': {description: dependencies ready}
+        '503': {description: unavailable}
+  /v1/tasks:
+    post:
+      operationId: createTask
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema: {type: string, minLength: 8, maxLength: 128}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/TaskCreate'}
+      responses:
+        '202':
+          description: accepted or same-key replay
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Task'}
+        '400': {$ref: '#/components/responses/ApiError'}
+        '401': {$ref: '#/components/responses/ApiError'}
+        '409': {$ref: '#/components/responses/ApiError'}
+        '422': {$ref: '#/components/responses/ApiError'}
+    get:
+      operationId: listTasks
+      parameters:
+        - {in: query, name: limit, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
+        - {in: query, name: cursor, schema: {type: string}}
+      responses:
+        '200':
+          description: paginated tasks for current user
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/Task'}}
+                  next_cursor: {type: [string, 'null']}
+  /v1/tasks/{task_id}:
+    get:
+      operationId: getTask
+      parameters: [{$ref: '#/components/parameters/TaskId'}]
+      responses:
+        '200': {description: task, content: {application/json: {schema: {$ref: '#/components/schemas/Task'}}}}
+        '403': {$ref: '#/components/responses/ApiError'}
+        '404': {$ref: '#/components/responses/ApiError'}
+  /v1/tasks/{task_id}/cancel:
+    post:
+      operationId: cancelTask
+      parameters: [{$ref: '#/components/parameters/TaskId'}]
+      responses:
+        '202': {description: cancellation requested, content: {application/json: {schema: {$ref: '#/components/schemas/Task'}}}}
+        '409': {$ref: '#/components/responses/ApiError'}
+  /v1/tasks/{task_id}/events:
+    get:
+      operationId: streamTaskEvents
+      parameters:
+        - {$ref: '#/components/parameters/TaskId'}
+        - {in: header, name: Last-Event-ID, schema: {type: string}}
+      responses:
+        '200':
+          description: SSE stream, event.id is monotonically increasing seq
+          content:
+            text/event-stream:
+              schema: {type: string}
+  /v1/tasks/{task_id}/artifacts:
+    get:
+      operationId: listTaskArtifacts
+      parameters: [{$ref: '#/components/parameters/TaskId'}]
+      responses:
+        '200':
+          description: artifact descriptors (authorization required)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/Artifact'}}
+  /v1/models:
+    get:
+      operationId: listModels
+      responses:
+        '200':
+          description: available approved model aliases
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  object: {type: string, const: list}
+                  data: {type: array, items: {$ref: '#/components/schemas/Model'}}
+  /v1/chat/completions:
+    post:
+      operationId: createChatCompletion
+      description: W1 only nonstream and mock provider; stream=true explicitly returns 422.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ChatRequest'}
+      responses:
+        '200':
+          description: generated response
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ChatResponse'}
+        '404': {$ref: '#/components/responses/ApiError'}
+        '422': {$ref: '#/components/responses/ApiError'}
+        '429': {$ref: '#/components/responses/ApiError'}
+  /v1/workers/register:
+    post:
+      operationId: registerWorker
+      description: W2; node credential required; provider resources must already be approved by admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/WorkerRegistration'}
+      responses:
+        '201': {description: created worker}
+        '403': {$ref: '#/components/responses/ApiError'}
+  /v1/workers/{worker_id}/heartbeat:
+    post:
+      operationId: workerHeartbeat
+      parameters:
+        - {in: path, name: worker_id, required: true, schema: {type: string, format: uuid}}
+      responses:
+        '204': {description: heartbeat recorded}
+        '403': {$ref: '#/components/responses/ApiError'}
+  /v1/leases/{lease_id}/accept:
+    post:
+      operationId: acceptLease
+      parameters:
+        - {in: path, name: lease_id, required: true, schema: {type: string, format: uuid}}
+      responses:
+        '204': {description: accepted}
+        '409': {$ref: '#/components/responses/ApiError'}
+  /v1/leases/{lease_id}/complete:
+    post:
+      operationId: completeLease
+      parameters:
+        - {in: path, name: lease_id, required: true, schema: {type: string, format: uuid}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [finalization_key, succeeded]
+              properties:
+                finalization_key: {type: string, minLength: 8}
+                succeeded: {type: boolean}
+                result_summary: {type: string}
+      responses:
+        '200': {description: 'finalized; idempotent replay permitted'}
+        '409': {$ref: '#/components/responses/ApiError'}
+  /v1/tasks/{task_id}/artifacts/{artifact_id}/content:
+    get:
+      operationId: getTaskArtifactContent
+      x-spareagent-extension: 'W1 addition (docs/DECISIONS.md D-07): owner-only artifact download, served as attachment with nosniff.'
+      parameters:
+        - {$ref: '#/components/parameters/TaskId'}
+        - {in: path, name: artifact_id, required: true, schema: {type: string, format: uuid}}
+      responses:
+        '200':
+          description: raw artifact bytes; X-Artifact-SHA256 header carries the digest
+          content:
+            application/octet-stream:
+              schema: {type: string, format: binary}
+        '404': {$ref: '#/components/responses/ApiError'}
+  /v1/admin/resources/{resource_id}/approve:
+    post:
+      operationId: approveResource
+      x-spareagent-extension: 'W1 addition (docs/DECISIONS.md D-06): trusted admin path for public eligibility; PERSONAL_SUBSCRIPTION is always refused.'
+      parameters:
+        - {in: path, name: resource_id, required: true, schema: {type: string, format: uuid}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                license_reference: {type: string, maxLength: 500}
+      responses:
+        '200':
+          description: resource approved and publicly eligible
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, resource_type, authorization_status, public_eligible]
+                properties:
+                  id: {type: string, format: uuid}
+                  resource_type: {type: string}
+                  authorization_status: {type: string}
+                  public_eligible: {type: boolean}
+        '403': {$ref: '#/components/responses/ApiError'}
+        '404': {$ref: '#/components/responses/ApiError'}
+        '422': {$ref: '#/components/responses/ApiError'}
+components:
+  securitySchemes:
+    bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
+  parameters:
+    TaskId:
+      in: path
+      name: task_id
+      required: true
+      schema: {type: string, format: uuid}
+  responses:
+    ApiError:
+      description: standard error envelope
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ApiError'}
+  schemas:
+    ApiError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, request_id]
+          properties:
+            code: {type: string}
+            message: {type: string}
+            request_id: {type: string}
+    TaskCreate:
+      type: object
+      additionalProperties: false
+      required: [task_type, repository_url, commit_sha, prompt, max_budget_cents, max_duration_seconds]
+      properties:
+        task_type: {type: string, enum: [CODE_FIX, REFACTOR, WRITE_TESTS]}
+        repository_url: {type: string, format: uri, pattern: '^https://github\.com/'}
+        commit_sha: {type: string, pattern: '^[a-fA-F0-9]{40}$'}
+        prompt: {type: string, minLength: 1, maxLength: 12000}
+        max_budget_cents: {type: integer, minimum: 1, maximum: 10000000}
+        max_duration_seconds: {type: integer, minimum: 10, maximum: 7200}
+    Task:
+      type: object
+      required: [id, status, task_type, max_budget_cents, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        status: {type: string, enum: [CREATED, QUEUED, RESERVED, RUNNING, VERIFYING, RETRY_PENDING, CANCELLING, SUCCEEDED, FAILED, CANCELLED, TIMED_OUT]}
+        task_type: {type: string}
+        max_budget_cents: {type: integer}
+        created_at: {type: string, format: date-time}
+        result_summary: {type: [string, 'null']}
+    Artifact:
+      type: object
+      required: [id, kind, sha256, media_type]
+      properties:
+        id: {type: string, format: uuid}
+        kind: {type: string, enum: [PATCH, TEST_REPORT, LOG, SUMMARY]}
+        sha256: {type: string}
+        media_type: {type: string}
+    Model:
+      type: object
+      required: [id, object, owned_by]
+      properties:
+        id: {type: string}
+        object: {type: string, const: model}
+        owned_by: {type: string}
+    ChatRequest:
+      type: object
+      required: [model, messages]
+      properties:
+        model: {type: string}
+        stream: {type: boolean, default: false}
+        max_tokens: {type: integer, minimum: 1, maximum: 8192}
+        temperature: {type: number, minimum: 0, maximum: 2}
+        messages:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [role, content]
+            properties:
+              role: {type: string, enum: [system, developer, user, assistant]}
+              content: {type: string}
+    ChatResponse:
+      type: object
+      required: [id, object, created, model, choices, usage]
+      properties:
+        id: {type: string}
+        object: {type: string, const: chat.completion}
+        created: {type: integer}
+        model: {type: string}
+        choices:
+          type: array
+          items:
+            type: object
+            required: [index, message, finish_reason]
+            properties:
+              index: {type: integer}
+              message:
+                type: object
+                required: [role, content]
+                properties:
+                  role: {type: string, const: assistant}
+                  content: {type: string}
+              finish_reason: {type: string}
+        usage:
+          type: object
+          required: [prompt_tokens, completion_tokens, total_tokens]
+          properties:
+            prompt_tokens: {type: integer}
+            completion_tokens: {type: integer}
+            total_tokens: {type: integer}
+    WorkerRegistration:
+      type: object
+      required: [resource_id, name, capabilities]
+      properties:
+        resource_id: {type: string, format: uuid}
+        name: {type: string}
+        capabilities: {type: object}

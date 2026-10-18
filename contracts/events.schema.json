@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SpareAgent Task Event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["task_id", "seq", "type", "timestamp", "payload"],
+  "properties": {
+    "task_id": {"type": "string", "format": "uuid"},
+    "seq": {"type": "integer", "minimum": 1},
+    "type": {"type": "string", "enum": ["task.created", "task.queued", "task.reserved", "task.started", "task.progress", "task.verifying", "task.succeeded", "task.failed", "task.cancelled", "task.retrying", "task.timed_out"]},
+    "timestamp": {"type": "string", "format": "date-time"},
+    "payload": {"type": "object"}
+  }
+}

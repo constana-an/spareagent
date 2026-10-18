@@ -1,0 +1,61 @@
+[project]
+name = "spareagent"
+version = "0.1.0"
+description = "SpareAgent Week 1: mock-first coding task marketplace and OpenAI-style gateway"
+requires-python = ">=3.12"
+# Runtime dependencies are pinned in requirements.txt; dev tools in requirements-dev.txt.
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.34",
+  "sqlalchemy[asyncio]>=2.0.36",
+  "asyncpg>=0.30",
+  "pydantic>=2.10",
+  "pydantic-settings>=2.7",
+  "redis>=5.2",
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3",
+  "pytest-asyncio>=0.25",
+  "pytest-cov>=6.0",
+  "httpx>=0.28",
+  "ruff>=0.9",
+  "openapi-spec-validator>=0.7",
+  "jsonschema>=4.23",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["docs", "contracts"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "ASYNC"]
+ignore = [
+  "B008",   # FastAPI Depends() in defaults is idiomatic
+  "S608",   # only static SQL fragments are built; values are always bound parameters
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106", "S311", "S603", "S607"]
+"scripts/**" = ["S603", "S607"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+addopts = "-ra"
+markers = [
+  "db: requires the PostgreSQL + Redis test services",
+]
+
+[tool.coverage.run]
+source = ["apps", "services", "packages", "db"]
+concurrency = ["thread", "greenlet"]
+omit = ["services/execution/local_worker.py"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false

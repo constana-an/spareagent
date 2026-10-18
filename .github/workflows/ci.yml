@@ -1,0 +1,27 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  week1-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure local env (mock provider, no secrets)
+        run: cp .env.example .env
+      - name: Start stack
+        run: make up
+      - name: Migrate (from empty DB) and seed twice
+        run: make migrate && make seed-dev && make seed-dev
+      - name: Lint + OpenAPI validation
+        run: make lint
+      - name: Tests (coverage gate 80%)
+        run: make test
+      - name: Smoke
+        run: make smoke
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --tail=300
