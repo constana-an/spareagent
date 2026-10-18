@@ -184,9 +184,11 @@ class CodexSubscriptionAdapter:
             provider_request_id=f"codex-{request.attempt_id}",
             model_name=self.runtime.config.model or "codex-default",
             input_tokens=u.input_tokens if u else 0,
-            output_tokens=(u.output_tokens + u.reasoning_output_tokens) if u else 0,
+            output_tokens=u.output_tokens if u else 0,
             estimated_cost_cents=0,
             billable=False,
+            cached_input_tokens=u.cached_input_tokens if u else 0,
+            reasoning_output_tokens=u.reasoning_output_tokens if u else 0,
         )
 
     async def execute(
@@ -237,14 +239,23 @@ class CodexSubscriptionAdapter:
                 f"cached_input_tokens={run.usage.cached_input_tokens} "
                 f"output_tokens={run.usage.output_tokens} "
                 f"reasoning_output_tokens={run.usage.reasoning_output_tokens}\n"
-                "billing=included-plan-usage api_key_used=false\n"
+                "billing=NOT_OBSERVABLE api_key_used=false\n"
             )
             artifacts = [
                 ArtifactPayload("SUMMARY", "summary.md", "text/plain", summary.encode()),
                 ArtifactPayload("LOG", "codex.log", "text/plain", log_text.encode()),
             ]
-            patch = await _git_diff(workdir)
+            patch = b""
+            if checkout is not None:
+                await asyncio.to_thread(checkout.git, "add", "--intent-to-add", "--all")
+                patch = (
+                    await asyncio.to_thread(
+                        checkout.git, "diff", "--no-ext-diff", "--no-textconv", "--binary"
+                    )
+                ).encode()
             if patch:
+                if redact(patch.decode(errors="replace")).encode() != patch:
+                    raise PermanentProviderError("Patch contains possible credentials; withheld")
                 artifacts.append(ArtifactPayload("PATCH", "changes.patch", "text/x-diff", patch))
             yield ProgressEvent("Codex run complete", 95)
             yield ExecutionResult(
@@ -281,33 +292,6 @@ class CodexSubscriptionAdapter:
 
     async def chat(self, invocation: ChatInvocation) -> ChatResult:
         raise PermanentProviderError("Chat is not offered through personal subscriptions")
-
-
-async def _git_diff(workdir: Path) -> bytes:
-    """Patch of the owner-side workspace, if it is a git repository (workspace-write mode).
-    New files are included (intent-to-add), so added tests show up in the patch."""
-    if not (workdir / ".git").exists():
-        return b""
-    base = ["git", "-C", str(workdir), "-c", "core.hooksPath=/dev/null"]
-    add = await asyncio.create_subprocess_exec(
-        *base,
-        "add",
-        "--intent-to-add",
-        "--all",
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.DEVNULL,
-    )
-    await add.wait()
-    proc = await asyncio.create_subprocess_exec(
-        *base,
-        "diff",
-        "--no-ext-diff",
-        "--binary",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.DEVNULL,
-    )
-    out, _ = await proc.communicate()
-    return out if out.startswith(b"diff --git ") else b""
 
 
 def owner_ref_for(user_id: str) -> str:

@@ -16,8 +16,6 @@ import re
 from dataclasses import dataclass
 from enum import StrEnum
 
-from services.observability import redact
-
 # Environment variables that would switch Codex (or a child tool) to separately billed
 # API usage, or inject credentials from outside the owner's own Codex login. They are
 # never passed to the Codex child process (no API-key substitution, no paid fallback).
@@ -75,7 +73,7 @@ _CHATGPT = re.compile(r"(?i)\blogged\s+in\s+(?:using|with|via)\s+chatgpt\b")
 def classify_login_status(output: str, returncode: int) -> AuthStatus:
     """Classify `codex login status` output. Only an explicit ChatGPT login is eligible;
     an API-key login is refused even if a ChatGPT login also exists."""
-    text = redact(output.strip())[:300]
+    text = "Login status not recognized"
     if _NOT_LOGGED_IN.search(output):
         return AuthStatus(AuthMethod.NOT_LOGGED_IN, text)
     if _API_KEY.search(output):

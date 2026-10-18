@@ -13,6 +13,7 @@ import base64
 import contextlib
 import logging
 import random
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -288,6 +289,7 @@ class WorkerAgent:
                 "retryable": exc.retryable,
                 "error_code": exc.code,
                 "result_summary": f"Provider error: {exc}"[:2000],
+                **({"reset_hint": exc.reset_hint} if getattr(exc, "reset_hint", None) else {}),
             }
         except TimeoutError:
             await adapter.cancel(request.attempt_id)
@@ -304,6 +306,18 @@ class WorkerAgent:
         return {
             "succeeded": True,
             "result_summary": result.summary[:2000],
+            **(
+                {
+                    "observed_usage": {
+                        "input_tokens": result.usage.input_tokens,
+                        "output_tokens": result.usage.output_tokens,
+                        "cached_input_tokens": result.usage.cached_input_tokens,
+                        "reasoning_output_tokens": result.usage.reasoning_output_tokens,
+                    }
+                }
+                if request.resource_scope == EXPERIMENTAL_SCOPE
+                else {}
+            ),
             "artifacts": [
                 {
                     "kind": art.kind,
@@ -323,11 +337,13 @@ class WorkerAgent:
         adapter: ProviderAdapter,
         attempt_id: str,
     ) -> None:
-        interval = max(1.0, lease_seconds / 3)
+        interval = max(0.1, min(5.0, lease_seconds / 3))
+        renewed_until = time.monotonic() + lease_seconds
         while True:
             await asyncio.sleep(interval)
             try:
                 state = await self.client.renew(lease_id)
+                renewed_until = time.monotonic() + lease_seconds
                 if state["cancel_requested"]:
                     cancel.set()
                     await adapter.cancel(attempt_id)  # stops a running sandbox promptly
@@ -337,7 +353,10 @@ class WorkerAgent:
                     await adapter.cancel(attempt_id)
                     return
             except TransportError:
-                continue
+                if time.monotonic() >= renewed_until:
+                    cancel.set()
+                    await adapter.cancel(attempt_id)
+                    return
 
     async def _finalize(
         self, lease_id: str, attempt_id: str, payload: dict[str, Any]

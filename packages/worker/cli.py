@@ -276,6 +276,12 @@ async def cmd_codex_check(args: argparse.Namespace) -> int:
         report["result"] = "AUTH_OK_INFERENCE_SKIPPED"
         _print(report)
         return 0
+    if not args.attest_no_purchased_credits:
+        report["result"] = "CREDITS_ATTESTATION_REQUIRED"
+        report["note"] = "Confirm no additional credits (purchased or granted), auto-reload off."
+        _print(report)
+        return 2
+    report["credits_restriction"] = "OWNER_ATTESTED_NOT_MACHINE_VERIFIED"
     request = ExecutionRequest(
         task_id="codex-check",
         attempt_id=f"codex-check-{int(time.time())}",
@@ -295,7 +301,7 @@ async def cmd_codex_check(args: argparse.Namespace) -> int:
                 result = item
     except Exception as exc:  # noqa: BLE001 - report every failure mode, fail closed
         report["result"] = "FAILED"
-        report["error"] = f"{type(exc).__name__}: {exc}"
+        report["error"] = type(exc).__name__
         _print(report)
         return 1
     assert result is not None  # noqa: S101
@@ -303,6 +309,8 @@ async def cmd_codex_check(args: argparse.Namespace) -> int:
         "completed": True,
         "input_tokens": result.usage.input_tokens,
         "output_tokens": result.usage.output_tokens,
+        "cached_input_tokens": result.usage.cached_input_tokens,
+        "reasoning_output_tokens": result.usage.reasoning_output_tokens,
         "billable": result.usage.billable,
         "summary_excerpt": result.summary[:200],
     }
@@ -386,8 +394,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     check.add_argument("--codex-bin", default=os.environ.get("SPAREAGENT_CODEX_BIN", "codex"))
     check.add_argument("--model", default=None)
-    check.add_argument("--timeout", type=int, default=300)
+    check.add_argument("--timeout", type=int, choices=range(1, 3601), default=60, metavar="SECONDS")
     check.add_argument("--skip-inference", action="store_true")
+    check.add_argument(
+        "--attest-no-purchased-credits",
+        action="store_true",
+        help="confirm no additional credits (purchased/granted), auto-reload off",
+    )
     check.add_argument(
         "--prompt",
         default="Reply with exactly: SPAREAGENT_OWNER_ONLY_OK. Do not run any commands.",

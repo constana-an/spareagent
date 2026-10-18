@@ -112,6 +112,14 @@ WorkerErrorCode = Literal[
 ]
 
 
+class ObservedCodexUsage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    input_tokens: Annotated[StrictInt, Field(ge=0, le=10**9)]
+    output_tokens: Annotated[StrictInt, Field(ge=0, le=10**9)]
+    cached_input_tokens: Annotated[StrictInt, Field(ge=0, le=10**9)] = 0
+    reasoning_output_tokens: Annotated[StrictInt, Field(ge=0, le=10**9)] = 0
+
+
 class LeaseCompletion(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -124,6 +132,8 @@ class LeaseCompletion(BaseModel):
     error_code: WorkerErrorCode | None = None
     timed_out: StrictBool = False
     artifacts: Annotated[list[ArtifactIn], Field(max_length=8)] = []
+    observed_usage: ObservedCodexUsage | None = None
+    reset_hint: Annotated[StrictStr, Field(max_length=80)] | None = None
 
 
 class CompletionOut(BaseModel):
