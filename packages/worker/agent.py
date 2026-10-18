@@ -69,10 +69,16 @@ class WorkerAgent:
         client: NodeClient,
         config: AgentConfig | None = None,
         adapter: ProviderAdapter | None = None,
+        *,
+        code_adapter: ProviderAdapter | None = None,
     ) -> None:
         self.client = client
         self.config = config or AgentConfig()
         self.adapter = adapter or MockProviderAdapter()
+        # Week 3: CODE leases use the sandboxed CodeExecutionAdapter when this node has one.
+        self.adapters: dict[str, ProviderAdapter] = {"MOCK": self.adapter}
+        if code_adapter is not None:
+            self.adapters["CODE"] = code_adapter
         self.fatal: WorkerApiError | None = None
         self.completed: list[tuple[str, str]] = []  # (attempt_id, task_status)
         self.claimed: list[str] = []
@@ -192,11 +198,24 @@ class WorkerAgent:
             attempt_number=a["attempt_number"],
             task_type=task["task_type"],
         )
+        adapter = self.adapters.get(a.get("execution_profile", "MOCK"))
+        if adapter is None:
+            return await self._finalize(
+                lease_id,
+                attempt_id,
+                {
+                    "succeeded": False,
+                    "error_code": "EXECUTION_ERROR",
+                    "result_summary": "Node has no executor for this execution profile",
+                },
+            )
         cancel = asyncio.Event()
-        renewer = asyncio.create_task(self._renew_loop(lease_id, a["lease_seconds"], cancel))
+        renewer = asyncio.create_task(
+            self._renew_loop(lease_id, a["lease_seconds"], cancel, adapter, attempt_id)
+        )
         payload: dict[str, Any]
         try:
-            payload = await self._run_adapter(request, lease_id, cancel)
+            payload = await self._run_adapter(request, lease_id, cancel, adapter)
         except asyncio.CancelledError:
             payload = {
                 "succeeded": False,
@@ -216,12 +235,17 @@ class WorkerAgent:
         return await self._finalize(lease_id, attempt_id, payload)
 
     async def _run_adapter(
-        self, request: ExecutionRequest, lease_id: str, cancel: asyncio.Event
+        self,
+        request: ExecutionRequest,
+        lease_id: str,
+        cancel: asyncio.Event,
+        adapter: ProviderAdapter,
     ) -> dict[str, Any]:
         result: ExecutionResult | None = None
+        stream = adapter.execute(request)
         try:
             async with asyncio.timeout(request.max_duration_seconds):
-                async for item in self.adapter.execute(request):
+                async for item in stream:
                     if cancel.is_set():
                         break
                     if isinstance(item, ProgressEvent):
@@ -237,16 +261,23 @@ class WorkerAgent:
                     elif isinstance(item, ExecutionResult):
                         result = item
         except ProviderError as exc:
+            if cancel.is_set():
+                return {"succeeded": False, "error_code": "CANCELLED"}
             return {
                 "succeeded": False,
                 "retryable": exc.retryable,
                 "error_code": exc.code,
-                "result_summary": f"Provider error: {exc}",
+                "result_summary": f"Provider error: {exc}"[:2000],
             }
         except TimeoutError:
+            await adapter.cancel(request.attempt_id)
             return {"succeeded": False, "timed_out": True}
+        finally:
+            # Always close the generator so executors clean up checkouts/sandboxes.
+            with contextlib.suppress(Exception):
+                await stream.aclose()
         if cancel.is_set():
-            await self.adapter.cancel(request.attempt_id)
+            await adapter.cancel(request.attempt_id)
             return {"succeeded": False, "error_code": "CANCELLED"}
         if result is None:
             return {"succeeded": False, "error_code": "NO_RESULT"}
@@ -264,7 +295,14 @@ class WorkerAgent:
             ],
         }
 
-    async def _renew_loop(self, lease_id: str, lease_seconds: int, cancel: asyncio.Event) -> None:
+    async def _renew_loop(
+        self,
+        lease_id: str,
+        lease_seconds: int,
+        cancel: asyncio.Event,
+        adapter: ProviderAdapter,
+        attempt_id: str,
+    ) -> None:
         interval = max(1.0, lease_seconds / 3)
         while True:
             await asyncio.sleep(interval)
@@ -272,9 +310,11 @@ class WorkerAgent:
                 state = await self.client.renew(lease_id)
                 if state["cancel_requested"]:
                     cancel.set()
+                    await adapter.cancel(attempt_id)  # stops a running sandbox promptly
             except WorkerApiError as exc:
                 if exc.status == 409:
                     cancel.set()
+                    await adapter.cancel(attempt_id)
                     return
             except TransportError:
                 continue

@@ -47,6 +47,7 @@ def assignment(task: Task, attempt: TaskAttempt, lease_seconds: int) -> dict[str
         "attempt_number": attempt.attempt_number,
         "leased_until": attempt.leased_until.isoformat(),
         "lease_seconds": lease_seconds,
+        "execution_profile": task.execution_profile,
         "task": {
             "task_id": str(task.id),
             "task_type": task.task_type,
@@ -79,21 +80,31 @@ class RemoteWorkerService:
         }
 
     async def heartbeat(
-        self, node: NodePrincipal, state: str, capabilities: dict[str, Any] | None
-    ) -> None:
-        """Liveness + self-reported availability only. Eligibility is never touched here."""
+        self,
+        node: NodePrincipal,
+        state: str,
+        capabilities: dict[str, Any] | None,
+        *,
+        touch_only: bool = False,
+    ) -> str:
+        """Liveness + self-reported availability only. Eligibility is never touched here.
+
+        `touch_only` refreshes liveness without changing the node's status; returns status."""
         if state not in NODE_STATES:
             raise DomainError(422, "VALIDATION_ERROR", "state must be ONLINE, DRAINING or OFFLINE")
         async with self.ctx.sessionmaker() as session, session.begin():
             worker = await session.get(WorkerNode, node.worker_id, with_for_update=True)
             assert_alive(worker)
             worker.last_heartbeat = utcnow()
+            if touch_only:
+                return worker.status
             if capabilities is not None:
                 worker.capabilities = capabilities
             if state in ("DRAINING", "OFFLINE"):
                 worker.status = state
             elif worker.status in ("OFFLINE", "DRAINING", "ERROR"):
                 worker.status = "RUNNING" if worker.active_tasks else "IDLE"
+            return worker.status
 
     async def _reserved_for(self, worker_id: uuid.UUID) -> dict[str, Any] | None:
         async with self.ctx.sessionmaker() as session:
@@ -119,8 +130,15 @@ class RemoteWorkerService:
         """Bounded long poll: return an existing reservation or claim one atomically."""
         wait = max(0.0, min(wait_seconds, self.ctx.settings.lease_poll_max_wait_seconds))
         deadline = time.monotonic() + wait
+        first = True
         while True:
-            await self.heartbeat(node, "ONLINE", None)
+            # Only the start of a poll may bring a node back ONLINE. Later iterations only
+            # refresh liveness, so a node that announced OFFLINE/DRAINING while this request
+            # was still in flight (e.g. graceful shutdown) is not silently re-onlined.
+            status = await self.heartbeat(node, "ONLINE", None, touch_only=not first)
+            first = False
+            if status in ("OFFLINE", "DRAINING"):
+                return None
             found = await self._reserved_for(node.worker_id)
             if found is None:
                 if await self.dispatcher.dispatch_once((node.worker_id,)) is not None:
@@ -154,6 +172,16 @@ class RemoteWorkerService:
         attempt, task = row
         if attempt.worker_id != worker_id:
             raise forbidden("LEASE_NOT_OWNED", "Lease belongs to a different worker")
+        if task.execution_profile == "CODE":
+            return UsageReport(
+                provider_name="sandbox",
+                provider_request_id=f"code-task-{attempt.id}",
+                model_name="deterministic-code-v1",
+                input_tokens=0,
+                output_tokens=0,
+                estimated_cost_cents=self.ctx.settings.code_task_estimate_cents,
+                billable=False,
+            )
         request = execution_request(task, attempt.id, attempt.attempt_number)
         output_tokens = 0
         if produced_output:

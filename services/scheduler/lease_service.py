@@ -49,12 +49,17 @@ async def release_worker(session: AsyncSession, worker_id: uuid.UUID) -> None:
         worker.status = "IDLE"
 
 
-async def close_attempt(session: AsyncSession, attempt: TaskAttempt, status: str) -> None:
-    """Move an active attempt to a closed status and release its worker slot once."""
+async def close_attempt(
+    session: AsyncSession, attempt: TaskAttempt, status: str, *, release: bool = True
+) -> None:
+    """Move an attempt to a closed status and release its worker slot once.
+
+    `release=False` is used by the platform verifier: for CODE tasks the worker slot was
+    already released when the worker submitted its result (D-38)."""
     was_active = attempt.status in ACTIVE_ATTEMPT_STATUSES or attempt.status == "VERIFYING"
     attempt.status = status
     attempt.completed_at = attempt.completed_at or utcnow()
-    if was_active:
+    if was_active and release:
         await release_worker(session, attempt.worker_id)
 
 
@@ -74,6 +79,39 @@ class CompletionInput:
 class CompletionOutcome:
     task_status: str
     replayed: bool
+
+
+async def store_artifacts(
+    ctx: AppContext,
+    session: AsyncSession,
+    task_id: uuid.UUID,
+    attempt_id: uuid.UUID,
+    artifacts: tuple[ArtifactPayload, ...],
+    *,
+    published: bool,
+    source: str,
+) -> None:
+    """Content-addressed storage + rows. A later attempt that produces byte-identical,
+    still-unpublished content takes the row over (so it can be published once)."""
+    for item in artifacts:
+        key = await ctx.artifacts.put(str(task_id), item.name, item.content, item.media_type)
+        stmt = pg_insert(Artifact).values(
+            task_id=task_id,
+            attempt_id=attempt_id,
+            kind=item.kind,
+            storage_key=key,
+            sha256=key.rsplit("/", 1)[-1],
+            media_type=item.media_type,
+            source=source,
+            published=published,
+        )
+        await session.execute(
+            stmt.on_conflict_do_update(
+                index_elements=["storage_key"],
+                set_={"attempt_id": attempt_id, "kind": item.kind, "published": published},
+                where=Artifact.published.is_(False),
+            )
+        )
 
 
 class LeaseService:
@@ -238,6 +276,29 @@ class LeaseService:
             )
             return CompletionOutcome(task.status, replayed=False)
 
+        if data.succeeded and task.execution_profile == "CODE":
+            submission = verifier.verify_code_submission(data.artifacts)
+            if submission.ok:
+                # Independent verification happens asynchronously on platform infrastructure;
+                # the worker's claim alone never completes the task (D-37).
+                attempt.status = "VERIFYING"
+                await release_worker(session, attempt.worker_id)
+                await self._store_artifacts(session, task, attempt, data.artifacts, published=False)
+                await transition(
+                    session,
+                    task,
+                    TaskStatus.VERIFYING,
+                    payload={"verification": "PENDING", "artifact_count": len(data.artifacts)},
+                    attempt_id=attempt.id,
+                )
+                return CompletionOutcome(task.status, replayed=False)
+            data = CompletionInput(
+                finalization_key=data.finalization_key,
+                succeeded=False,
+                error_code="INVALID_SUBMISSION",
+                result_summary=f"Invalid submission: {submission.reason}",
+            )
+
         if data.succeeded:
             attempt.status = "VERIFYING"
             await transition(session, task, TaskStatus.VERIFYING, attempt_id=attempt.id)
@@ -303,23 +364,13 @@ class LeaseService:
         task: Task,
         attempt: TaskAttempt,
         artifacts: tuple[ArtifactPayload, ...],
+        *,
+        published: bool = True,
+        source: str = "WORKER",
     ) -> None:
-        for item in artifacts:
-            key = await self.ctx.artifacts.put(
-                str(task.id), item.name, item.content, item.media_type
-            )
-            await session.execute(
-                pg_insert(Artifact)
-                .values(
-                    task_id=task.id,
-                    attempt_id=attempt.id,
-                    kind=item.kind,
-                    storage_key=key,
-                    sha256=key.rsplit("/", 1)[-1],
-                    media_type=item.media_type,
-                )
-                .on_conflict_do_nothing(index_elements=["storage_key"])
-            )
+        await store_artifacts(
+            self.ctx, session, task.id, attempt.id, artifacts, published=published, source=source
+        )
 
     async def recover_expired(self, *, limit: int = 50) -> int:
         """Expire lapsed leases; requeue with a bounded retry or fail after max_attempts."""

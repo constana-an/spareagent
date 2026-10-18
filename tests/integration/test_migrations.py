@@ -23,11 +23,15 @@ async def test_migration_applied_once_and_rerun_is_noop(migrated_database):
         versions = [r["version"] for r in await conn.fetch("SELECT version FROM schema_migrations")]
     finally:
         await conn.close()
-    assert versions == ["0001_initial", "0003_worker_auth"]
+    assert versions == ["0001_initial", "0003_worker_auth", "0005_code_execution"]
 
 
 def test_seed_files_are_not_schema_migrations():
-    assert [m.version for m in discover()] == ["0001_initial", "0003_worker_auth"]
+    assert [m.version for m in discover()] == [
+        "0001_initial",
+        "0003_worker_auth",
+        "0005_code_execution",
+    ]
     assert [m.version for m in discover(include_seed=True)] == [
         "0002_seed_dev",
         "0004_seed_dev_week2",

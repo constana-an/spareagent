@@ -41,7 +41,8 @@ ALLOWED: dict[TaskStatus, frozenset[TaskStatus]] = {
     # RESERVED -> QUEUED on lease expiry; -> FAILED when expiry exhausts max_attempts.
     S.RESERVED: frozenset({S.RUNNING, S.QUEUED, S.CANCELLED, S.FAILED, S.TIMED_OUT}),
     S.RUNNING: frozenset({S.VERIFYING, S.RETRY_PENDING, S.CANCELLING, S.FAILED, S.TIMED_OUT}),
-    S.VERIFYING: frozenset({S.SUCCEEDED, S.FAILED, S.CANCELLING}),
+    # VERIFYING -> RETRY_PENDING: independent verification rejected the attempt (W3).
+    S.VERIFYING: frozenset({S.SUCCEEDED, S.FAILED, S.CANCELLING, S.RETRY_PENDING}),
     S.RETRY_PENDING: frozenset({S.QUEUED, S.CANCELLED, S.FAILED, S.TIMED_OUT}),
     S.CANCELLING: frozenset({S.CANCELLED}),
     S.SUCCEEDED: frozenset(),

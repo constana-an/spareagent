@@ -66,6 +66,7 @@ class LeaseAssignment(BaseModel):
     attempt_number: int
     leased_until: datetime
     lease_seconds: int
+    execution_profile: Literal["MOCK", "CODE"] = "MOCK"
     task: LeaseTask
 
 
@@ -84,7 +85,8 @@ class LeaseStateOut(BaseModel):
 class ArtifactIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    kind: Literal["PATCH", "TEST_REPORT", "LOG", "SUMMARY"]
+    # VERIFICATION_REPORT is platform-only and can never be submitted by a node.
+    kind: Literal["PATCH", "TEST_REPORT", "LOG", "SUMMARY", "EXECUTION_LOG"]
     name: SafeName
     media_type: Literal["text/plain", "text/x-diff", "application/json"]
     content_base64: Annotated[StrictStr, Field(max_length=8 * 1024 * 1024)]

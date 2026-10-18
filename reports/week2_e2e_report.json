@@ -1,7 +1,7 @@
 {
   "report": "spareagent-week2-remote-workers-e2e",
-  "started_at": "2026-10-18T04:44:48.596183+00:00",
-  "finished_at": "2026-10-18T04:45:28.503976+00:00",
+  "started_at": "2026-10-18T13:08:37.826101+00:00",
+  "finished_at": "2026-10-18T13:09:22.162325+00:00",
   "lease_seconds": 8,
   "mock_step_delay_seconds": 2.0,
   "transport": "https://api-tls:8443 (dev CA)",
@@ -11,16 +11,16 @@
     "remote-worker-3"
   ],
   "task_ids": [
-    "fe85deb9-819e-4ef2-b3d0-619d6da39342",
-    "fd7294c1-af60-4a3e-af51-5318ab19ed16",
-    "4cb64e0c-ef8e-4d23-988e-c58e463ba8e4",
-    "3749bbea-8bf3-4f24-a432-25a0612d1e72",
-    "b78986e2-26d3-4d72-a1b5-6af938ea2707",
-    "a3b12b0d-88ae-495e-8873-4320289be31a",
-    "c7f258e2-8c6e-4af0-863c-73eab0fa6ab9",
-    "6d4a9d98-18cd-4c18-96eb-0469edd25396",
-    "609837bc-1328-4599-8c3e-d53e8943a722",
-    "a1bfcaa7-f4a9-4b89-a0aa-4162ae5abce5"
+    "41b83646-aa12-461a-8886-d406bfd951fd",
+    "06a5651a-aaa2-461e-ad95-7b61cfad3639",
+    "1da4e4ab-ecc1-41f1-b23b-572a70b9ec6c",
+    "5ade5d6b-292e-4b06-81b7-39f134139a3c",
+    "4121c25d-cc6e-4f32-9de3-6bdbb808b32d",
+    "eb9b6333-4b9a-4c5e-97f7-87e23c0a32e2",
+    "e0172ebf-3f5c-4daf-8538-ea21b5c98d43",
+    "de19f6fa-a4c8-4fed-85a3-7036b7b7673c",
+    "35be1d75-c4d0-45e2-8d6b-b93d7fe62be7",
+    "23366c3c-bccb-410c-8907-2097202d7391"
   ],
   "summary": {
     "passed": true,
@@ -32,16 +32,16 @@
       "check": "three remote workers registered and heartbeating",
       "passed": true,
       "detail": {
-        "remote-2": "63efe355-3d3d-4b0c-8dfd-c8ed80fb230b",
-        "remote-3": "396efffb-14ab-4306-a3c8-c61204d1ee8d",
-        "remote-1": "44dbed1d-b499-4fff-b7ad-304451db9fc9"
+        "remote-2": "f238f612-7fab-43fd-89d0-0bbb2b08aaa4",
+        "remote-1": "e6ece495-d736-4011-95c4-e1ffc830f984",
+        "remote-3": "48bc463a-2175-41c2-b017-f98fd5506205"
       }
     },
     {
       "check": "`spareagent-worker status` reports server-side identity",
       "passed": true,
       "detail": {
-        "worker_id": "44dbed1d-b499-4fff-b7ad-304451db9fc9",
+        "worker_id": "e6ece495-d736-4011-95c4-e1ffc830f984",
         "name": "remote-1",
         "running": true
       }
@@ -61,8 +61,8 @@
       "passed": true,
       "detail": [
         [
-          "2e288a6f-e875-4f95-ad93-94822830b9ee",
-          "fd7294c1-af60-4a3e-af51-5318ab19ed16"
+          "3126725b-c517-4124-b928-9b3d01fbcaef",
+          "41b83646-aa12-461a-8886-d406bfd951fd"
         ]
       ]
     },
@@ -172,8 +172,8 @@
     "remote-3": "4"
   },
   "nodes": {
-    "remote-2": "63efe355-3d3d-4b0c-8dfd-c8ed80fb230b",
-    "remote-3": "396efffb-14ab-4306-a3c8-c61204d1ee8d",
-    "remote-1": "44dbed1d-b499-4fff-b7ad-304451db9fc9"
+    "remote-2": "f238f612-7fab-43fd-89d0-0bbb2b08aaa4",
+    "remote-1": "e6ece495-d736-4011-95c4-e1ffc830f984",
+    "remote-3": "48bc463a-2175-41c2-b017-f98fd5506205"
   }
 }

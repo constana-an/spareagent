@@ -578,3 +578,28 @@ async def test_reconcile_capacity_repairs_drift(client, ctx):
     assert await reconcile_capacity(ctx) == 2
     assert await fetch_val(ctx, "SELECT active_tasks FROM worker_nodes WHERE name='node-1'") == 1
     assert await fetch_val(ctx, "SELECT active_tasks FROM worker_nodes WHERE name <> 'node-1'") == 0
+
+
+async def test_offline_announcement_not_undone_by_inflight_poll(client, ctx):
+    """Regression (CI): a graceful-shutdown OFFLINE heartbeat sent while the node's earlier
+    long poll is still running server-side must stick; the poll must not re-online it."""
+    reg = await register_node(client)
+    waiter = asyncio.create_task(poll(client, reg, wait=2))
+    await asyncio.sleep(0.3)
+    off = await client.post(
+        f"/v1/workers/{reg['worker_id']}/heartbeat",
+        json={"state": "OFFLINE"},
+        headers=bearer(reg["access_token"]),
+    )
+    assert off.status_code == 204
+    await create_task(client)  # work arriving must not be claimed by an OFFLINE node
+    resp = await asyncio.wait_for(waiter, 5)
+    assert resp.status_code == 204
+    status = await fetch_val(
+        ctx, "SELECT status FROM worker_nodes WHERE id=:w", w=uuid.UUID(reg["worker_id"])
+    )
+    assert status == "OFFLINE"
+    assert await fetch_val(ctx, "SELECT count(*) FROM task_attempts") == 0
+    # a fresh poll (node restarted) brings it back online and claims the work
+    again = await poll(client, reg)
+    assert again.status_code == 200

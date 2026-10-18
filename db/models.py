@@ -88,6 +88,9 @@ class Task(Base):
     max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("2"))
     created_at: Mapped[datetime] = mapped_column(TZ, nullable=False, server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(TZ, nullable=False, server_default=text("now()"))
+    execution_profile: Mapped[str] = mapped_column(  # 0005
+        Text, nullable=False, server_default=text("'MOCK'")
+    )
 
 
 class TaskAttempt(Base):
@@ -141,6 +144,10 @@ class Artifact(Base):
     sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
     media_type: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(TZ, nullable=False, server_default=text("now()"))
+    source: Mapped[str] = mapped_column(  # 0005
+        Text, nullable=False, server_default=text("'WORKER'")
+    )
+    published: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
 
 
 class UsageRecord(Base):
@@ -225,6 +232,34 @@ class NodeCredential(Base):
     issued_at: Mapped[datetime] = mapped_column(TZ, nullable=False, server_default=text("now()"))
     expires_at: Mapped[datetime] = mapped_column(TZ, nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(TZ)
+
+
+class VerificationResult(Base):
+    """0005: platform-side verification outcome, separate from worker-reported results."""
+
+    __tablename__ = "verification_results"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), **UUID_PK)
+    task_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tasks.id"), nullable=False
+    )
+    attempt_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("task_attempts.id"), nullable=False, unique=True
+    )
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text)
+    base_commit_sha: Mapped[str] = mapped_column(CHAR(40), nullable=False)
+    patch_sha256: Mapped[str | None] = mapped_column(CHAR(64))
+    worker_reported: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    verified_result: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    verifier_id: Mapped[str] = mapped_column(Text, nullable=False)
+    error_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    claimed_until: Mapped[datetime | None] = mapped_column(TZ)
+    started_at: Mapped[datetime] = mapped_column(TZ, nullable=False, server_default=text("now()"))
+    completed_at: Mapped[datetime | None] = mapped_column(TZ)
 
 
 ALL_TABLES = [m.__table__ for m in Base.__subclasses__()]

@@ -1,0 +1,288 @@
+{
+  "report": "spareagent-week3-secure-execution-e2e",
+  "started_at": "2026-10-18T13:09:23.374004+00:00",
+  "finished_at": "2026-10-18T13:10:26.329367+00:00",
+  "fixtures": {
+    "python-calc": "44d957e53add3b73f7eaaa9755b1525ff32bb8c3",
+    "ts-strings": "115e49e8bffba58e74c029279a772fde67ffe9a6",
+    "python-probe": "5ba6b859e9b8819a030de9f54a80c5c815f42e48"
+  },
+  "summary": {
+    "passed": true,
+    "checks_total": 22,
+    "checks_failed": 0
+  },
+  "checks": [
+    {
+      "check": "code worker registered over HTTPS with a healthy sandbox",
+      "passed": true,
+      "detail": "90a51553-56a3-4be6-a2f5-653ec4b047de"
+    },
+    {
+      "check": "code worker holds no database/Redis/platform secrets",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "check": "python-calc: CODE task SUCCEEDED after platform verification",
+      "passed": true,
+      "detail": {
+        "profile": "CODE",
+        "events": [
+          "CREATED",
+          "QUEUED",
+          "RESERVED",
+          "RUNNING",
+          "VERIFYING",
+          "SUCCEEDED"
+        ]
+      }
+    },
+    {
+      "check": "python-calc: worker ran tests at the pinned commit inside the sandbox",
+      "passed": true,
+      "detail": {
+        "framework": "unittest",
+        "passed": 3,
+        "total": 3,
+        "base_commit": "44d957e53add3b73f7eaaa9755b1525ff32bb8c3"
+      }
+    },
+    {
+      "check": "python-calc: verifier re-applied the patch to a clean checkout and re-ran tests",
+      "passed": true,
+      "detail": [
+        "repository_in_allowlist",
+        "artifact_schema",
+        "test_report_schema",
+        "base_commit_matches",
+        "patch_policy",
+        "clean_checkout",
+        "patch_applies_cleanly",
+        "sandbox_cleaned_up",
+        "trusted_tests_pass",
+        "worker_claim_consistent"
+      ]
+    },
+    {
+      "check": "python-calc: 5 artifacts downloadable with matching SHA-256",
+      "passed": true,
+      "detail": {
+        "EXECUTION_LOG": "WORKER",
+        "PATCH": "WORKER",
+        "SUMMARY": "WORKER",
+        "TEST_REPORT": "WORKER",
+        "VERIFICATION_REPORT": "PLATFORM"
+      }
+    },
+    {
+      "check": "python-calc: patch touches only the allowlisted file",
+      "passed": true,
+      "detail": "diff --git a/calc.py b/calc.py"
+    },
+    {
+      "check": "ts-strings: CODE task SUCCEEDED after platform verification",
+      "passed": true,
+      "detail": {
+        "profile": "CODE",
+        "events": [
+          "CREATED",
+          "QUEUED",
+          "RESERVED",
+          "RUNNING",
+          "VERIFYING",
+          "SUCCEEDED"
+        ]
+      }
+    },
+    {
+      "check": "ts-strings: worker ran tests at the pinned commit inside the sandbox",
+      "passed": true,
+      "detail": {
+        "framework": "node-tap",
+        "passed": 3,
+        "total": 3,
+        "base_commit": "115e49e8bffba58e74c029279a772fde67ffe9a6"
+      }
+    },
+    {
+      "check": "ts-strings: verifier re-applied the patch to a clean checkout and re-ran tests",
+      "passed": true,
+      "detail": [
+        "repository_in_allowlist",
+        "artifact_schema",
+        "test_report_schema",
+        "base_commit_matches",
+        "patch_policy",
+        "clean_checkout",
+        "patch_applies_cleanly",
+        "sandbox_cleaned_up",
+        "trusted_tests_pass",
+        "worker_claim_consistent"
+      ]
+    },
+    {
+      "check": "ts-strings: 5 artifacts downloadable with matching SHA-256",
+      "passed": true,
+      "detail": {
+        "EXECUTION_LOG": "WORKER",
+        "PATCH": "WORKER",
+        "SUMMARY": "WORKER",
+        "TEST_REPORT": "WORKER",
+        "VERIFICATION_REPORT": "PLATFORM"
+      }
+    },
+    {
+      "check": "ts-strings: patch touches only the allowlisted file",
+      "passed": true,
+      "detail": "diff --git a/src/strings.ts b/src/strings.ts"
+    },
+    {
+      "check": "isolation probe: host secrets, host paths, network and rootfs writes all blocked",
+      "passed": true,
+      "detail": {
+        "test_greet": "ok",
+        "test_network_blocked": "ok",
+        "test_no_host_paths": "ok",
+        "test_no_secret_environment": "ok",
+        "test_not_root": "ok",
+        "test_root_filesystem_read_only": "ok"
+      }
+    },
+    {
+      "check": "malicious node claimed the CODE task",
+      "passed": true,
+      "detail": 200
+    },
+    {
+      "check": "forged 'success' is only accepted for verification (VERIFYING)",
+      "passed": true,
+      "detail": {
+        "task_status": "VERIFYING",
+        "replayed": false
+      }
+    },
+    {
+      "check": "independent verification rejected the forged patch",
+      "passed": true,
+      "detail": [
+        [
+          "FAILED",
+          "PATCH_POLICY"
+        ]
+      ]
+    },
+    {
+      "check": "forged artifacts never published; task scheduled for retry",
+      "passed": true,
+      "detail": {
+        "status": "QUEUED",
+        "published": [
+          "VERIFICATION_REPORT"
+        ]
+      }
+    },
+    {
+      "check": "honest node's retry passed verification",
+      "passed": true,
+      "detail": [
+        [
+          "1",
+          "FAILED",
+          "forger-20261018130923"
+        ],
+        [
+          "2",
+          "SUCCEEDED",
+          "code-worker-1"
+        ]
+      ]
+    },
+    {
+      "check": "no duplicate finalization",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "check": "no duplicate usage records",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "check": "all sandbox containers cleaned up",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "check": "no credentials in logs",
+      "passed": true,
+      "detail": null
+    }
+  ],
+  "results": {
+    "python-calc": {
+      "task_id": "749c2ffb-bf70-44ae-9320-e92c18b52b36",
+      "status": "SUCCEEDED",
+      "events": [
+        "CREATED",
+        "QUEUED",
+        "RESERVED",
+        "RUNNING",
+        "VERIFYING",
+        "SUCCEEDED"
+      ],
+      "verification": "PASSED",
+      "reason": "VERIFIED",
+      "patch": "diff --git a/calc.py b/calc.py\nindex f905fb959fec8bf8a8824b2acc6a1be05c8523f6..717f7eda038113a5fc8bc24c9035edd1e2aa3e62 100644\n--- a/calc.py\n+++ b/calc.py\n@@ -1,5 +1,5 @@\n def add(a, b):\n-    return a - b\n+    return a + b\n \n \n def mul(a, b):\n"
+    },
+    "ts-strings": {
+      "task_id": "ae445d4d-2514-4454-97c0-92a3ed825374",
+      "status": "SUCCEEDED",
+      "events": [
+        "CREATED",
+        "QUEUED",
+        "RESERVED",
+        "RUNNING",
+        "VERIFYING",
+        "SUCCEEDED"
+      ],
+      "verification": "PASSED",
+      "reason": "VERIFIED",
+      "patch": "diff --git a/src/strings.ts b/src/strings.ts\nindex 165d378527911aa13ea565e27e0f01b9759c871b..7434174de71f1797e4b107b9c560a176e7b85202 100644\n--- a/src/strings.ts\n+++ b/src/strings.ts\n@@ -1,5 +1,5 @@\n export function capitalize(s: string): string {\n-  return s.toLowerCase();\n+  return s.charAt(0).toUpperCase() + s.slice(1);\n }\n \n export function shout(s: string): string {\n"
+    },
+    "python-probe": {
+      "task_id": "837743e2-d791-4606-a9b2-e5c26e2f3eab",
+      "status": "SUCCEEDED",
+      "probes": {
+        "test_greet": "ok",
+        "test_network_blocked": "ok",
+        "test_no_host_paths": "ok",
+        "test_no_secret_environment": "ok",
+        "test_not_root": "ok",
+        "test_root_filesystem_read_only": "ok"
+      }
+    },
+    "forged": {
+      "task_id": "37b67c72-e12f-4d20-aa07-2c37cbd37611",
+      "status": "SUCCEEDED",
+      "attempts": [
+        [
+          "1",
+          "FAILED",
+          "forger-20261018130923"
+        ],
+        [
+          "2",
+          "SUCCEEDED",
+          "code-worker-1"
+        ]
+      ],
+      "first_verification": [
+        [
+          "FAILED",
+          "PATCH_POLICY"
+        ]
+      ]
+    }
+  }
+}

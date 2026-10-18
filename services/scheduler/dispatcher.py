@@ -90,6 +90,37 @@ class Dispatcher:
             if ResourceEligibilityPolicy.can_serve_task(r, resource_scope=PUBLIC_MARKETPLACE)
         ]
 
+    def code_capable(self, worker: WorkerNode, resource: Resource) -> bool:
+        """CODE tasks go only to sandbox-capable nodes of explicitly allow-listed resources.
+        The capability is self-reported (a matching hint); safety comes from the platform
+        verifier, never from trusting the node (D-35/D-37)."""
+        s = self.ctx.settings
+        return (
+            s.code_execution_enabled
+            and resource.id in s.code_resource_ids
+            and ResourceEligibilityPolicy.is_publicly_schedulable(resource)
+            and (worker.capabilities or {}).get("sandbox") == "docker"
+        )
+
+    async def _allowed_profiles(
+        self, session: AsyncSession, worker_ids: tuple[uuid.UUID, ...] | None
+    ) -> tuple[str, ...]:
+        if worker_ids is None:
+            return ("MOCK", "CODE")
+        rows = (
+            await session.execute(
+                select(WorkerNode, Resource)
+                .join(Resource, Resource.id == WorkerNode.resource_id)
+                .where(WorkerNode.id.in_(worker_ids))
+            )
+        ).all()
+        return ("MOCK", "CODE") if any(self.code_capable(w, r) for w, r in rows) else ("MOCK",)
+
+    async def estimate_cents(self, task: Task, request: ExecutionRequest) -> int:
+        if task.execution_profile == "CODE":
+            return self.ctx.settings.code_task_estimate_cents
+        return await self.ctx.adapter.estimate_cents(request)
+
     async def promote_retries(self, *, limit: int = 50) -> int:
         """RETRY_PENDING -> QUEUED once exponential backoff since the last attempt elapsed."""
         promoted = 0
@@ -151,11 +182,13 @@ class Dispatcher:
         itself; capacity is reserved atomically under the worker row lock)."""
         async with self.ctx.sessionmaker() as session, session.begin():
             now = utcnow()
+            profiles = await self._allowed_profiles(session, worker_ids)
             stmt = (
                 select(Task)
                 .where(
                     Task.status == TaskStatus.QUEUED.value,
                     Task.resource_scope == PUBLIC_MARKETPLACE,
+                    Task.execution_profile.in_(profiles),
                 )
                 .order_by(Task.created_at, Task.id)
                 .limit(1)
@@ -199,7 +232,7 @@ class Dispatcher:
             attempt_id = uuid.uuid4()
             attempt_number = attempts_so_far + 1
             request = execution_request(task, attempt_id, attempt_number)
-            estimate = await self.ctx.adapter.estimate_cents(request)
+            estimate = await self.estimate_cents(task, request)
             spent = await task_spent_cents(session, task.id)
             if not has_budget_headroom(
                 max_budget_cents=task.max_budget_cents,
@@ -220,9 +253,10 @@ class Dispatcher:
                 )
                 return None
 
-            candidates = rank_workers(
-                [w for w, _ in await self.eligible_workers(session, worker_ids)]
-            )
+            rows = await self.eligible_workers(session, worker_ids)
+            if task.execution_profile == "CODE":
+                rows = [(w, r) for w, r in rows if self.code_capable(w, r)]
+            candidates = rank_workers([w for w, _ in rows])
             if not candidates:
                 return None  # stays QUEUED; no personal or unapproved fallback, ever
             worker = candidates[0]

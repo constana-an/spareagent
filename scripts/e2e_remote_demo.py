@@ -128,6 +128,15 @@ def main() -> int:
     compose("exec", "-T", "api", "python", "scripts/migrate.py")
     compose("exec", "-T", "api", "python", "scripts/seed_dev.py")
     compose("stop", "worker")  # remote workers only for this demonstration
+    # A sandbox-capable node left over from `make e2e-code` would also (legitimately) claim
+    # work; this demonstration is about exactly three remote nodes.
+    subprocess.run(
+        ["docker", "compose", "--profile", "code", "stop", "code-worker"],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        check=False,
+    )
     sql("UPDATE worker_nodes SET last_heartbeat = NULL WHERE name = 'mock-local'")
 
     tokens = {}
