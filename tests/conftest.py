@@ -43,8 +43,8 @@ PUBLIC_RESOURCE = uuid.UUID("33333333-3333-4333-8333-333333333333")
 PUBLIC_WORKER = uuid.UUID("44444444-4444-4444-8444-444444444444")
 
 TABLES = (
-    "audit_logs, usage_records, gateway_requests, artifacts, execution_events, "
-    "task_attempts, tasks, worker_nodes, resources, users"
+    "node_credentials, enrollment_tokens, audit_logs, usage_records, gateway_requests, "
+    "artifacts, execution_events, task_attempts, tasks, worker_nodes, resources, users"
 )
 
 VALID_TASK = {
@@ -182,3 +182,34 @@ async def fetch_val(ctx: AppContext, sql: str, **params):
 async def execute(ctx: AppContext, sql: str, **params) -> None:
     async with ctx.engine.begin() as conn:
         await conn.execute(text(sql), params)
+
+
+# ---------------------------------------------------------------- Week 2 node helpers
+async def enroll(client, *, resource=PUBLIC_RESOURCE, issuer=ADMIN, ttl=3600) -> httpx.Response:
+    return await client.post(
+        "/v1/enrollment-tokens",
+        json={"resource_id": str(resource), "ttl_seconds": ttl},
+        headers=headers(issuer),
+    )
+
+
+async def register_node(
+    client, *, name="node-1", max_concurrency=1, resource=PUBLIC_RESOURCE
+) -> dict:
+    token = (await enroll(client, resource=resource)).json()["token"]
+    resp = await client.post(
+        "/v1/workers/register",
+        json={
+            "resource_id": str(resource),
+            "name": name,
+            "capabilities": {"code": True},
+            "max_concurrency": max_concurrency,
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+def bearer(token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}

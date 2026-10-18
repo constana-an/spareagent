@@ -64,6 +64,7 @@ class WorkerNode(Base):
     active_tasks: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     last_heartbeat: Mapped[datetime | None] = mapped_column(TZ)
     created_at: Mapped[datetime] = mapped_column(TZ, nullable=False, server_default=text("now()"))
+    revoked_at: Mapped[datetime | None] = mapped_column(TZ)  # 0003
 
 
 class Task(Base):
@@ -185,6 +186,45 @@ class AuditLog(Base):
         "metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb")
     )
     created_at: Mapped[datetime] = mapped_column(TZ, nullable=False, server_default=text("now()"))
+
+
+class EnrollmentToken(Base):
+    """0003: admin/provider-issued, single-use registration secret (digest only)."""
+
+    __tablename__ = "enrollment_tokens"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), **UUID_PK)
+    token_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False, unique=True)
+    resource_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("resources.id"), nullable=False
+    )
+    issued_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(TZ, nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(TZ)
+    worker_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("worker_nodes.id")
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, nullable=False, server_default=text("now()"))
+
+
+class NodeCredential(Base):
+    """0003: long-lived NODE_KEY (refresh) and short-lived ACCESS tokens (digest only)."""
+
+    __tablename__ = "node_credentials"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), **UUID_PK)
+    worker_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("worker_nodes.id"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("node_credentials.id")
+    )
+    secret_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False, unique=True)
+    issued_at: Mapped[datetime] = mapped_column(TZ, nullable=False, server_default=text("now()"))
+    expires_at: Mapped[datetime] = mapped_column(TZ, nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(TZ)
 
 
 ALL_TABLES = [m.__table__ for m in Base.__subclasses__()]
