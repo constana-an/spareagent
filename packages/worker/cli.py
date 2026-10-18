@@ -121,7 +121,7 @@ async def _codex_shared_adapter(args: argparse.Namespace, directory):
     if not (args.accept_shared_tasks and args.attest_no_purchased_credits):
         print(
             "error: --executor codex-subscription requires --accept-shared-tasks and "
-            "--attest-no-purchased-credits (no purchased Codex credits, auto-reload off)",
+            "--attest-no-purchased-credits (no extra purchased/granted Credits, auto-reload off)",
             file=sys.stderr,
         )
         return None
@@ -388,7 +388,7 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument(
         "--attest-no-purchased-credits",
         action="store_true",
-        help="confirm this ChatGPT account has no purchased Codex credits and no auto-reload",
+        help="confirm no extra purchased/granted Credits and no automatic reload",
     )
     start.add_argument(
         "--mock-step-delay",
