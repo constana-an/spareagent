@@ -153,6 +153,21 @@ class LeaseService:
             )
             return True
 
+    async def renew(self, lease_id: uuid.UUID, worker_id: uuid.UUID) -> tuple[datetime, bool]:
+        """Extend an active lease without emitting an event.
+
+        Returns (leased_until, cancel_requested). A RESERVED lease is not renewable: it must be
+        accepted first, so an unaccepted reservation still lapses after one lease window."""
+        async with self.ctx.sessionmaker() as session, session.begin():
+            task, attempt = await self._lock(session, lease_id, worker_id)
+            now = utcnow()
+            if attempt.status != "RUNNING" or attempt.leased_until <= now:
+                raise conflict("LEASE_EXPIRED", "Lease is not active")
+            if task.status not in (TaskStatus.RUNNING, TaskStatus.CANCELLING):
+                raise conflict("LEASE_REVOKED", "Task is no longer running")
+            attempt.leased_until = now + self.lease_window
+            return attempt.leased_until, task.status == TaskStatus.CANCELLING
+
     async def complete(
         self, lease_id: uuid.UUID, worker_id: uuid.UUID, data: CompletionInput
     ) -> CompletionOutcome:

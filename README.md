@@ -49,8 +49,12 @@ services/metering/   integer-cent estimator, usage recording (deduplicated)
 services/artifacts/  content-addressed local store with traversal protection
 services/registry/   admin-only resource approval
 packages/provider_sdk/  adapter protocol, types, deterministic MockProviderAdapter
+packages/worker/     spareagent-worker CLI: state, HTTPS node client, agent loop
+services/registry/node_auth.py  enrollment + node credentials (W2)
+services/execution/remote.py    server side of the remote lease protocol (W2)
+services/scheduler/runner.py    central expiry/retry/reconciliation loop (W2)
 db/                  models (mirror of SQL), migrator, migrations
-tests/               unit / integration / e2e (187 tests)
+tests/               unit / integration / e2e (226 tests)
 ```
 
 ## Demo (seeded consumer `11111111-1111-4111-8111-111111111111`)
@@ -87,6 +91,26 @@ curl http://localhost:8000/v1/chat/completions -H 'Content-Type: application/jso
 ```
 `"stream": true` → 422 `UNSUPPORTED_STREAMING`; unknown model → 404 `MODEL_NOT_FOUND`.
 
-### Mock fault injection (tests/demo only)
+### Week 2: remote workers
+Remote nodes run `spareagent-worker` (installed by `pip install .`), connect **outbound over
+HTTPS** with node-scoped credentials and never receive database credentials.
+```bash
+make up && make migrate && make seed-dev
+make e2e-remote          # 3 worker containers, 10 tasks, one SIGKILLed mid-run
+cat reports/week2_e2e_report.json
+```
+Manual flow: an admin (dev seed `55555555-5555-4555-8555-555555555555`) mints a single-use
+token, then the node registers and starts:
+```bash
+curl -s http://localhost:8000/v1/enrollment-tokens -H 'Content-Type: application/json' -H 'X-Dev-User-ID: 55555555-5555-4555-8555-555555555555' -d '{"resource_id":"33333333-3333-4333-8333-333333333333"}'
+```
+```bash
+spareagent-worker register --api-url https://localhost:8443 --ca-file ca.pem --resource-id 33333333-3333-4333-8333-333333333333 --name node-1 --enrollment-token sa_enr_...
+```
+(`ca.pem`: `docker compose cp api-tls:/certs/ca.pem ca.pem`.) Protocol details:
+`docs/ARCHITECTURE.md` §11; decisions D-20..D-32 in `docs/DECISIONS.md`; status in
+`docs/WEEK2_STATUS.md`.
+
+## Mock fault injection (tests/demo only)
 Put a marker in the prompt: `[mock:transient]` (attempt 1 fails, retry succeeds), `[mock:fail]`
 (permanent failure), `[mock:bad-patch]` (verification fails).

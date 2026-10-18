@@ -1,5 +1,15 @@
 name: spareagent
 
+# Remote workers get ONLY the API URL, a CA bundle and their own enrollment/node credential.
+# No DATABASE_URL, REDIS_URL or platform secrets are ever passed to them.
+x-remote-worker: &remote-worker
+  image: spareagent-app:dev
+  profiles: ["remote"]
+  depends_on:
+    api-tls: {condition: service_healthy}
+  volumes:
+    - certs:/certs:ro
+
 x-app-env: &app-env
   APP_ENV: ${APP_ENV:-local}
   DEV_AUTH_ONLY: ${DEV_AUTH_ONLY:-true}
@@ -8,6 +18,8 @@ x-app-env: &app-env
   PROVIDER_MODE: ${PROVIDER_MODE:-mock}
   OPENAI_API_KEY: ${OPENAI_API_KEY:-}
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  LEASE_SECONDS: ${LEASE_SECONDS:-60}
+  NODE_TOKEN_PEPPER: ${NODE_TOKEN_PEPPER:-dev-only-node-token-pepper-change-me}
   ARTIFACT_ROOT: /var/lib/spareagent/artifacts
   # The API port is published on 127.0.0.1 only (see `ports`). Requests forwarded by Docker's
   # port proxy arrive from a private bridge address, so those ranges are trusted for dev auth.
@@ -57,6 +69,46 @@ services:
       timeout: 3s
       retries: 30
 
+  # One-shot: development CA + server certificate for the HTTPS worker endpoint.
+  certs:
+    image: spareagent-app:dev
+    command: ["python", "scripts/dev_certs.py", "/certs"]
+    volumes:
+      - certs:/certs
+    depends_on:
+      api: {condition: service_started}
+
+  # HTTPS listener for remote workers (same stateless API image, TLS terminated by uvicorn).
+  api-tls:
+    image: spareagent-app:dev
+    command: ["uvicorn", "--factory", "apps.api.main:create_app", "--host", "0.0.0.0", "--port", "8443",
+              "--ssl-keyfile", "/certs/server-key.pem", "--ssl-certfile", "/certs/server.pem", "--no-access-log"]
+    environment: *app-env
+    ports:
+      - "127.0.0.1:8443:8443"
+    volumes:
+      - artifacts:/var/lib/spareagent/artifacts
+      - certs:/certs:ro
+    depends_on:
+      certs: {condition: service_completed_successfully}
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import ssl,urllib.request,sys; c=ssl.create_default_context(cafile='/certs/ca.pem'); sys.exit(0 if urllib.request.urlopen('https://localhost:8443/healthz', timeout=2, context=c).status == 200 else 1)"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  # Central maintenance: lease expiry, retry promotion, capacity reconciliation.
+  scheduler:
+    image: spareagent-app:dev
+    command: ["python", "-m", "services.scheduler.runner"]
+    environment: *app-env
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      api: {condition: service_started}
+
   worker:
     image: spareagent-app:dev
     command: ["python", "-m", "services.execution.local_worker"]
@@ -67,6 +119,51 @@ services:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
       api: {condition: service_started}
+
+  remote-worker-1:
+    <<: *remote-worker
+    command: &remote-cmd ["sh", "-c", "python -m packages.worker.cli register --if-needed && exec python -m packages.worker.cli start"]
+    environment:
+      SPAREAGENT_API_URL: https://api-tls:8443
+      SPAREAGENT_CA_FILE: /certs/ca.pem
+      SPAREAGENT_RESOURCE_ID: 33333333-3333-4333-8333-333333333333
+      SPAREAGENT_WORKER_NAME: remote-1
+      SPAREAGENT_WORKER_HOME: /var/lib/spareagent-worker
+      SPAREAGENT_ENROLLMENT_TOKEN: ${WORKER1_ENROLLMENT_TOKEN:-}
+      SPAREAGENT_MOCK_STEP_DELAY: ${MOCK_STEP_DELAY:-1}
+    volumes:
+      - certs:/certs:ro
+      - worker1-state:/var/lib/spareagent-worker
+
+  remote-worker-2:
+    <<: *remote-worker
+    command: *remote-cmd
+    environment:
+      SPAREAGENT_API_URL: https://api-tls:8443
+      SPAREAGENT_CA_FILE: /certs/ca.pem
+      SPAREAGENT_RESOURCE_ID: 33333333-3333-4333-8333-333333333333
+      SPAREAGENT_WORKER_NAME: remote-2
+      SPAREAGENT_WORKER_HOME: /var/lib/spareagent-worker
+      SPAREAGENT_ENROLLMENT_TOKEN: ${WORKER2_ENROLLMENT_TOKEN:-}
+      SPAREAGENT_MOCK_STEP_DELAY: ${MOCK_STEP_DELAY:-1}
+    volumes:
+      - certs:/certs:ro
+      - worker2-state:/var/lib/spareagent-worker
+
+  remote-worker-3:
+    <<: *remote-worker
+    command: *remote-cmd
+    environment:
+      SPAREAGENT_API_URL: https://api-tls:8443
+      SPAREAGENT_CA_FILE: /certs/ca.pem
+      SPAREAGENT_RESOURCE_ID: 33333333-3333-4333-8333-333333333333
+      SPAREAGENT_WORKER_NAME: remote-3
+      SPAREAGENT_WORKER_HOME: /var/lib/spareagent-worker
+      SPAREAGENT_ENROLLMENT_TOKEN: ${WORKER3_ENROLLMENT_TOKEN:-}
+      SPAREAGENT_MOCK_STEP_DELAY: ${MOCK_STEP_DELAY:-1}
+    volumes:
+      - certs:/certs:ro
+      - worker3-state:/var/lib/spareagent-worker
 
   test:
     image: spareagent-app:dev
@@ -90,3 +187,7 @@ services:
 volumes:
   pgdata:
   artifacts:
+  certs:
+  worker1-state:
+  worker2-state:
+  worker3-state:

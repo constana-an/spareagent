@@ -18,6 +18,7 @@ from services.context import AppContext, build_context
 from services.errors import DomainError
 from services.gateway.service import GatewayService
 from services.observability import configure_logging
+from services.registry.node_auth import NodeAuthService
 
 log = logging.getLogger("spareagent.api")
 
@@ -108,6 +109,7 @@ def create_app(settings: Settings | None = None, ctx: AppContext | None = None) 
     )
     app.state.ctx = ctx
     app.state.gateway = GatewayService(ctx)
+    app.state.node_auth = NodeAuthService(ctx)
     app.add_middleware(RequestIdMiddleware)
     install_error_handlers(app)
     for module in (health, tasks, gateway, workers, admin):

@@ -1,7 +1,7 @@
 COMPOSE ?= docker compose
 RUN_TEST = $(COMPOSE) run --rm -T test
 
-.PHONY: help up down build migrate seed-dev test test-unit lint format validate-openapi smoke logs clean
+.PHONY: help up down build migrate seed-dev test test-unit lint format validate-openapi smoke e2e-remote logs clean
 
 help:
 	@echo "Targets: up down build migrate seed-dev test test-unit lint format validate-openapi smoke logs clean"
@@ -10,8 +10,8 @@ build:
 	$(COMPOSE) build api
 
 up:
-	$(COMPOSE) up --build -d --wait postgres redis api
-	$(COMPOSE) up -d worker
+	$(COMPOSE) up --build -d --wait postgres redis api api-tls
+	$(COMPOSE) up -d worker scheduler
 
 down:
 	$(COMPOSE) down
@@ -44,8 +44,13 @@ validate-openapi: build
 smoke:
 	bash scripts/smoke.sh
 
+# Week 2: three remote workers over HTTPS, ten tasks, one worker killed mid-run.
+# Writes reports/week2_e2e_report.json.
+e2e-remote:
+	python3 scripts/e2e_remote_demo.py
+
 logs:
-	$(COMPOSE) logs --tail=200 api worker
+	$(COMPOSE) logs --tail=200 api api-tls scheduler worker
 
 clean:
 	$(COMPOSE) down -v

@@ -59,13 +59,16 @@ class Dispatcher:
     def __init__(self, ctx: AppContext) -> None:
         self.ctx = ctx
 
-    async def eligible_workers(self, session: AsyncSession) -> list[tuple[WorkerNode, Resource]]:
+    async def eligible_workers(
+        self, session: AsyncSession, worker_ids: tuple[uuid.UUID, ...] | None = None
+    ) -> list[tuple[WorkerNode, Resource]]:
         fresh_after = utcnow() - timedelta(seconds=self.ctx.settings.worker_heartbeat_ttl_seconds)
         stmt = (
             select(WorkerNode, Resource)
             .join(Resource, Resource.id == WorkerNode.resource_id)
             .where(
                 WorkerNode.status.in_(SCHEDULABLE_WORKER_STATUSES),
+                WorkerNode.revoked_at.is_(None),
                 WorkerNode.active_tasks < WorkerNode.max_concurrency,
                 WorkerNode.last_heartbeat.is_not(None),
                 WorkerNode.last_heartbeat >= fresh_after,
@@ -77,6 +80,8 @@ class Dispatcher:
             .order_by(WorkerNode.id)
             .with_for_update(of=WorkerNode, skip_locked=True)
         )
+        if worker_ids is not None:
+            stmt = stmt.where(WorkerNode.id.in_(worker_ids))
         rows = [(w, r) for w, r in (await session.execute(stmt)).all()]
         # Defence in depth: never trust the SQL filter (or a tampered fixture) alone.
         return [
@@ -137,8 +142,13 @@ class Dispatcher:
                 promoted += 1
         return promoted
 
-    async def dispatch_once(self) -> uuid.UUID | None:
-        """Try to place the oldest dispatchable task. Returns the new attempt id, if any."""
+    async def dispatch_once(
+        self, worker_ids: tuple[uuid.UUID, ...] | None = None
+    ) -> uuid.UUID | None:
+        """Try to place the oldest dispatchable task. Returns the new attempt id, if any.
+
+        `worker_ids` restricts placement to those nodes (pull model: a worker claims work for
+        itself; capacity is reserved atomically under the worker row lock)."""
         async with self.ctx.sessionmaker() as session, session.begin():
             now = utcnow()
             stmt = (
@@ -210,7 +220,9 @@ class Dispatcher:
                 )
                 return None
 
-            candidates = rank_workers([w for w, _ in await self.eligible_workers(session)])
+            candidates = rank_workers(
+                [w for w, _ in await self.eligible_workers(session, worker_ids)]
+            )
             if not candidates:
                 return None  # stays QUEUED; no personal or unapproved fallback, ever
             worker = candidates[0]
@@ -244,7 +256,9 @@ class Dispatcher:
         await self.ctx.publisher.wake(f"attempt:{attempt_id}")
         return attempt_id
 
-    async def dispatch_all(self, *, limit: int = 50) -> int:
+    async def dispatch_all(
+        self, *, limit: int = 50, worker_ids: tuple[uuid.UUID, ...] | None = None
+    ) -> int:
         count = 0
         for _ in range(limit):
             async with self.ctx.sessionmaker() as session:
@@ -257,11 +271,11 @@ class Dispatcher:
                 ).scalar_one()
             if not pending:
                 break
-            attempt = await self.dispatch_once()
+            attempt = await self.dispatch_once(worker_ids)
             if attempt is None:
                 # Either the head task was resolved (timeout/budget) or no worker is free.
                 async with self.ctx.sessionmaker() as session:
-                    if not await self.eligible_workers(session):
+                    if not await self.eligible_workers(session, worker_ids):
                         break
                 continue
             count += 1

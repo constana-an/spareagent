@@ -23,12 +23,15 @@ async def test_migration_applied_once_and_rerun_is_noop(migrated_database):
         versions = [r["version"] for r in await conn.fetch("SELECT version FROM schema_migrations")]
     finally:
         await conn.close()
-    assert versions == ["0001_initial"]
+    assert versions == ["0001_initial", "0003_worker_auth"]
 
 
 def test_seed_files_are_not_schema_migrations():
-    assert [m.version for m in discover()] == ["0001_initial"]
-    assert [m.version for m in discover(include_seed=True)] == ["0002_seed_dev"]
+    assert [m.version for m in discover()] == ["0001_initial", "0003_worker_auth"]
+    assert [m.version for m in discover(include_seed=True)] == [
+        "0002_seed_dev",
+        "0004_seed_dev_week2",
+    ]
     assert "BEGIN;" not in discover()[0].sql and "COMMIT;" not in discover()[0].sql
 
 
@@ -37,7 +40,7 @@ async def test_modified_migration_is_refused(migrated_database, tmp_path):
 
     for f in MIGRATIONS_DIR.glob("*.sql"):
         shutil.copy(f, tmp_path / f.name)
-    path = tmp_path / "0001_initial.sql"
+    path = tmp_path / "0003_worker_auth.sql"
     path.write_text(path.read_text() + "\n-- tampered\n")
     with pytest.raises(MigrationError, match="immutable"):
         await migrate(TEST_DATABASE_URL, tmp_path)
@@ -81,7 +84,7 @@ async def test_seed_is_repeatable(migrated_database):
         ]
     finally:
         await conn.close()
-    assert counts == [2, 1, 1]
+    assert counts == [3, 2, 1]  # + Week 2 admin and a non-eligible personal resource
 
 
 async def test_orm_models_match_sql_schema(migrated_database):
