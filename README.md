@@ -128,3 +128,18 @@ Details: `docs/ARCHITECTURE.md` §12, decisions D-33..D-43, status and **residua
 ## Mock fault injection (tests/demo only)
 Put a marker in the prompt: `[mock:transient]` (attempt 1 fails, retry succeeds), `[mock:fail]`
 (permanent failure), `[mock:bad-patch]` (verification fails).
+
+## Week 5 private friends beta
+
+`apps/web/` provides the invite-only Next.js dashboard for owner-controlled experimental
+reviews. [Owner validation](docs/WEEK5_LOCAL_CODEX_RUNBOOK.md),
+[two-participant runbook](docs/WEEK5_FRIENDS_BETA_RUNBOOK.md), and
+[actual status/evidence](docs/WEEK5_STATUS.md) describe setup and manual activation.
+Use `FRIENDS_AUTH_ENABLED=true` for browser sessions and `docker compose --profile web up
+--build -d web` after migrating. LIVE remains off by default and is never run in CI.
+
+LIVE results now enter the existing independent verifier: integrity, fresh pinned checkout,
+clean patch application and trusted fixture tests. Unsupported repositories and reviews
+carry explicit `UNVERIFIED` provenance; structural checks never imply semantic correctness.
+The real owner-only check succeeded on 2026-10-18; the owner confirmed subscription-only
+usage and unchanged Credits. No real Alice/Bob subscription run has been performed.
