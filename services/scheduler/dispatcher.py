@@ -300,7 +300,10 @@ class Dispatcher:
                     await session.execute(
                         select(func.count())
                         .select_from(Task)
-                        .where(Task.status == TaskStatus.QUEUED.value)
+                        .where(
+                            Task.status == TaskStatus.QUEUED.value,
+                            Task.resource_scope == PUBLIC_MARKETPLACE,
+                        )
                     )
                 ).scalar_one()
             if not pending:

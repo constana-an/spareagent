@@ -73,6 +73,14 @@ class Settings(BaseSettings):
     verification_max_errors: int = Field(default=3, ge=1, le=20)
     verification_claim_seconds: int = Field(default=300, ge=10, le=3600)
 
+    # Week 4 experimental subscription-sharing scope (invitation-only, non-commercial).
+    # Process-wide operator kill switch; defaults OFF. Cross-user dispatch additionally needs
+    # an operator-verified authorization record, an enabled group and owner consent, and is
+    # simulated-only in this build (live execution is blocked, see WEEK4 status B-1).
+    experiment_enabled: bool = False
+    experiment_terms_version: str = "2026-10-experimental-v1"
+    experiment_max_group_members: int = Field(default=5, ge=2, le=20)
+
     local_worker_node_ids: str = DEFAULT_LOCAL_WORKER
     mock_chat_resource_id: uuid.UUID = uuid.UUID(DEFAULT_MOCK_CHAT_RESOURCE)
 
