@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import (
     ExperimentalDispatchAudit,
+    ExperimentalTaskConsent,
     SubscriptionConnection,
     SubscriptionSharingPreference,
     SubscriptionUsageObservation,
@@ -70,6 +71,36 @@ class SubscriptionUsageMonitor:
             conn = await session.get(SubscriptionConnection, connection_id, with_for_update=True)
             if conn is not None:
                 conn.auth_state = "EXPIRED"
+
+    @classmethod
+    async def record_for_lease(cls, ctx: Any, lease_id: uuid.UUID, event: str) -> None:
+        """Observation for a remote experimental completion (no-op for other scopes)."""
+        async with ctx.sessionmaker() as session, session.begin():
+            row = (
+                await session.execute(
+                    select(TaskAttempt, ExperimentalTaskConsent.connection_id)
+                    .join(
+                        ExperimentalTaskConsent,
+                        ExperimentalTaskConsent.task_id == TaskAttempt.task_id,
+                    )
+                    .where(TaskAttempt.lease_id == lease_id)
+                )
+            ).one_or_none()
+            if row is None:
+                return
+            attempt, connection_id = row
+            duration = None
+            if attempt.started_at and attempt.completed_at:
+                duration = int((attempt.completed_at - attempt.started_at).total_seconds() * 1000)
+            await cls.record(
+                session,
+                connection_id,
+                event=event,
+                source="LOCAL_RUNTIME",
+                attempt_id=attempt.id,
+                duration_ms=duration,
+                capacity_state="LIMITED" if event == "RATE_LIMITED" else UNKNOWN,
+            )
 
     @staticmethod
     async def active_tasks(session: AsyncSession, connection: SubscriptionConnection) -> int:

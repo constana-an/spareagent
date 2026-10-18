@@ -4,6 +4,8 @@ checks live in ExperimentalParticipationService. Unknown/foreign ids return 404.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, Depends, Header, Query, Request
 
 from apps.api.dependencies import get_ctx, parse_uuid_or_404
@@ -16,6 +18,8 @@ from apps.api.schemas.experiments import (
     ConnectionOut,
     Consent,
     DecisionOut,
+    DeviceEnrollmentCreate,
+    DeviceEnrollmentOut,
     ExperimentalTaskCreate,
     ExperimentalTaskList,
     ExperimentalTaskOut,
@@ -31,6 +35,7 @@ from apps.api.schemas.experiments import (
     PreferencesOut,
     SharingEnable,
     SharingTarget,
+    SubscriptionAttest,
     SubscriptionConnect,
     SubscriptionStatus,
     SubscriptionStatusItem,
@@ -53,10 +58,19 @@ def svc(request: Request) -> ExperimentalParticipationService:
     return ExperimentalParticipationService(get_ctx(request))
 
 
-def _auth_out(auth) -> AuthorizationOut | None:
+def _auth_out(auth, request: Request) -> AuthorizationOut | None:
     if auth is None:
         return None
-    return AuthorizationOut.model_validate(auth, from_attributes=True)
+    out = AuthorizationOut.model_validate(auth, from_attributes=True)
+    out.live_execution_enabled = bool(
+        get_ctx(request).settings.experiment_live_enabled
+        and auth.verification_status == "OPERATOR_VERIFIED"
+        and auth.integration_route_covered
+        and auth.integration_route == "CODEX_CLI_EXEC"
+        and auth.revoked_at is None
+        and auth.expires_at > datetime.now(UTC)
+    )
+    return out
 
 
 def _prefs_out(prefs) -> PreferencesOut | None:
@@ -72,6 +86,7 @@ async def _task_out(request: Request, view: ExperimentalTaskView) -> Experimenta
         status=t.status,
         task_type=t.task_type,
         resource_scope=t.resource_scope,
+        execution_mode="LIVE" if t.execution_profile == "CODEX_LIVE" else "SIMULATED",
         group_id=c.group_id,
         connection_id=c.connection_id,
         requester_id=c.requester_id,
@@ -115,7 +130,7 @@ async def get_group(
     group, members, auth = await svc(request).get_group(principal, gid)
     out = GroupOut.model_validate(group, from_attributes=True)
     out.members = [MemberOut.model_validate(m, from_attributes=True) for m in members]
-    out.authorization = _auth_out(auth)
+    out.authorization = _auth_out(auth, request)
     return out
 
 
@@ -160,7 +175,7 @@ async def record_authorization(
 ) -> AuthorizationOut:
     gid = parse_uuid_or_404(group_id, "GROUP_NOT_FOUND")
     auth = await svc(request).record_authorization(principal, gid, body.model_dump())
-    return _auth_out(auth)
+    return _auth_out(auth, request)
 
 
 @router.post(
@@ -181,7 +196,7 @@ async def verify_authorization(
         status=body.verification_status,
         integration_route_covered=body.integration_route_covered,
     )
-    return _auth_out(auth)
+    return _auth_out(auth, request)
 
 
 @router.post(
@@ -193,7 +208,7 @@ async def revoke_authorization(
     authorization_id: str, request: Request, principal: Principal = Depends(get_principal)
 ) -> AuthorizationOut:
     aid = parse_uuid_or_404(authorization_id, "AUTHORIZATION_NOT_FOUND")
-    return _auth_out(await svc(request).revoke_authorization(principal, aid))
+    return _auth_out(await svc(request).revoke_authorization(principal, aid), request)
 
 
 @router.post(
@@ -249,6 +264,40 @@ async def connect(
 ) -> ConnectionOut:
     conn = await svc(request).connect(principal, body.model_dump())
     return ConnectionOut.model_validate(conn, from_attributes=True)
+
+
+@router.post(
+    "/subscriptions/attest",
+    operation_id="attestSubscription",
+    response_model=ConnectionOut,
+)
+async def attest(
+    body: SubscriptionAttest, request: Request, principal: Principal = Depends(get_principal)
+) -> ConnectionOut:
+    conn = await svc(request).attest(principal, body.connection_id, body.model_dump())
+    return ConnectionOut.model_validate(conn, from_attributes=True)
+
+
+@router.post(
+    "/subscriptions/enrollment-tokens",
+    operation_id="createDeviceEnrollmentToken",
+    status_code=201,
+    response_model=DeviceEnrollmentOut,
+)
+async def device_enrollment(
+    body: DeviceEnrollmentCreate,
+    request: Request,
+    principal: Principal = Depends(get_principal),
+) -> DeviceEnrollmentOut:
+    resource_id, issued = await request.app.state.node_auth.create_personal_enrollment_token(
+        principal, body.ttl_seconds
+    )
+    return DeviceEnrollmentOut(
+        resource_id=resource_id,
+        token_id=issued.id,
+        token=issued.secret,
+        expires_at=issued.expires_at,
+    )
 
 
 @router.get(

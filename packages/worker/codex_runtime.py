@@ -156,7 +156,7 @@ class CodexRuntime:
         self._procs: dict[str, asyncio.subprocess.Process] = {}
         self._cancelled: set[str] = set()
 
-    def argv(self) -> list[str]:
+    def argv(self, sandbox: SandboxMode | None = None) -> list[str]:
         cfg = self.config
         args = [
             cfg.codex_bin,
@@ -167,7 +167,7 @@ class CodexRuntime:
             "--ephemeral",
             "--skip-git-repo-check",
             "--sandbox",
-            cfg.sandbox,
+            sandbox or cfg.sandbox,
         ]
         if cfg.model:
             args += ["--model", cfg.model]
@@ -181,13 +181,20 @@ class CodexRuntime:
         return sanitized_env(base)
 
     async def run(
-        self, run_id: str, prompt: str, workdir: Path, *, timeout_seconds: float
+        self,
+        run_id: str,
+        prompt: str,
+        workdir: Path,
+        *,
+        timeout_seconds: float,
+        sandbox: SandboxMode | None = None,
     ) -> AsyncIterator[CodexEvent | CodexRunResult]:
-        """Yields CodexEvents, then exactly one CodexRunResult."""
+        """Yields CodexEvents, then exactly one CodexRunResult. `sandbox` can only choose
+        between Codex's read-only and workspace-write modes (never full access)."""
         result = CodexRunResult()
         try:
             proc = await asyncio.create_subprocess_exec(
-                *self.argv(),
+                *self.argv(sandbox),
                 cwd=str(workdir),
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,

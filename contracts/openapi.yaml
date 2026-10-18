@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SpareAgent MVP API
-  version: 1.3.0
+  version: 1.4.0
   description: 'W1: Tasks, Events, Models, Chat nonstream, health. W2: remote worker enrollment, node credentials and lease protocol.'
 servers:
   - url: http://localhost:8000
@@ -708,6 +708,48 @@ paths:
           $ref: '#/components/responses/ApiError'
         '422':
           $ref: '#/components/responses/ApiError'
+  /v1/subscriptions/attest:
+    post:
+      operationId: attestSubscription
+      x-spareagent-extension: 'W4 experimental scope (docs/WEEK4_SUBSCRIPTION_STATUS.md). Invitation-only, non-commercial.'
+      description: Owner only. Records the codex-check result and the no-purchased-credits / no-auto-reload attestation required for LIVE shared tasks. Sending a failing result or false withdraws it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubscriptionAttest'
+      responses:
+        '200':
+          description: connection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionConnection'
+        '401': {$ref: '#/components/responses/ApiError'}
+        '404': {$ref: '#/components/responses/ApiError'}
+        '422': {$ref: '#/components/responses/ApiError'}
+  /v1/subscriptions/enrollment-tokens:
+    post:
+      operationId: createDeviceEnrollmentToken
+      x-spareagent-extension: 'W4 experimental scope (docs/WEEK4_SUBSCRIPTION_STATUS.md). Invitation-only, non-commercial.'
+      description: Active experiment members only. Creates a non-public PERSONAL_SUBSCRIPTION resource for the caller's own device and a single-use enrollment token for it (shown once). Marketplace enrollment of personal resources remains impossible.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceEnrollmentCreate'
+      responses:
+        '201':
+          description: enrollment token (secret shown once)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceEnrollment'
+        '401': {$ref: '#/components/responses/ApiError'}
+        '403': {$ref: '#/components/responses/ApiError'}
+        '422': {$ref: '#/components/responses/ApiError'}
   /v1/subscriptions/status:
     get:
       operationId: getSubscriptionStatus
@@ -1167,7 +1209,9 @@ components:
         attempt_number: {type: integer}
         leased_until: {type: string, format: date-time}
         lease_seconds: {type: integer}
-        execution_profile: {type: string, enum: [MOCK, CODE], default: MOCK, description: 'W3: CODE leases require the sandboxed code executor'}
+        execution_profile: {type: string, enum: [MOCK, CODE, CODEX_LIVE], default: MOCK, description: 'W3: CODE leases require the sandboxed code executor. W4: CODEX_LIVE leases run on the owner''s own Codex CLI (experimental scope only)'}
+        resource_scope: {type: string, enum: [PUBLIC_MARKETPLACE, EXPERIMENTAL_SHARED_SUBSCRIPTION], default: PUBLIC_MARKETPLACE}
+        authorization_ref: {anyOf: [{type: string, format: uuid}, {type: 'null'}], description: 'W4: authorization record an experimental lease relies on'}
         task:
           type: object
           required: [task_id, task_type, repository_url, commit_sha, prompt, max_duration_seconds, max_budget_cents]
@@ -1194,7 +1238,7 @@ components:
         succeeded: {type: boolean}
         result_summary: {type: string, maxLength: 2000}
         retryable: {type: boolean, default: false}
-        error_code: {type: string, enum: [TRANSIENT_PROVIDER_ERROR, PERMANENT_PROVIDER_ERROR, NO_RESULT, WORKER_SHUTDOWN, CANCELLED, EXECUTION_ERROR]}
+        error_code: {type: string, enum: [TRANSIENT_PROVIDER_ERROR, PERMANENT_PROVIDER_ERROR, NO_RESULT, WORKER_SHUTDOWN, CANCELLED, EXECUTION_ERROR, SUBSCRIPTION_USAGE_LIMIT, SUBSCRIPTION_AUTH_UNAVAILABLE, OWNER_ONLY_VIOLATION, SHARED_WORK_REFUSED]}
         timed_out: {type: boolean, default: false}
         artifacts:
           type: array
@@ -1311,9 +1355,17 @@ components:
         created_at:
           type: string
           format: date-time
+        integration_route:
+          anyOf:
+          - type: string
+          - type: 'null'
+        max_participants:
+          anyOf:
+          - type: integer
+          - type: 'null'
         live_execution_enabled:
           type: boolean
-          const: false
+          description: true only if this record currently permits LIVE dispatch and EXPERIMENT_LIVE_ENABLED is on
       required:
       - id
       - verification_status
@@ -1406,6 +1458,14 @@ components:
           pattern: ^[A-Za-z0-9 ._:#/-]+$
         authorization_scope:
           type: object
+        integration_route:
+          type: string
+          enum:
+          - CODEX_CLI_EXEC
+        max_participants:
+          type: integer
+          minimum: 2
+          maximum: 20
         expires_at:
           type: string
           format: date-time
@@ -1561,6 +1621,16 @@ components:
         created_at:
           type: string
           format: date-time
+        owner_check_passed_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        no_purchased_credits_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
       required:
       - id
       - worker_id
@@ -1865,6 +1935,12 @@ components:
           type: integer
           minimum: 10
           maximum: 3600
+        execution_mode:
+          type: string
+          enum:
+          - SIMULATED
+          - LIVE
+          default: SIMULATED
       required:
       - group_id
       - connection_id
@@ -1889,7 +1965,9 @@ components:
           const: EXPERIMENTAL_SHARED_SUBSCRIPTION
         execution_mode:
           type: string
-          const: SIMULATED
+          enum:
+          - SIMULATED
+          - LIVE
         group_id:
           type: string
           format: uuid
@@ -1959,3 +2037,25 @@ components:
             $ref: '#/components/schemas/ExperimentalTask'
       required:
       - items
+    SubscriptionAttest:
+      type: object
+      additionalProperties: false
+      required: [connection_id, codex_check_result, no_purchased_credits, no_auto_reload]
+      properties:
+        connection_id: {type: string, format: uuid}
+        codex_check_result: {type: string, enum: [OWNER_ONLY_SUBSCRIPTION_RUN_OK, AUTH_OK_INFERENCE_SKIPPED, FAILED_CLOSED, FAILED]}
+        no_purchased_credits: {type: boolean}
+        no_auto_reload: {type: boolean}
+    DeviceEnrollmentCreate:
+      type: object
+      additionalProperties: false
+      properties:
+        ttl_seconds: {type: integer, minimum: 60, maximum: 86400, default: 3600}
+    DeviceEnrollment:
+      type: object
+      required: [resource_id, token_id, token, expires_at]
+      properties:
+        resource_id: {type: string, format: uuid}
+        token_id: {type: string, format: uuid}
+        token: {type: string}
+        expires_at: {type: string, format: date-time}

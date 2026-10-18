@@ -28,3 +28,17 @@ On your own machine, after `codex login` with your ChatGPT account:
 `codex-check` never reads or uploads credentials and sends nothing to SpareAgent. It refuses
 (`FAILED_CLOSED`) if Codex is logged in with an API key or not logged in. Cross-user use of a
 personal plan is not enabled; see `docs/WEEK4_SUBSCRIPTION_STATUS.md`.
+
+## Week 4 Milestone D: sharing your device with your experiment group
+
+Only after `codex-check` passes, your device is enrolled via
+`POST /v1/subscriptions/enrollment-tokens`, and you have attested via
+`POST /v1/subscriptions/attest`:
+
+    spareagent-worker start --executor codex-subscription \
+        --accept-shared-tasks --attest-no-purchased-credits
+
+Only use `--attest-no-purchased-credits` if your ChatGPT account holds no purchased Codex
+credits and auto-reload is off. `spareagent-worker sharing pause` stops shared work on this
+device immediately, whatever the server says. You approve each incoming task unless you
+granted scoped advance consent.

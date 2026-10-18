@@ -80,6 +80,10 @@ class Settings(BaseSettings):
     experiment_enabled: bool = False
     experiment_terms_version: str = "2026-10-experimental-v1"
     experiment_max_group_members: int = Field(default=5, ge=2, le=20)
+    # Milestone D operator switch for LIVE cross-user execution on owners' own Codex CLI.
+    # Off by default; even when on, each dispatch needs a verified, unexpired,
+    # route-covered authorization plus the owner's codex-check and credits attestations.
+    experiment_live_enabled: bool = False
 
     local_worker_node_ids: str = DEFAULT_LOCAL_WORKER
     mock_chat_resource_id: uuid.UUID = uuid.UUID(DEFAULT_MOCK_CHAT_RESOURCE)

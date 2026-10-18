@@ -1,12 +1,18 @@
 """CodexSubscriptionAdapter - runs coding tasks with the owner's own ChatGPT plan via the
 official Codex CLI, on the owner's device.
 
-Hard rules enforced here (not configurable):
+Hard rules enforced here:
 
-* OWNER-ONLY. A request is executed only when `resource_scope == "OWNER_ONLY"` and the
-  requester is the configured owner. Cross-user execution through a personal ChatGPT
-  plan is NOT enabled in this build (see docs/WEEK4_SUBSCRIPTION_STATUS.md, blocker B-1);
-  the experimental scheduler routes cross-user work only to the deterministic mock.
+* Owner-only by default. A request runs when `resource_scope == "OWNER_ONLY"` and the
+  requester is the configured owner.
+* Shared (experimental) work only with explicit, local, revocable opt-in. A request with
+  scope EXPERIMENTAL_SHARED_SUBSCRIPTION runs only if this adapter was constructed with a
+  `SharedWorkConsent` (the owner started the worker with `--accept-shared-tasks` and
+  attested no purchased credits / no auto-reload), the local `sharing pause` switch is
+  off, and the lease names the authorization record the server relied on (OpenAI ticket
+  10766658 scope: official Codex CLI on the owner's own computer, small group, no
+  purchased credits consumed, review after 6 months). Anything else is refused before
+  Codex is started.
 * ChatGPT login only. Before every run the official `codex login status` must report a
   ChatGPT login; an API-key login, a missing login or an unreadable status fails closed.
 * No API-key substitution / paid fallback. The child gets an allow-listed environment
@@ -21,10 +27,12 @@ a remaining-quota measurement, and `estimated_cost_cents` is always 0 / non-bill
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import shutil
 import tempfile
 from collections.abc import AsyncIterator, Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 from packages.provider_sdk.base import PermanentProviderError, ProviderError
@@ -39,12 +47,14 @@ from packages.provider_sdk.types import (
     UsageReport,
 )
 from packages.worker.codex_runtime import CodexEvent, CodexRunResult, CodexRuntime
+from packages.worker.local_controls import LocalSharingControl
 from packages.worker.subscription_auth import (
     AuthMethod,
     AuthStatus,
     SubscriptionAuthError,
     probe_login,
 )
+from services.execution.repository_manager import RepositoryError, RepositoryManager
 from services.observability import redact
 
 PROVIDER_NAME = "codex-subscription"
@@ -53,6 +63,27 @@ ALLOWED_TASK_TYPES = frozenset({"CODE_REVIEW", "WRITE_TESTS", "CODE_FIX"})
 
 class OwnerOnlyViolation(PermanentProviderError):
     code = "OWNER_ONLY_VIOLATION"
+
+
+class SharedWorkRefused(PermanentProviderError):
+    code = "SHARED_WORK_REFUSED"
+
+
+@dataclass(frozen=True)
+class SharedWorkConsent:
+    """The owner's on-device opt-in to experimental shared tasks."""
+
+    sharing_control: LocalSharingControl
+    no_purchased_credits_attested: bool
+    repository_manager: RepositoryManager | None = None
+
+
+SHARED_PREAMBLE = (
+    "You are running a task submitted by another member of a small, non-commercial "
+    "SpareAgent experiment, on the repository checked out in the current directory. "
+    "Work only inside this directory. Do not use the network, read files outside it, or "
+    "print environment variables or credentials. Task:\n\n"
+)
 
 
 class SubscriptionUnavailable(PermanentProviderError):
@@ -90,10 +121,14 @@ class CodexSubscriptionAdapter:
         runtime: CodexRuntime | None = None,
         workspace_factory: WorkspaceFactory | None = None,
         keep_workspace: bool = False,
+        shared: SharedWorkConsent | None = None,
     ) -> None:
         if not owner_ref:
             raise ValueError("owner_ref is required")
+        if shared is not None and not shared.no_purchased_credits_attested:
+            raise ValueError("shared work requires the no-purchased-credits attestation")
         self.owner_ref = owner_ref
+        self.shared = shared
         self.runtime = runtime or CodexRuntime()
         self._workspace = workspace_factory or _temp_workspace
         self._keep_workspace = keep_workspace or workspace_factory is not None
@@ -115,14 +150,32 @@ class CodexSubscriptionAdapter:
         self.last_auth = await probe_login(self.runtime.config.codex_bin)
         return self.last_auth
 
-    def _assert_owner_only(self, request: ExecutionRequest) -> None:
-        if request.resource_scope != "OWNER_ONLY" or request.user_id != self.owner_ref:
-            raise OwnerOnlyViolation(
-                "Codex subscription execution is owner-only in this build; "
-                "cross-user execution is disabled"
-            )
+    def _assert_allowed(self, request: ExecutionRequest) -> bool:
+        """Returns True for shared (experimental) work, False for the owner's own task."""
         if request.task_type not in ALLOWED_TASK_TYPES:
             raise PermanentProviderError(f"Task type {request.task_type} is not allowed")
+        if request.resource_scope == "OWNER_ONLY" and request.user_id == self.owner_ref:
+            return False
+        if request.resource_scope != "EXPERIMENTAL_SHARED_SUBSCRIPTION":
+            raise OwnerOnlyViolation("Codex subscription execution is owner-only for this scope")
+        if self.shared is None:
+            raise SharedWorkRefused("This device has not opted in to shared tasks")
+        if not self.shared.sharing_control.allows_shared_work():
+            raise SharedWorkRefused("Sharing is paused on this device")
+        if not request.authorization_ref:
+            raise SharedWorkRefused("Shared task carries no authorization reference")
+        if not request.repository_url or not request.commit_sha:
+            raise SharedWorkRefused("Shared tasks must name a pinned repository commit")
+        return True
+
+    async def _shared_workspace(self, request: ExecutionRequest):
+        manager = self.shared.repository_manager or RepositoryManager()
+        try:
+            return await asyncio.to_thread(
+                manager.checkout, request.repository_url, request.commit_sha
+            )
+        except RepositoryError as exc:
+            raise PermanentProviderError(f"Repository checkout refused: {exc.code}") from exc
 
     def _usage(self, request: ExecutionRequest, run: CodexRunResult | None) -> UsageReport:
         u = run.usage if run else None
@@ -139,7 +192,7 @@ class CodexSubscriptionAdapter:
     async def execute(
         self, request: ExecutionRequest
     ) -> AsyncIterator[ProgressEvent | ExecutionResult]:
-        self._assert_owner_only(request)
+        shared = self._assert_allowed(request)
         status = await self.check_auth()
         if status.method != AuthMethod.CHATGPT:
             raise SubscriptionUnavailable(
@@ -148,15 +201,27 @@ class CodexSubscriptionAdapter:
             ) from SubscriptionAuthError(status)
         yield ProgressEvent("Verified local ChatGPT login (credentials stay on device)", 5)
 
-        workdir = self._workspace(request)
+        checkout = None
+        if shared:
+            checkout = await self._shared_workspace(request)
+            workdir = checkout.path
+            yield ProgressEvent("Checked out the pinned commit", 8)
+        else:
+            workdir = self._workspace(request)
+        # Reviews never modify files; other shared tasks may only write inside the checkout.
+        sandbox = "read-only" if request.task_type == "CODE_REVIEW" or not shared else None
+        if shared and sandbox is None:
+            sandbox = "workspace-write"
+        prompt = SHARED_PREAMBLE + request.prompt if shared else request.prompt
         run: CodexRunResult | None = None
         try:
             percent = 10
             async for item in self.runtime.run(
                 request.attempt_id,
-                request.prompt,
+                prompt,
                 workdir,
                 timeout_seconds=request.max_duration_seconds,
+                sandbox=sandbox if shared else None,
             ):
                 if isinstance(item, CodexRunResult):
                     run = item
@@ -175,7 +240,7 @@ class CodexSubscriptionAdapter:
                 "billing=included-plan-usage api_key_used=false\n"
             )
             artifacts = [
-                ArtifactPayload("SUMMARY", "summary.md", "text/markdown", summary.encode()),
+                ArtifactPayload("SUMMARY", "summary.md", "text/plain", summary.encode()),
                 ArtifactPayload("LOG", "codex.log", "text/plain", log_text.encode()),
             ]
             patch = await _git_diff(workdir)
@@ -186,7 +251,9 @@ class CodexSubscriptionAdapter:
                 summary=summary[:2000], artifacts=tuple(artifacts), usage=self._usage(request, run)
             )
         finally:
-            if not self._keep_workspace:
+            if checkout is not None:
+                checkout.cleanup()
+            elif not self._keep_workspace:
                 shutil.rmtree(workdir, ignore_errors=True)
 
     def _raise_for(self, run: CodexRunResult, request: ExecutionRequest) -> None:
@@ -217,17 +284,22 @@ class CodexSubscriptionAdapter:
 
 
 async def _git_diff(workdir: Path) -> bytes:
-    """Patch of the owner-side workspace, if it is a git repository (workspace-write mode)."""
-    import asyncio
-
+    """Patch of the owner-side workspace, if it is a git repository (workspace-write mode).
+    New files are included (intent-to-add), so added tests show up in the patch."""
     if not (workdir / ".git").exists():
         return b""
+    base = ["git", "-C", str(workdir), "-c", "core.hooksPath=/dev/null"]
+    add = await asyncio.create_subprocess_exec(
+        *base,
+        "add",
+        "--intent-to-add",
+        "--all",
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    await add.wait()
     proc = await asyncio.create_subprocess_exec(
-        "git",
-        "-C",
-        str(workdir),
-        "-c",
-        "core.hooksPath=/dev/null",
+        *base,
         "diff",
         "--no-ext-diff",
         "--binary",

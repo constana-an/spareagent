@@ -222,6 +222,8 @@ class ExperimentalParticipationService:
                 authorization_source=body["authorization_source"],
                 authorization_reference=body["authorization_reference"],
                 authorization_scope=body.get("authorization_scope") or {},
+                integration_route=body.get("integration_route"),
+                max_participants=body.get("max_participants"),
                 expires_at=body["expires_at"],
                 created_by=principal.user_id,
             )
@@ -257,6 +259,14 @@ class ExperimentalParticipationService:
                 raise not_found("AUTHORIZATION_NOT_FOUND", "Authorization not found")
             if auth.revoked_at is not None:
                 raise conflict("AUTHORIZATION_REVOKED", "Authorization was revoked")
+            if integration_route_covered and (
+                auth.integration_route is None or auth.max_participants is None
+            ):
+                raise DomainError(
+                    422,
+                    "ROUTE_DETAILS_REQUIRED",
+                    "Record integration_route and max_participants before marking it covered",
+                )
             auth.verification_status = status
             auth.integration_route_covered = integration_route_covered
             auth.verified_by, auth.verified_at = principal.user_id, utcnow()
@@ -702,6 +712,52 @@ class ExperimentalParticipationService:
                 for c, p, w in rows
             ]
 
+    async def _require_live_ready(
+        self, session: AsyncSession, group_id: uuid.UUID, conn: SubscriptionConnection
+    ) -> None:
+        """Fail fast at submission when LIVE cannot possibly run; the dispatcher re-checks
+        everything (and the database re-checks the authorization) before any execution."""
+        if not self.ctx.settings.experiment_live_enabled:
+            raise forbidden("LIVE_EXECUTION_DISABLED", "Live execution is switched off")
+        auth = await current_authorization(session, group_id)
+        if (
+            auth is None
+            or auth.verification_status != "OPERATOR_VERIFIED"
+            or not auth.integration_route_covered
+            or auth.integration_route != "CODEX_CLI_EXEC"
+            or auth.revoked_at is not None
+            or auth.expires_at <= utcnow()
+        ):
+            raise conflict("LIVE_NOT_AUTHORIZED", "No verified authorization covers live execution")
+        if conn.owner_check_passed_at is None or conn.no_purchased_credits_at is None:
+            raise conflict(
+                "OWNER_ATTESTATION_MISSING",
+                "The owner has not recorded codex-check and the no-purchased-credits attestation",
+            )
+
+    async def attest(
+        self, principal: Principal, connection_id: uuid.UUID, body: dict[str, Any]
+    ) -> SubscriptionConnection:
+        """Owner statements required for LIVE sharing. Withdrawing either one (false) stops
+        live assignment to this connection immediately."""
+        async with self.ctx.sessionmaker() as session, session.begin():
+            conn = await self._owned_connection(session, principal, connection_id, lock=True)
+            now = utcnow()
+            check_ok = body["codex_check_result"] == "OWNER_ONLY_SUBSCRIPTION_RUN_OK"
+            conn.owner_check_passed_at = now if check_ok else None
+            no_credits = body["no_purchased_credits"] and body["no_auto_reload"]
+            conn.no_purchased_credits_at = now if no_credits else None
+            _audit(
+                session,
+                principal.user_id,
+                "subscription.attest",
+                "connection",
+                connection_id,
+                codex_check=check_ok,
+                no_purchased_credits=no_credits,
+            )
+        return conn
+
     async def create_task(
         self, principal: Principal, idempotency_key: str, body: dict[str, Any]
     ) -> tuple[ExperimentalTaskView, bool]:
@@ -729,6 +785,9 @@ class ExperimentalParticipationService:
                 group.max_task_duration_seconds, prefs.max_task_duration_seconds
             ):
                 raise DomainError(422, "DURATION_LIMIT", "Duration exceeds the allowed limit")
+            live = body.get("execution_mode") == "LIVE"
+            if live:
+                await self._require_live_ready(session, group.id, conn)
             new_id = (
                 await session.execute(
                     pg_insert(Task)
@@ -745,7 +804,7 @@ class ExperimentalParticipationService:
                         max_budget_cents=1,  # no money is involved; the column requires >= 1
                         max_duration_seconds=body["max_duration_seconds"],
                         max_attempts=1,
-                        execution_profile="MOCK",
+                        execution_profile="CODEX_LIVE" if live else "MOCK",
                     )
                     .on_conflict_do_nothing(constraint="uniq_consumer_idempotency")
                     .returning(Task.id)

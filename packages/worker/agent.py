@@ -74,6 +74,7 @@ class WorkerAgent:
         *,
         code_adapter: ProviderAdapter | None = None,
         sharing_control: LocalSharingControl | None = None,
+        live_adapter: ProviderAdapter | None = None,
     ) -> None:
         self.client = client
         self.config = config or AgentConfig()
@@ -82,6 +83,9 @@ class WorkerAgent:
         self.adapters: dict[str, ProviderAdapter] = {"MOCK": self.adapter}
         if code_adapter is not None:
             self.adapters["CODE"] = code_adapter
+        if live_adapter is not None:
+            # W4 Milestone D: the owner's own Codex CLI for authorized experimental leases.
+            self.adapters["CODEX_LIVE"] = live_adapter
         # Week 4: experimental (cross-user) leases need an explicit, un-paused local opt-in.
         self.sharing_control = sharing_control
         self.fatal: WorkerApiError | None = None
@@ -182,8 +186,12 @@ class WorkerAgent:
     async def execute(self, a: dict[str, Any]) -> str | None:
         lease_id, attempt_id = a["lease_id"], a["attempt_id"]
         task = a["task"]
-        if a.get("resource_scope") == EXPERIMENTAL_SCOPE and not (
-            self.sharing_control is not None and self.sharing_control.allows_shared_work()
+        scope = a.get("resource_scope") or "PUBLIC_MARKETPLACE"
+        if scope == EXPERIMENTAL_SCOPE and not (
+            self.sharing_control is not None
+            and self.sharing_control.allows_shared_work()
+            and a.get("authorization_ref")
+            and a.get("execution_profile") in self.adapters
         ):
             # Local kill switch wins over the server: never accept; the reservation lapses.
             log.info("experimental lease declined: local sharing paused or not opted in")
@@ -200,7 +208,7 @@ class WorkerAgent:
             task_id=task["task_id"],
             attempt_id=attempt_id,
             user_id="redacted",
-            resource_scope="PUBLIC_MARKETPLACE",
+            resource_scope=scope,
             prompt=task["prompt"],
             repository_url=task["repository_url"],
             commit_sha=task["commit_sha"],
@@ -208,6 +216,7 @@ class WorkerAgent:
             max_budget_cents=task["max_budget_cents"],
             attempt_number=a["attempt_number"],
             task_type=task["task_type"],
+            authorization_ref=a.get("authorization_ref"),
         )
         adapter = self.adapters.get(a.get("execution_profile", "MOCK"))
         if adapter is None:

@@ -53,6 +53,10 @@ class AuthorizationOut(BaseModel):
     expires_at: datetime
     revoked_at: datetime | None
     created_at: datetime
+    integration_route: str | None = None
+    max_participants: int | None = None
+    # True only when this record would currently permit LIVE dispatch (verified, covered,
+    # unexpired, not revoked) AND the operator switch EXPERIMENT_LIVE_ENABLED is on.
     live_execution_enabled: bool = False
 
 
@@ -88,6 +92,10 @@ class AuthorizationCreate(Strict):
         StrictStr, Field(min_length=1, max_length=200, pattern=r"^[A-Za-z0-9 ._:#/-]+$")
     ]
     authorization_scope: dict[str, Any] = {}
+    # The technical route and participant cap the vendor confirmed (e.g. ticket 10766658:
+    # official Codex CLI `codex exec`, at most 5 participants).
+    integration_route: Literal["CODEX_CLI_EXEC"] | None = None
+    max_participants: Annotated[StrictInt, Field(ge=2, le=20)] | None = None
     expires_at: datetime
 
 
@@ -132,6 +140,31 @@ class ConnectionOut(BaseModel):
     status: str
     last_auth_check_at: datetime | None
     created_at: datetime
+    owner_check_passed_at: datetime | None = None
+    no_purchased_credits_at: datetime | None = None
+
+
+class SubscriptionAttest(Strict):
+    """Owner statements required before LIVE shared tasks can reach this connection."""
+
+    connection_id: uuid.UUID
+    # The `result` field printed by `spareagent-worker codex-check` on the owner's device.
+    codex_check_result: Literal[
+        "OWNER_ONLY_SUBSCRIPTION_RUN_OK", "AUTH_OK_INFERENCE_SKIPPED", "FAILED_CLOSED", "FAILED"
+    ]
+    no_purchased_credits: StrictBool
+    no_auto_reload: StrictBool
+
+
+class DeviceEnrollmentCreate(Strict):
+    ttl_seconds: Annotated[StrictInt, Field(ge=60, le=86400)] = 3600
+
+
+class DeviceEnrollmentOut(BaseModel):
+    resource_id: uuid.UUID
+    token_id: uuid.UUID
+    token: str
+    expires_at: datetime
 
 
 class PreferencesIn(Strict):
@@ -234,6 +267,8 @@ class ExperimentalTaskCreate(TaskCreate):
     max_duration_seconds: Annotated[StrictInt, Field(ge=10, le=3600)]
     group_id: uuid.UUID
     connection_id: uuid.UUID
+    # LIVE runs on the owner's own Codex CLI and needs every Milestone D gate.
+    execution_mode: Literal["SIMULATED", "LIVE"] = "SIMULATED"
 
 
 class DecisionOut(BaseModel):
@@ -248,7 +283,7 @@ class ExperimentalTaskOut(BaseModel):
     status: str
     task_type: str
     resource_scope: str
-    execution_mode: Literal["SIMULATED"] = "SIMULATED"
+    execution_mode: Literal["SIMULATED", "LIVE"] = "SIMULATED"
     group_id: uuid.UUID
     connection_id: uuid.UUID
     requester_id: uuid.UUID

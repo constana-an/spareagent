@@ -333,6 +333,8 @@ class ExperimentalAuthorization(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(TZ)
     created_by: Mapped[uuid.UUID] = _fk("users.id")
     created_at: Mapped[datetime] = _created()
+    integration_route: Mapped[str | None] = mapped_column(Text)  # 0008
+    max_participants: Mapped[int | None] = mapped_column(Integer)  # 0008
 
 
 class SubscriptionConnection(Base):
@@ -352,6 +354,8 @@ class SubscriptionConnection(Base):
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'CONNECTED'"))
     last_auth_check_at: Mapped[datetime | None] = mapped_column(TZ)
     created_at: Mapped[datetime] = _created()
+    owner_check_passed_at: Mapped[datetime | None] = mapped_column(TZ)  # 0008
+    no_purchased_credits_at: Mapped[datetime | None] = mapped_column(TZ)  # 0008
 
 
 class SubscriptionSharingPreference(Base):

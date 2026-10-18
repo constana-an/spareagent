@@ -109,6 +109,35 @@ async def cmd_register(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _codex_shared_adapter(args: argparse.Namespace, directory):
+    """Owner's device only. Requires both explicit flags and a ChatGPT login."""
+    from packages.provider_sdk.codex_subscription import (
+        CodexSubscriptionAdapter,
+        SharedWorkConsent,
+    )
+    from packages.worker.codex_runtime import CodexRuntime, CodexRuntimeConfig
+    from packages.worker.local_controls import LocalSharingControl
+
+    if not (args.accept_shared_tasks and args.attest_no_purchased_credits):
+        print(
+            "error: --executor codex-subscription requires --accept-shared-tasks and "
+            "--attest-no-purchased-credits (no purchased Codex credits, auto-reload off)",
+            file=sys.stderr,
+        )
+        return None
+    control = LocalSharingControl(directory)
+    adapter = CodexSubscriptionAdapter(
+        owner_ref="local-owner",
+        runtime=CodexRuntime(CodexRuntimeConfig(codex_bin=args.codex_bin)),
+        shared=SharedWorkConsent(control, no_purchased_credits_attested=True),
+    )
+    auth = await adapter.check_auth()
+    if not auth.eligible:
+        print(f"error: Codex is not logged in with ChatGPT ({auth.method.value})", file=sys.stderr)
+        return None
+    return adapter, control
+
+
 async def cmd_start(args: argparse.Namespace) -> int:
     directory = state_dir(args.state_dir)
     state = load_state(directory)
@@ -139,6 +168,15 @@ async def cmd_start(args: argparse.Namespace) -> int:
             return 4
         print(json.dumps({"sandbox": health}), file=sys.stderr)
         capabilities.update({"sandbox": "docker", "languages": ["python", "typescript"]})
+    live_adapter = sharing_control = None
+    if args.executor == "codex-subscription":
+        live = await _codex_shared_adapter(args, directory)
+        if live is None:
+            clear_pid(directory)
+            await client.aclose()
+            return 4
+        live_adapter, sharing_control = live
+        capabilities.update({"executor": "codex-subscription", "code": True})
     agent = WorkerAgent(
         client,
         AgentConfig(
@@ -150,6 +188,8 @@ async def cmd_start(args: argparse.Namespace) -> int:
         ),
         adapter=MockProviderAdapter(step_delay_seconds=args.mock_step_delay),
         code_adapter=code_adapter,
+        sharing_control=sharing_control,
+        live_adapter=live_adapter,
     )
     try:
         await agent.run(stop, state.node_key_expires_at)
@@ -314,9 +354,21 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--shutdown-grace", type=float, default=20.0)
     start.add_argument(
         "--executor",
-        choices=("mock", "code"),
+        choices=("mock", "code", "codex-subscription"),
         default=os.environ.get("SPAREAGENT_EXECUTOR", "mock"),
-        help="code = sandboxed deterministic code executor (requires Docker on this host)",
+        help="code = sandboxed deterministic code executor (requires Docker on this host); "
+        "codex-subscription = your own Codex CLI for authorized experimental tasks",
+    )
+    start.add_argument("--codex-bin", default=os.environ.get("SPAREAGENT_CODEX_BIN", "codex"))
+    start.add_argument(
+        "--accept-shared-tasks",
+        action="store_true",
+        help="opt this device in to experimental tasks from your group (revocable)",
+    )
+    start.add_argument(
+        "--attest-no-purchased-credits",
+        action="store_true",
+        help="confirm this ChatGPT account has no purchased Codex credits and no auto-reload",
     )
     start.add_argument(
         "--mock-step-delay",

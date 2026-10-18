@@ -21,6 +21,8 @@ class ExecutionRequest:
     # Extension to the architecture interface: lets deterministic adapters vary per attempt.
     attempt_number: int = 1
     task_type: str = "CODE_FIX"
+    # W4: authorization record an experimental (shared) lease relies on, if any.
+    authorization_ref: str | None = None
 
 
 @dataclass(frozen=True)

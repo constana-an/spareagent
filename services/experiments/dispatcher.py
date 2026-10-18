@@ -5,7 +5,8 @@ PUBLIC_MARKETPLACE tasks and public, non-personal resources (unchanged). This di
 
 * locks the oldest QUEUED experimental task (FOR UPDATE SKIP LOCKED), builds a policy
   snapshot from the database (never from client or node claims) and evaluates
-  ExperimentalSharingPolicy in SIMULATED mode - live execution is not available;
+  ExperimentalSharingPolicy - SIMULATED for MOCK tasks, LIVE (with the extra Milestone D
+  gates) for CODEX_LIVE tasks;
 * appends every decision to the append-only `experimental_dispatch_audit` table (a
   repeated identical DENY for the same task is not re-recorded);
 * on ALLOW creates the attempt + lease on the owner's node with the same locking and
@@ -53,6 +54,7 @@ from services.tasks.state_machine import TaskStatus, transition
 log = logging.getLogger(__name__)
 
 SCAN_LIMIT = 20
+LIVE_PROFILE = "CODEX_LIVE"
 ONLINE_STATUSES = ("IDLE", "RESERVED", "RUNNING")
 
 
@@ -107,6 +109,8 @@ class ExperimentalDispatcher:
                 expires_at=auth.expires_at,
                 revoked_at=auth.revoked_at,
                 scope_task_types=frozenset(scope_types) if isinstance(scope_types, list) else None,
+                integration_route=auth.integration_route,
+                max_participants=auth.max_participants,
             ),
             sharing_state=prefs.sharing_state if prefs_group_ok else "DISABLED",
             consent_accepted=bool(prefs_group_ok and prefs.consent_accepted_at),
@@ -133,6 +137,21 @@ class ExperimentalDispatcher:
                 session, conn.id, now
             ),
             rate_limited_until=await SubscriptionUsageMonitor.rate_limited_until(session, conn.id),
+            live_enabled=self.ctx.settings.experiment_live_enabled,
+            group_member_count=(
+                await session.execute(
+                    select(func.count())
+                    .select_from(ExperimentalGroupMember)
+                    .where(
+                        ExperimentalGroupMember.group_id == group.id,
+                        ExperimentalGroupMember.status.in_(("INVITED", "ACTIVE")),
+                    )
+                )
+            ).scalar_one(),
+            group_max_members=group.max_members,
+            owner_check_passed=conn.owner_check_passed_at is not None,
+            no_purchased_credits=conn.no_purchased_credits_at is not None,
+            node_executor=(worker.capabilities or {}).get("executor"),
         )
         return snap, conn, auth.id if auth else None
 
@@ -172,8 +191,13 @@ class ExperimentalDispatcher:
         )
 
     async def dispatch_once(
-        self, worker_ids: tuple[uuid.UUID, ...] | None = None
+        self,
+        worker_ids: tuple[uuid.UUID, ...] | None = None,
+        *,
+        profiles: tuple[str, ...] = ("MOCK",),
     ) -> uuid.UUID | None:
+        """`profiles` selects simulated (MOCK) and/or LIVE (CODEX_LIVE) tasks; a node
+        only ever claims the kind its executor can run."""
         async with self.ctx.sessionmaker() as session, session.begin():
             stmt = (
                 select(Task, ExperimentalTaskConsent)
@@ -181,6 +205,7 @@ class ExperimentalDispatcher:
                 .where(
                     Task.status == TaskStatus.QUEUED.value,
                     Task.resource_scope == EXPERIMENTAL_SCOPE,
+                    Task.execution_profile.in_(profiles),
                 )
                 .order_by(Task.created_at, Task.id)
                 .limit(SCAN_LIMIT)
@@ -235,7 +260,8 @@ class ExperimentalDispatcher:
             return None
 
         snap, conn, auth_id = await self.snapshot(session, task, consent)
-        decision = ExperimentalSharingPolicy.evaluate(snap, mode=Mode.SIMULATED)
+        mode = Mode.LIVE if task.execution_profile == LIVE_PROFILE else Mode.SIMULATED
+        decision = ExperimentalSharingPolicy.evaluate(snap, mode=mode)
         if not decision.allowed:
             await self._audit(session, task, consent, decision, auth_id)
             if not decision.transient:

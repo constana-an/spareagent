@@ -4,8 +4,20 @@ subscriptions remain ineligible for PUBLIC_MARKETPLACE and the gateway, always.
 
 This checker only ever answers for scope EXPERIMENTAL_SHARED_SUBSCRIPTION. It is a pure
 function over a snapshot so every reason can be audited and unit-tested. Every condition
-must hold; any failure denies. Live (real subscription) cross-user execution is denied
-unconditionally in this build: LIVE_CROSS_USER_SUPPORTED is a code constant, not a flag.
+must hold; any failure denies.
+
+LIVE mode (a participant's real Codex CLI runs another member's task) is Milestone D. It is
+limited to the scope OpenAI Support confirmed in writing (ticket 10766658): the official
+Codex CLI (`codex exec`) on the owner's own computer with their own ChatGPT login, a relay
+server that never handles credentials, at most `max_participants` (5) members, no
+purchased credits consumed by another member's task, and review within 6 months
+(`expires_at`). On top of every SIMULATED condition, LIVE additionally requires:
+
+* the operator switch EXPERIMENT_LIVE_ENABLED;
+* the authorization to be OPERATOR_VERIFIED, route-covered for CODEX_CLI_EXEC, unexpired;
+* the group to fit inside the authorized participant cap;
+* the owner's recorded `codex-check` pass and no-purchased-credits attestation;
+* a node that advertises the Codex subscription executor.
 """
 
 from __future__ import annotations
@@ -18,13 +30,9 @@ from enum import StrEnum
 EXPERIMENTAL_SCOPE = "EXPERIMENTAL_SHARED_SUBSCRIPTION"
 PERSONAL_SUBSCRIPTION = "PERSONAL_SUBSCRIPTION"
 
-# Blocker B-1 (docs/WEEK4_SUBSCRIPTION_STATUS.md): OpenAI's published Sign in with ChatGPT
-# terms prohibit pooling plan usage and serving other users' requests, plan usage via
-# SIWC is offered to open-source/locally hosted apps (remotely hosted apps go through an
-# OpenAI interest form), and the project-specific support confirmation has not been
-# independently verified, nor does it name the integration route. Until that is resolved
-# in writing and reviewed, only the deterministic simulation may run cross-user.
-LIVE_CROSS_USER_SUPPORTED = False
+# The only technical route covered by the written confirmation (ticket 10766658).
+AUTHORIZED_ROUTE = "CODEX_CLI_EXEC"
+CODEX_EXECUTOR = "codex-subscription"
 
 
 class Mode(StrEnum):
@@ -41,7 +49,11 @@ class Reason(StrEnum):
     AUTHORIZATION_EXPIRED = "AUTHORIZATION_EXPIRED"
     AUTHORIZATION_REVOKED = "AUTHORIZATION_REVOKED"
     INTEGRATION_ROUTE_NOT_COVERED = "INTEGRATION_ROUTE_NOT_COVERED"
-    LIVE_EXECUTION_BLOCKED = "LIVE_EXECUTION_BLOCKED"
+    LIVE_EXECUTION_DISABLED = "LIVE_EXECUTION_DISABLED"
+    GROUP_EXCEEDS_AUTHORIZED_SIZE = "GROUP_EXCEEDS_AUTHORIZED_SIZE"
+    OWNER_CHECK_MISSING = "OWNER_CHECK_MISSING"
+    CREDITS_ATTESTATION_MISSING = "CREDITS_ATTESTATION_MISSING"
+    NODE_NOT_CODEX_CAPABLE = "NODE_NOT_CODEX_CAPABLE"
     REQUESTER_NOT_MEMBER = "REQUESTER_NOT_MEMBER"
     OWNER_NOT_MEMBER = "OWNER_NOT_MEMBER"
     OWNER_NOT_OPTED_IN = "OWNER_NOT_OPTED_IN"
@@ -74,6 +86,7 @@ TRANSIENT_REASONS = frozenset(
         Reason.RATE_LIMITED,
         Reason.GROUP_SHARING_DISABLED,
         Reason.SUBSCRIPTION_AUTH_INVALID,
+        Reason.NODE_NOT_CODEX_CAPABLE,  # the owner's device may restart with the executor
     }
 )
 
@@ -86,6 +99,8 @@ class AuthorizationSnapshot:
     expires_at: datetime
     revoked_at: datetime | None
     scope_task_types: frozenset[str] | None = None  # None = not restricted by the record
+    integration_route: str | None = None
+    max_participants: int | None = None
 
 
 @dataclass(frozen=True)
@@ -127,6 +142,13 @@ class DispatchSnapshot:
     active_tasks_on_connection: int
     tasks_started_last_24h: int
     rate_limited_until: datetime | None = None
+    # LIVE-only inputs
+    live_enabled: bool = False
+    group_member_count: int = 0  # INVITED + ACTIVE
+    group_max_members: int = 0
+    owner_check_passed: bool = False
+    no_purchased_credits: bool = False
+    node_executor: str | None = None
 
 
 @dataclass(frozen=True)
@@ -152,17 +174,35 @@ def authorization_reasons(
         reasons.append(Reason.AUTHORIZATION_NOT_VERIFIED)
     if auth.expires_at <= now:
         reasons.append(Reason.AUTHORIZATION_EXPIRED)
-    if mode == Mode.LIVE and not auth.integration_route_covered:
+    if mode == Mode.LIVE and not (
+        auth.integration_route_covered and auth.integration_route == AUTHORIZED_ROUTE
+    ):
         reasons.append(Reason.INTEGRATION_ROUTE_NOT_COVERED)
     return reasons
+
+
+def live_reasons(s: DispatchSnapshot) -> list[Reason]:
+    r = []
+    if not s.live_enabled:
+        r.append(Reason.LIVE_EXECUTION_DISABLED)
+    cap = s.authorization.max_participants if s.authorization else None
+    if cap is None or s.group_max_members > cap or s.group_member_count > cap:
+        r.append(Reason.GROUP_EXCEEDS_AUTHORIZED_SIZE)
+    if not s.owner_check_passed:
+        r.append(Reason.OWNER_CHECK_MISSING)
+    if not s.no_purchased_credits:
+        r.append(Reason.CREDITS_ATTESTATION_MISSING)
+    if s.node_executor != CODEX_EXECUTOR:
+        r.append(Reason.NODE_NOT_CODEX_CAPABLE)
+    return r
 
 
 class ExperimentalSharingPolicy:
     @staticmethod
     def evaluate(s: DispatchSnapshot, *, mode: Mode = Mode.SIMULATED) -> Decision:
         r: list[Reason] = []
-        if mode == Mode.LIVE and not LIVE_CROSS_USER_SUPPORTED:
-            r.append(Reason.LIVE_EXECUTION_BLOCKED)
+        if mode == Mode.LIVE:
+            r += live_reasons(s)
         if not s.experiment_enabled:
             r.append(Reason.EXPERIMENT_DISABLED)
         if s.task_scope != EXPERIMENTAL_SCOPE:
