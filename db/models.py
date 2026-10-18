@@ -404,6 +404,8 @@ class SubscriptionUsageObservation(Base):
     capacity_state: Mapped[str] = mapped_column(
         Text, nullable=False, server_default=text("'UNKNOWN'")
     )
+    cached_input_tokens: Mapped[int | None] = mapped_column(BigInteger)
+    reasoning_output_tokens: Mapped[int | None] = mapped_column(BigInteger)
     reset_hint: Mapped[str | None] = mapped_column(Text)
     observed_at: Mapped[datetime] = _created()
 
@@ -435,6 +437,26 @@ class ExperimentalDispatchAudit(Base):
     reasons: Mapped[list[str]] = _jsonb("[]")
     execution_mode: Mapped[str] = mapped_column(Text, nullable=False)
     attempt_id: Mapped[uuid.UUID | None] = _fk("task_attempts.id", nullable=True)
+    created_at: Mapped[datetime] = _created()
+
+
+class FriendsLoginInvite(Base):
+    __tablename__ = "friends_login_invites"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), **UUID_PK)
+    user_id: Mapped[uuid.UUID] = _fk("users.id")
+    token_digest: Mapped[str] = mapped_column(CHAR(64), nullable=False, unique=True)
+    expires_at: Mapped[datetime] = mapped_column(TZ, nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(TZ)
+    created_at: Mapped[datetime] = _created()
+
+
+class FriendsSession(Base):
+    __tablename__ = "friends_sessions"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), **UUID_PK)
+    user_id: Mapped[uuid.UUID] = _fk("users.id")
+    token_digest: Mapped[str] = mapped_column(CHAR(64), nullable=False, unique=True)
+    expires_at: Mapped[datetime] = mapped_column(TZ, nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(TZ)
     created_at: Mapped[datetime] = _created()
 
 

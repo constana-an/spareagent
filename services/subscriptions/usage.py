@@ -51,6 +51,8 @@ class SubscriptionUsageMonitor:
         duration_ms: int | None = None,
         input_tokens: int | None = None,
         output_tokens: int | None = None,
+        cached_input_tokens: int | None = None,
+        reasoning_output_tokens: int | None = None,
         capacity_state: str = UNKNOWN,
         reset_hint: str | None = None,
     ) -> None:
@@ -63,6 +65,8 @@ class SubscriptionUsageMonitor:
                 duration_ms=duration_ms,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
+                cached_input_tokens=cached_input_tokens,
+                reasoning_output_tokens=reasoning_output_tokens,
                 capacity_state=capacity_state,
                 reset_hint=(reset_hint or None) and reset_hint[:80],
             )
@@ -168,6 +172,10 @@ class SubscriptionUsageMonitor:
                     func.coalesce(func.sum(SubscriptionUsageObservation.duration_ms), 0),
                     func.coalesce(func.sum(SubscriptionUsageObservation.input_tokens), 0),
                     func.coalesce(func.sum(SubscriptionUsageObservation.output_tokens), 0),
+                    func.coalesce(func.sum(SubscriptionUsageObservation.cached_input_tokens), 0),
+                    func.coalesce(
+                        func.sum(SubscriptionUsageObservation.reasoning_output_tokens), 0
+                    ),
                 ).where(SubscriptionUsageObservation.connection_id == connection.id)
             )
         ).one()
@@ -193,6 +201,9 @@ class SubscriptionUsageMonitor:
             "total_duration_ms": int(totals[0]),
             "observed_input_tokens": int(totals[1]),
             "observed_output_tokens": int(totals[2]),
+            "observed_cached_input_tokens": int(totals[3]),
+            "observed_reasoning_output_tokens": int(totals[4]),
+            "token_source": "OWNER_RUNTIME_REPORTED_NOT_INDEPENDENTLY_VERIFIED",
             "tasks_started_last_24h": await cls.started_last_24h(session, connection.id, now),
             "local_limits": None
             if prefs is None

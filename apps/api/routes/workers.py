@@ -36,7 +36,6 @@ from services.errors import DomainError
 from services.execution.remote import RemoteWorkerService, assert_path_scope
 from services.registry.node_auth import NodeAuthService, NodePrincipal, Registration
 from services.scheduler.lease_service import CompletionInput, LeaseService
-from services.subscriptions.usage import SubscriptionUsageMonitor
 from services.tasks.service import Principal
 
 router = APIRouter(prefix="/v1", tags=["workers"])
@@ -282,16 +281,8 @@ async def complete_lease(
             timed_out=body.timed_out,
             artifacts=artifacts if body.succeeded else (),
             usage=usage,
+            observed_usage=body.observed_usage.model_dump() if body.observed_usage else None,
+            reset_hint=body.reset_hint,
         ),
     )
-    if not outcome.replayed:
-        event = (
-            "TASK_COMPLETED"
-            if body.succeeded
-            else {
-                "SUBSCRIPTION_USAGE_LIMIT": "RATE_LIMITED",
-                "SUBSCRIPTION_AUTH_UNAVAILABLE": "AUTH_EXPIRED",
-            }.get(body.error_code or "", "TASK_FAILED")
-        )
-        await SubscriptionUsageMonitor.record_for_lease(ctx, lid, event)
     return CompletionOut(task_status=outcome.task_status, replayed=outcome.replayed)

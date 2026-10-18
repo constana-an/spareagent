@@ -59,6 +59,8 @@ def verify_codex_live(task_type: str, artifacts: tuple[ArtifactPayload, ...]) ->
     for artifact in artifacts:
         if len(artifact.content) > MAX_ARTIFACT_BYTES:
             return VerificationReport(False, f"{artifact.kind} exceeds size limit")
+    if len({a.content for a in artifacts}) != len(artifacts):
+        return VerificationReport(False, "duplicate artifact content")
     if patch is not None:
         try:
             inspect_patch(patch.content)

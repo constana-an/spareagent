@@ -52,7 +52,7 @@ from services.tasks import repository as repo
 from services.tasks.state_machine import TaskStatus, transition
 
 log = logging.getLogger(__name__)
-VERSION = "spareagent-verifier/1"
+VERSION = "spareagent-verifier/2"
 
 
 @dataclass
@@ -62,11 +62,13 @@ class Job:
     attempt_number: int
     repository_url: str
     commit_sha: str
+    execution_profile: str = "CODE"
+    task_type: str = "CODE_FIX"
 
 
 @dataclass
 class Outcome:
-    status: str  # PASSED | FAILED | ERROR
+    status: str  # PASSED | FAILED | ERROR | UNVERIFIED
     reason: str
     checks: list[dict[str, Any]] = field(default_factory=list)
     worker_reported: dict[str, Any] = field(default_factory=dict)
@@ -106,7 +108,7 @@ class VerificationService:
                     .outerjoin(VerificationResult, VerificationResult.attempt_id == TaskAttempt.id)
                     .where(
                         TaskAttempt.status == "VERIFYING",
-                        Task.execution_profile == "CODE",
+                        Task.execution_profile.in_(("CODE", "CODEX_LIVE")),
                         Task.status.in_(("VERIFYING", "CANCELLING")),
                     )
                     .order_by(TaskAttempt.completed_at, TaskAttempt.id)
@@ -115,7 +117,7 @@ class VerificationService:
                 )
             ).all()
             for attempt, task, result in rows:
-                if result is not None and result.status in ("PASSED", "FAILED"):
+                if result is not None and result.status in ("PASSED", "FAILED", "UNVERIFIED"):
                     continue
                 if result is not None and result.status == "RUNNING":
                     if result.claimed_until and result.claimed_until > now:
@@ -143,6 +145,8 @@ class VerificationService:
                     attempt.attempt_number,
                     task.repository_url,
                     task.commit_sha.strip(),
+                    task.execution_profile,
+                    task.task_type,
                 )
         return None
 
@@ -161,13 +165,22 @@ class VerificationService:
         out = {}
         for row in rows:
             content = await self.ctx.artifacts.get(row.storage_key)  # integrity-checked
+            if hashlib.sha256(content).hexdigest() != row.sha256.strip() or row.kind in out:
+                raise ValueError("Artifact metadata integrity failure")
             out[row.kind] = ArtifactPayload(row.kind, row.kind.lower(), row.media_type, content)
         return out
 
     async def verify(self, job: Job) -> Outcome:
         out = Outcome("FAILED", "")
-        recipe = catalog_mod.lookup(job.repository_url, job.commit_sha, self.catalog)
-        if not out.check("repository_in_allowlist", recipe is not None):
+        live = job.execution_profile == "CODEX_LIVE"
+        recipes = (
+            catalog_mod.LIVE_WRITE_TESTS_CATALOG
+            if live and job.task_type == "WRITE_TESTS"
+            else self.catalog
+        )
+        recipe = catalog_mod.lookup(job.repository_url, job.commit_sha, recipes)
+        out.check("repository_in_allowlist", recipe is not None)
+        if recipe is None and not live:
             out.reason = "UNSUPPORTED_REPOSITORY"
             return out
         try:
@@ -176,25 +189,40 @@ class VerificationService:
             out.check("artifact_integrity", False, type(exc).__name__)
             out.reason = "ARTIFACT_INTEGRITY"
             return out
-        required = {"PATCH", "TEST_REPORT", "SUMMARY", "EXECUTION_LOG"}
+        out.check("artifact_integrity", True)
+        if live:
+            from services.execution.verifier import verify_codex_live
+
+            structure = verify_codex_live(job.task_type, tuple(arts.values()))
+            if not out.check("artifact_schema", structure.ok, structure.reason):
+                out.reason = "INVALID_LIVE_ARTIFACTS"
+                return out
+        if live and job.task_type == "CODE_REVIEW":
+            out.status, out.reason = "UNVERIFIED", "REVIEW_REQUIRES_HUMAN_ASSESSMENT"
+            return out
+        required = (
+            {"PATCH", "SUMMARY"} if live else {"PATCH", "TEST_REPORT", "SUMMARY", "EXECUTION_LOG"}
+        )
         if not out.check("artifact_schema", required <= set(arts), sorted(arts)):
             out.reason = "MISSING_ARTIFACTS"
             return out
-        try:
-            claimed = validate_report(json.loads(arts["TEST_REPORT"].content))
-            out.worker_reported = {k: claimed[k] for k in ("ok", "passed", "failed", "total")}
-            out.check("test_report_schema", True)
-        except (ValueError, ReportInvalid) as exc:
-            out.check("test_report_schema", False, str(exc)[:200])
-            out.reason = "INVALID_TEST_REPORT"
-            return out
-        if not out.check("base_commit_matches", claimed["base_commit"] == job.commit_sha):
-            out.reason = "BASE_COMMIT_MISMATCH"
-            return out
+        claimed = None
+        if not live:
+            try:
+                claimed = validate_report(json.loads(arts["TEST_REPORT"].content))
+                out.worker_reported = {k: claimed[k] for k in ("ok", "passed", "failed", "total")}
+                out.check("test_report_schema", True)
+            except (ValueError, ReportInvalid) as exc:
+                out.check("test_report_schema", False, str(exc)[:200])
+                out.reason = "INVALID_TEST_REPORT"
+                return out
+            if not out.check("base_commit_matches", claimed["base_commit"] == job.commit_sha):
+                out.reason = "BASE_COMMIT_MISMATCH"
+                return out
         patch = arts["PATCH"].content
         out.patch_sha256 = hashlib.sha256(patch).hexdigest()
         try:
-            summary = inspect_patch(patch, recipe.allowed_paths)
+            summary = inspect_patch(patch, recipe.allowed_paths if recipe else None)
             out.check("patch_policy", True, list(summary.paths))
         except PatchRejected as exc:
             out.check("patch_policy", False, exc.reason)
@@ -226,6 +254,10 @@ class VerificationService:
                     out.check("patch_applies_cleanly", False, exc.message[:200])
                     out.reason = "PATCH_DOES_NOT_APPLY"
                     return out
+            if recipe is None:
+                out.status, out.reason = "UNVERIFIED", "NO_TRUSTED_TEST_RECIPE"
+                return out
+            out.check("trusted_command", True, list(recipe.verify_command))
             try:
                 result = await asyncio.to_thread(
                     self.sandbox.execute,
@@ -266,12 +298,15 @@ class VerificationService:
                 tests_ok,
                 {"expected_passed": recipe.expected_passed, "actual": out.verified},
             )
-            claim_consistent = claimed["ok"] == actual["ok"] and (
-                claimed["passed"] == actual["passed"]
+            claim_consistent = claimed is None or (
+                claimed["ok"] == actual["ok"] and claimed["passed"] == actual["passed"]
             )
-            out.check("worker_claim_consistent", claim_consistent, out.worker_reported)
+            if claimed is not None:
+                out.check("worker_claim_consistent", claim_consistent, out.worker_reported)
             if result.timed_out:
                 out.reason = "VERIFICATION_TIMEOUT"
+            elif not result.removed or result.oom_killed or result.cancelled:
+                out.reason = "SANDBOX_INCOMPLETE"
             elif not tests_ok:
                 out.reason = "TESTS_FAILED"
             elif not claim_consistent:
@@ -292,6 +327,11 @@ class VerificationService:
             "task_id": str(job.task_id),
             "attempt_id": str(job.attempt_id),
             "base_commit": job.commit_sha,
+            "execution_profile": job.execution_profile,
+            "task_type": job.task_type,
+            "semantic_correctness": "TRUSTED_TESTS_ONLY"
+            if outcome.status == "PASSED"
+            else "NOT_ESTABLISHED",
             "patch_sha256": outcome.patch_sha256,
             "status": outcome.status,
             "reason": outcome.reason,
@@ -310,7 +350,15 @@ class VerificationService:
                     .with_for_update()
                 )
             ).scalar_one()
-            if task is None or attempt is None or attempt.status != "VERIFYING":
+            if (
+                task is None
+                or attempt is None
+                or attempt.status != "VERIFYING"
+                or result.verifier_id != self.verifier_id
+                or result.status != "RUNNING"
+                or result.claimed_until is None
+                or result.claimed_until <= now
+            ):
                 return "STALE"
             if outcome.status == "ERROR" and result.error_count + 1 < s.verification_max_errors:
                 result.status = "ERROR"
@@ -355,7 +403,7 @@ class VerificationService:
                     attempt_id=attempt.id,
                 )
                 return "CANCELLED"
-            if outcome.status == "PASSED":
+            if outcome.status in ("PASSED", "UNVERIFIED"):
                 await session.execute(
                     update(Artifact).where(Artifact.attempt_id == attempt.id).values(published=True)
                 )
@@ -367,7 +415,9 @@ class VerificationService:
                     payload={
                         **payload,
                         "result_summary": (
-                            f"Verified by platform: {outcome.verified.get('passed')}/"
+                            f"UNVERIFIED: {outcome.reason}"
+                            if outcome.status == "UNVERIFIED"
+                            else f"Verified by platform: {outcome.verified.get('passed')}/"
                             f"{outcome.verified.get('total')} trusted tests passed on "
                             f"{job.commit_sha[:12]}"
                         ),

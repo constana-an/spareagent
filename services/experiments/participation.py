@@ -828,7 +828,8 @@ class ExperimentalParticipationService:
             task = await repo.lock_task(session, new_id)
             assert task is not None  # noqa: S101 - inserted in this transaction
             advance = (
-                not prefs.require_owner_approval
+                not live
+                and not prefs.require_owner_approval
                 and str(principal.user_id) in prefs.advance_consent_requester_ids
             )
             consent = ExperimentalTaskConsent(

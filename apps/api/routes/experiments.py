@@ -7,6 +7,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Header, Query, Request
+from sqlalchemy import select
 
 from apps.api.dependencies import get_ctx, parse_uuid_or_404
 from apps.api.middleware.auth import get_principal
@@ -43,11 +44,13 @@ from apps.api.schemas.experiments import (
     UsageOut,
 )
 from apps.api.schemas.tasks import IDEMPOTENCY_KEY
+from db.models import ExperimentalGroup, ExperimentalGroupMember, VerificationResult
 from services.errors import DomainError
 from services.experiments.participation import (
     ExperimentalParticipationService,
     ExperimentalTaskView,
 )
+from services.observability import redact
 from services.tasks import repository as repo
 from services.tasks.service import Principal
 
@@ -81,6 +84,14 @@ async def _task_out(request: Request, view: ExperimentalTaskView) -> Experimenta
     t, c, d = view.task, view.consent, view.last_decision
     async with get_ctx(request).sessionmaker() as session:
         summaries = await repo.result_summaries(session, [t.id])
+        verification = (
+            await session.execute(
+                select(VerificationResult.status)
+                .where(VerificationResult.task_id == t.id)
+                .order_by(VerificationResult.started_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
     return ExperimentalTaskOut(
         id=t.id,
         status=t.status,
@@ -91,6 +102,11 @@ async def _task_out(request: Request, view: ExperimentalTaskView) -> Experimenta
         connection_id=c.connection_id,
         requester_id=c.requester_id,
         owner_id=c.owner_id,
+        repository_url=t.repository_url,
+        commit_sha=t.commit_sha.strip(),
+        prompt=redact(t.prompt),
+        max_duration_seconds=t.max_duration_seconds,
+        verification_status=verification or ("PENDING" if t.status == "VERIFYING" else "NOT_RUN"),
         approval_status=c.status,
         approval_source=c.consent_source,
         last_decision=None
@@ -118,6 +134,23 @@ async def create_group(
 ) -> GroupOut:
     group = await svc(request).create_group(principal, body.name, body.model_dump())
     return GroupOut.model_validate(group, from_attributes=True)
+
+
+@router.get(
+    "/experiments/groups", operation_id="listExperimentalGroups", response_model=list[GroupOut]
+)
+async def list_groups(request: Request, principal: Principal = Depends(get_principal)):
+    async with get_ctx(request).sessionmaker() as session:
+        stmt = select(ExperimentalGroup.id).order_by(ExperimentalGroup.created_at)
+        if principal.role != "ADMIN":
+            stmt = stmt.join(
+                ExperimentalGroupMember, ExperimentalGroupMember.group_id == ExperimentalGroup.id
+            ).where(
+                ExperimentalGroupMember.user_id == principal.user_id,
+                ExperimentalGroupMember.status.in_(("INVITED", "ACTIVE")),
+            )
+        ids = (await session.execute(stmt)).scalars().all()
+    return [await get_group(str(gid), request, principal) for gid in ids]
 
 
 @router.get(

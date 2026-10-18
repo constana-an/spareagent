@@ -119,7 +119,13 @@ class ExperimentalDispatcher:
             owner_max_task_duration_seconds=prefs.max_task_duration_seconds if prefs else 0,
             owner_max_concurrent_tasks=prefs.max_concurrent_tasks if prefs else 0,
             owner_max_tasks_per_day=prefs.max_tasks_per_day if prefs else 0,
-            task_consent_status=consent.status,
+            task_consent_status=(
+                "PENDING"
+                if task.execution_profile == LIVE_PROFILE
+                and consent.status == "APPROVED"
+                and consent.consent_source != "OWNER_APPROVAL"
+                else consent.status
+            ),
             resource_type=resource.resource_type,
             resource_owner_id=resource.owner_id,
             resource_public_eligible=resource.public_eligible,
