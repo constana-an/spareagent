@@ -536,8 +536,16 @@ footer {
     margin-bottom: 12px;
   }
   aside > .eyebrow,
-  .aside-bottom {
+  .aside-bottom p {
     display: none;
+  }
+  .aside-bottom {
+    display: flex;
+    align-items: center;
+    margin-top: 12px;
+  }
+  .aside-bottom .quiet {
+    margin-left: auto;
   }
   nav {
     flex-direction: row;
