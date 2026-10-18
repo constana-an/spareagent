@@ -20,6 +20,8 @@ x-app-env: &app-env
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
   LEASE_SECONDS: ${LEASE_SECONDS:-60}
   NODE_TOKEN_PEPPER: ${NODE_TOKEN_PEPPER:-dev-only-node-token-pepper-change-me}
+  CODE_EXECUTION_ENABLED: ${CODE_EXECUTION_ENABLED:-false}
+  CODE_EXECUTION_RESOURCE_IDS: ${CODE_EXECUTION_RESOURCE_IDS:-}
   ARTIFACT_ROOT: /var/lib/spareagent/artifacts
   # The API port is published on 127.0.0.1 only (see `ports`). Requests forwarded by Docker's
   # port proxy arrive from a private bridge address, so those ranges are trusted for dev auth.
@@ -120,6 +122,67 @@ services:
       redis: {condition: service_healthy}
       api: {condition: service_started}
 
+  # ---------------------------------------------------------------- Week 3 (profile "code")
+  # Sandbox image used for every untrusted execution (built only; never runs as a service).
+  sandbox-image:
+    build: ./sandbox
+    image: spareagent-sandbox:dev
+    profiles: ["build-only"]
+
+  # One-shot: deterministic local Git fixture mirrors (pinned SHAs, see execution catalog).
+  fixtures:
+    image: spareagent-app:dev
+    profiles: ["code"]
+    command: ["python", "-m", "services.execution.fixtures", "/fixtures"]
+    volumes:
+      - fixtures:/fixtures
+
+  # Platform-controlled independent verifier. It drives sandboxes through the host Docker
+  # daemon (socket mounted HERE only; sandboxes never get it) and has DB access because it is
+  # a platform component. It never runs on a provider node.
+  verifier:
+    image: spareagent-app:dev
+    profiles: ["code"]
+    command: ["python", "-m", "services.verification.runner"]
+    environment:
+      <<: *app-env
+      REPO_FIXTURE_ROOT: /fixtures
+      SANDBOX_IMAGE: spareagent-sandbox:dev
+    group_add: ["${DOCKER_GID:-0}"]
+    volumes:
+      - artifacts:/var/lib/spareagent/artifacts
+      - fixtures:/fixtures:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      fixtures: {condition: service_completed_successfully}
+      postgres: {condition: service_healthy}
+
+  # Sandbox-capable provider node (dev). Same CLI as the remote workers; only the API URL,
+  # dev CA and its own credentials - no DATABASE_URL/REDIS_URL. The Docker socket is the
+  # node operator's own daemon, used to launch hardened sandboxes (see DECISIONS D-36).
+  code-worker:
+    image: spareagent-app:dev
+    profiles: ["code"]
+    command: ["sh", "-c", "python -m packages.worker.cli register --if-needed && exec python -m packages.worker.cli start --executor code"]
+    environment:
+      SPAREAGENT_API_URL: https://api-tls:8443
+      SPAREAGENT_CA_FILE: /certs/ca.pem
+      SPAREAGENT_RESOURCE_ID: 33333333-3333-4333-8333-333333333333
+      SPAREAGENT_WORKER_NAME: code-worker-1
+      SPAREAGENT_WORKER_HOME: /var/lib/spareagent-worker
+      SPAREAGENT_ENROLLMENT_TOKEN: ${CODE_WORKER_ENROLLMENT_TOKEN:-}
+      SPAREAGENT_FIXTURE_ROOT: /fixtures
+      SPAREAGENT_SANDBOX_IMAGE: spareagent-sandbox:dev
+    group_add: ["${DOCKER_GID:-0}"]
+    volumes:
+      - certs:/certs:ro
+      - fixtures:/fixtures:ro
+      - code-worker-state:/var/lib/spareagent-worker
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      api-tls: {condition: service_healthy}
+      fixtures: {condition: service_completed_successfully}
+
   remote-worker-1:
     <<: *remote-worker
     command: &remote-cmd ["sh", "-c", "python -m packages.worker.cli register --if-needed && exec python -m packages.worker.cli start"]
@@ -180,6 +243,14 @@ services:
       REDIS_URL: redis://redis:6379/15
       ARTIFACT_ROOT: /tmp/spareagent-test-artifacts
       COVERAGE_FILE: /tmp/.coverage
+      SANDBOX_IMAGE: spareagent-sandbox:dev
+      SPAREAGENT_REQUIRE_SANDBOX: ${SPAREAGENT_REQUIRE_SANDBOX:-1}
+      SPAREAGENT_NETWORK_TESTS: ${SPAREAGENT_NETWORK_TESTS:-0}
+    # Sandbox integration tests drive the host daemon (no bind mounts are ever passed to
+    # sandboxes, so tests behave the same inside this container).
+    group_add: ["${DOCKER_GID:-0}"]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
@@ -191,3 +262,5 @@ volumes:
   worker1-state:
   worker2-state:
   worker3-state:
+  fixtures:
+  code-worker-state:
