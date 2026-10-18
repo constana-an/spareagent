@@ -1033,6 +1033,138 @@ paths:
           $ref: '#/components/responses/ApiError'
         '409':
           $ref: '#/components/responses/ApiError'
+  /v1/friends/invites:
+    post:
+      tags:
+      - friends
+      summary: Create Invite
+      operationId: createFriendsLoginInvite
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FriendsInviteCreate'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendsInvite'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      security:
+      - friendsSession: []
+  /v1/friends/login:
+    post:
+      tags:
+      - friends
+      summary: Login
+      operationId: loginFriends
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FriendsLogin'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendsIdentity'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      security: []
+  /v1/friends/me:
+    get:
+      tags:
+      - friends
+      summary: Me
+      operationId: getFriendsIdentity
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendsIdentity'
+      security:
+      - friendsSession: []
+  /v1/friends/logout:
+    post:
+      tags:
+      - friends
+      summary: Logout
+      operationId: logoutFriends
+      responses:
+        '204':
+          description: Successful Response
+      security:
+      - friendsSession: []
+  /v1/friends/sessions/{user_id}/revoke:
+    post:
+      tags:
+      - friends
+      summary: Revoke Sessions
+      operationId: revokeFriendsSessions
+      parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: User Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      security:
+      - friendsSession: []
+  /v1/friends/groups/{group_id}/audit:
+    get:
+      tags:
+      - friends
+      summary: Friends Audit
+      operationId: getFriendsAudit
+      parameters:
+      - name: group_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Group Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FriendsAuditEntry'
+                title: Response Getfriendsaudit
+        '422':
+          $ref: '#/components/responses/ApiError'
+      security:
+      - friendsSession: []
 components:
   securitySchemes:
     friendsSession:

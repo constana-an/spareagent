@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     dev_auth_only: bool = False
     dev_auth_trusted_cidrs: str = "127.0.0.1/32,::1/128"
 
+    friends_auth_enabled: bool = False
+    friends_web_origin: str = "http://localhost:3000"
+    friends_session_hours: int = Field(default=12, ge=1, le=24)
+
     database_url: str = "postgresql+asyncpg://spareagent:spareagent@localhost:55432/spareagent"
     redis_url: str = "redis://localhost:56379/0"
 
@@ -76,7 +80,7 @@ class Settings(BaseSettings):
     # Week 4 experimental subscription-sharing scope (invitation-only, non-commercial).
     # Process-wide operator kill switch; defaults OFF. Cross-user dispatch additionally needs
     # an operator-verified authorization record, an enabled group and owner consent, and is
-    # simulated-only in this build (live execution is blocked, see WEEK4 status B-1).
+    # LIVE additionally needs the separate operator switch and every authorization gate.
     experiment_enabled: bool = False
     experiment_terms_version: str = "2026-10-experimental-v1"
     experiment_max_group_members: int = Field(default=5, ge=2, le=20)
@@ -113,6 +117,21 @@ class Settings(BaseSettings):
             raise ConfigError("NODE_TOKEN_PEPPER must be at least 16 characters")
         if self.repo_fixture_root and self.app_env != "local":
             raise ConfigError("REPO_FIXTURE_ROOT (local Git mirrors) is only allowed in local")
+        if self.friends_auth_enabled:
+            from urllib.parse import urlsplit
+
+            origin = urlsplit(self.friends_web_origin)
+            if (
+                origin.scheme not in ("http", "https")
+                or not origin.hostname
+                or origin.username
+                or origin.password
+                or origin.path
+                or origin.query
+                or origin.fragment
+                or (self.app_env != "local" and origin.scheme != "https")
+            ):
+                raise ConfigError("FRIENDS_WEB_ORIGIN must be an origin; HTTPS outside local")
         self.code_resource_ids  # noqa: B018 - validate UUIDs eagerly
         # Validate CIDRs eagerly so a typo cannot silently widen or break the trust boundary.
         self.trusted_networks  # noqa: B018

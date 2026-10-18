@@ -48,6 +48,10 @@ def unauthenticated(message: str) -> DomainError:
 
 async def get_principal(request: Request) -> Principal:
     ctx: AppContext = request.app.state.ctx
+    if ctx.settings.friends_auth_enabled and request.cookies.get("sa_friends_session"):
+        from services.friends_auth import session_principal
+
+        return await session_principal(request, ctx)
     if not ctx.settings.dev_auth_only:
         raise unauthenticated("No authentication method is enabled in this build (JWT is W2+)")
     if not is_local_request(request, ctx):

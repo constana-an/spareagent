@@ -192,3 +192,19 @@ async def test_owner_can_inspect_and_resume_events_strangers_cannot(lclient, lct
         await lclient.get(f"/v1/tasks/{task['id']}/artifacts", headers=headers(CAROL))
     ).status_code == 404
 
+
+async def test_friends_audit_only_exposes_participant_tasks(lclient, lctx):
+    from tests.integration.test_experimental_sharing import invite_join
+
+    gid, conn, node, _ = await live_world(lclient)
+    await invite_join(lclient, gid, CAROL)
+    task = await submit_live(lclient, gid, conn)
+    await approve(lclient, task["id"])
+    await run_on_device(lclient, node)
+    object.__setattr__(lctx.settings, "friends_auth_enabled", True)
+    for user in (ALICE, BOB):
+        rows = (await lclient.get(f"/v1/friends/groups/{gid}/audit", headers=headers(user))).json()
+        assert [row["task_id"] for row in rows] == [task["id"]]
+    assert (
+        await lclient.get(f"/v1/friends/groups/{gid}/audit", headers=headers(CAROL))
+    ).json() == []
