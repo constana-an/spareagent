@@ -6,32 +6,62 @@ Branch `feat/week4-codex-subscription-pool`, based on `main` at e59c511.
 
 | Milestone | State | Evidence |
 |---|---|---|
-| A. Local owner-only Codex subscription connector | **Code complete. Live proof NOT run.** | 32 unit tests against a deterministic fake Codex CLI. No live ChatGPT login was used: the Codex CLI is not installed on the build host, and nobody ran the owner-only check on the owner's device. |
-| B. Experimental permission and consent | **Done** | Groups, invitations, join/sharing acknowledgements, authorization records with operator verification, pause, revoke, kill switch. Integration tests. |
-| C. Shared scheduler simulation | **Done (simulated)** | `ExperimentalDispatcher` and `ExperimentalSimulation` cover consented routing, revocation, limits and failures. 26 integration tests plus `scripts/e2e_experimental_demo.py` (result PASS). |
-| D. Live experimental execution | **Blocked (B-1). Not implemented, not enabled.** | `LIVE_CROSS_USER_SUPPORTED = False` is a code constant. Database CHECKs make experimental tasks MOCK-only and make a `LIVE` ALLOW impossible to record. The adapter refuses all non-owner requests. |
-| E. Minimal dashboard | **Not started (deferred)** | `main` has no web app. The Next.js app lives only in the unmerged `feat/week4-web-github` working tree (uncommitted). The API is ready for it. |
+| A. Local owner-only Codex subscription connector | **Code complete. Live proof NOT run yet.** | 41 unit tests against a deterministic fake Codex CLI. No real ChatGPT login was used: the Codex CLI is not installed on the build host. The owner still has to run `spareagent-worker codex-check` on their own Mac. |
+| B. Experimental permission and consent | **Done** | Groups, invitations, join/sharing acknowledgements, authorization records with operator verification, pause, revoke, kill switch. |
+| C. Shared scheduler simulation | **Done (simulated)** | `ExperimentalDispatcher` and `ExperimentalSimulation`, 26 integration tests, `scripts/e2e_experimental_demo.py` (PASS). |
+| D. Live experimental execution | **Implemented and gated. Off by default. Never run against a real subscription.** | Migration 0008, LIVE policy gates, device enrollment, remote lease routing, owner-device Codex executor, live result verification. 16 integration tests plus device-side unit tests, all against the fake CLI and a simulated device. |
+| E. Minimal dashboard | **Not started (deferred)** | `main` has no web app. The Next.js app lives only in the unmerged, uncommitted `feat/week4-web-github` working tree. The API is ready for it. |
 
-Full suite: **414 passed, 2 skipped** (the 2 pre-existing `SPAREAGENT_NETWORK_TESTS` cases). Coverage is 90.5% against an 80% gate. `ruff check`, `ruff format --check` and `scripts/validate_openapi.py` are all clean. Week 1–3 tests still pass; the only edited Week 1 test is the expected migration list in `test_migrations.py`, which now includes 0007.
+Full suite: **446 passed, 2 skipped** (the 2 pre-existing `SPAREAGENT_NETWORK_TESTS` cases). Coverage is 90.5% against an 80% gate. `ruff check`, `ruff format --check` and `scripts/validate_openapi.py` (contract 1.4.0, 47 paths) are all clean. The only edited Week 1–3 test is the expected migration list in `test_migrations.py`, which now includes 0007 and 0008.
 
-## Blocker B-1: live cross-user execution
+## Authorization for live cross-user execution
 
-The brief says to stop at the last verified milestone if the official integration cannot support the exact experiment. That is the case here, for four reasons:
+The first version of this branch stopped at Milestone C (blocker "B-1"). The published Sign in with ChatGPT terms restrict pooling and requests on behalf of other users, and the support excerpts in the brief were unverified and named no technical route. The owner then supplied OpenAI Support's follow-up reply, **ticket 10766658**, and reported that they checked the message headers. The reply confirms the following, which is the scope Milestone D enforces:
 
-1. **The published terms forbid it.** The repository's own PRD (`docs/PRD.md`, with references) records that Sign in with ChatGPT "prohibits subscription pooling/resale and requests on behalf of other users". The Week 4 brief says the same. Routing Bob's task to Alice's plan is a request on behalf of another user.
-2. **The integration route is not covered.** OpenAI's developer page for ChatGPT plan usage (developers.openai.com/siwc/token-sharing-open-source) offers it to "open-source and locally hosted apps". It sends paid or *remotely hosted* apps to an interest form. SpareAgent's central scheduler is remotely hosted. Each client_id is "bound to the authenticated user". The Codex auth docs say to treat `~/.codex/auth.json` "like a password" and "Don't expose Codex execution in untrusted or public environments".
-3. **The claimed exception is unverified.** The support excerpts in the brief were supplied by the user and are not authenticated. Neither names a technical route (Codex CLI, app-server, or SIWC client) or the cross-user trigger model. They also limit scope to a "small voluntary group".
-4. **Plan accounting can't be observed.** Codex exposes no supported way to read remaining plan quota, and no way to check whether a run drew on purchased credits. SpareAgent therefore cannot technically guarantee "no extra-credit purchase" during a live cross-user run. It can only strip API keys and stop on a limit error.
+| Confirmed by OpenAI Support (ticket 10766658) | Enforced by |
+|---|---|
+| Execution via the official Codex CLI (`codex exec`), signed in with each participant's own ChatGPT account on their own computer | Authorization `integration_route = CODEX_CLI_EXEC` (policy and DB trigger). The device executor runs only `codex exec` with `forced_login_method="chatgpt"`, an environment with no API keys, and a `codex login status` check before every run. |
+| A coordination server may relay task text and results, never handling credentials | No credential fields anywhere on the server. Request models are `extra=forbid`. Prompts are redacted before they leave the API. |
+| At most 5 participants | `max_participants = 5` on the record. LIVE is denied (`GROUP_EXCEEDS_AUTHORIZED_SIZE`) if the group's cap or member count exceeds it. |
+| Purchased Codex credits must never be consumed by another participant's task; stop when the plan limit is reached | The owner attests "no purchased credits, auto-reload off": through the API (stored, and required by the DB trigger) and on the device (`--attest-no-purchased-credits`). Withdrawing it stops LIVE dispatch immediately. A plan-limit error fails the task without retry and starts a cooldown. |
+| No resale, payment or credential sharing; voluntary and revocable | No money fields. Consent acknowledgements. Pause, revoke, local kill switch, operator kill switch. |
+| Check back after 6 months, or sooner if the scope changes | Record `expires_at` (6 months from 2026-10-18, i.e. 2027-04-18). LIVE is denied after it, in the policy and in the DB trigger. |
 
-What would unblock it, all needed before any code change:
+Caveats that stay on record:
 
-- Written confirmation from OpenAI, through a channel you can verify, that names the technical route and the cross-user trigger. "Through a channel you can verify" means an agreement or an approved SIWC client registration, not a forwarded support excerpt.
-- A recorded `OPERATOR_VERIFIED` authorization with `integration_route_covered = true`.
-- A reviewed change that flips `LIVE_CROSS_USER_SUPPORTED`, plus a new migration that relaxes `experimental_tasks_simulated_only` and `live_never_allowed`.
+- SpareAgent can't verify the email itself. The operator's `verify` call is the attestation that the headers were checked. The authorization record holds only the ticket number.
+- SpareAgent can't see credit balances. The guarantee against consuming purchased credits rests on each owner's attestation. (The owner reports that no member has credits and none has auto-reload on.)
+- The permission is project-specific, not a general one. Nothing here should be presented as OpenAI endorsing SpareAgent. Any change of scope (commercial use, payment, more than 5 people, shared credentials) needs a new review with OpenAI.
 
-Until then the experimental scope runs only the deterministic simulation, and nothing here can enable live execution by configuration.
+### Turning LIVE on (operator runbook)
 
-**Decision needed from the project owner:** do you want to pursue the verifiable written route above? Or should SpareAgent stay owner-only for real Codex usage, with the friends group kept as a simulation?
+1. Set `EXPERIMENT_ENABLED=true` and `EXPERIMENT_LIVE_ENABLED=true`. Both default to off.
+2. Record the authorization:
+
+   ```text
+   POST /v1/experiments/groups/{id}/authorizations
+     provider_name=openai-codex
+     authorization_source=VENDOR_SUPPORT_CORRESPONDENCE
+     authorization_reference="OpenAI support ticket 10766658"
+     integration_route=CODEX_CLI_EXEC
+     max_participants=5
+     expires_at=2027-04-18T00:00:00Z
+   ```
+
+   Then call `POST /v1/experiments/authorizations/{id}/verify` with `OPERATOR_VERIFIED` and `integration_route_covered=true`.
+3. Each owner, on their own Mac:
+   1. Run `codex login` (ChatGPT) and `spareagent-worker codex-check`.
+   2. `POST /v1/subscriptions/enrollment-tokens`, then `spareagent-worker register --resource-id … --enrollment-token …`.
+   3. `POST /v1/subscriptions/connect`, `PUT /v1/sharing/preferences`, `POST /v1/sharing/enable`.
+   4. `POST /v1/subscriptions/attest` with the `codex-check` result and the no-credits / no-auto-reload statements.
+   5. `spareagent-worker start --executor codex-subscription --accept-shared-tasks --attest-no-purchased-credits`
+4. Requesters submit with `"execution_mode": "LIVE"`. The owner approves each task, unless they granted scoped advance consent.
+
+Recommended first real run:
+1. `codex-check` on your own Mac.
+2. One CODE_REVIEW between two members, on a small public repository.
+3. Confirm in each owner's ChatGPT usage page that only plan usage was consumed.
+4. Only then widen use.
 
 ## What each piece does
 
@@ -45,7 +75,7 @@ Until then the experimental scope runs only the deterministic simulation, and no
   - The JSONL output is parsed into typed events. Progress messages carry only the item kind (no commands or paths). All text is redacted.
   - Errors are classified as `AUTH`, `USAGE_LIMIT` (with a reset hint) or `RUNTIME`.
 - `packages/provider_sdk/codex_subscription.py` (`CodexSubscriptionAdapter`):
-  - Owner-only: it requires `resource_scope == OWNER_ONLY` and `user_id == owner_ref`. There is no flag that relaxes this.
+  - Owner-only by default: it requires `resource_scope == OWNER_ONLY` and `user_id == owner_ref`. Shared work is possible only through the Milestone D on-device opt-in (see below).
   - Usage is reported as `billable=false` with `estimated_cost_cents=0`.
   - An expired session raises `SubscriptionUnavailable`. A plan limit raises `SubscriptionLimitReached`, which is not retryable and is never retried with other credentials.
 - `spareagent-worker codex-check` is the owner-run proof. It prints a JSON report: the login method, which API-billing variables were present in the shell (names only), the fact that none were passed to Codex, and the token counts from one trivial read-only run. Nothing is sent to SpareAgent.
@@ -118,11 +148,11 @@ There is also `GET /v1/experimental-tasks/nodes` for the requester's node list. 
 | 7 | Revocation prevents assignment | `test_revocation_cancels_and_prevents_assignment`, `test_revocation_stops_a_running_task`, `test_operator_kill_switch` |
 | 8 | Expired or unauthorized experiments can't run | `test_unauthorized_or_expired_experiment_cannot_run[...]`, `test_experiment_disabled_globally` |
 | 9 | No personal routing through `PUBLIC_MARKETPLACE` | `test_personal_subscription_never_routed_through_public_marketplace`, `test_public_marketplace_policy_unchanged_for_personal_subscriptions` |
-| 10 | A confirmed task completes through verification | `test_consented_task_completes_through_existing_verification` (SIMULATED, MOCK verifier) |
+| 10 | A confirmed task completes through verification | `test_consented_task_completes_through_existing_verification` (SIMULATED); `test_experimental_live.py::test_live_task_runs_on_owner_device_end_to_end` and `test_live_results_are_verified[...]` (LIVE protocol, simulated device) |
 | 11 | Failed or interrupted tasks never verify | `test_failed_task_never_reports_verified_success`, `test_interrupted_task_does_not_succeed`, `test_crash_is_a_failure_not_a_success`, `test_timeout_kills_the_run` |
 | 12 | Usage limits and rate limits | `test_rate_limit_is_recorded_and_pauses_assignment`, `test_daily_and_duration_limits`, `test_usage_limit_is_reported_not_worked_around`, `test_expired_owner_login_blocks_assignment` |
 | 13 | No paid fallback or credit purchase | `test_paid_credits_can_never_be_enabled`, `test_non_chatgpt_login_fails_closed_without_running`, `test_sanitized_env_drops_every_api_billing_variable` |
-| 14 | Week 1–3 tests still pass | Full suite: 414 passed, 2 skipped |
+| 14 | Week 1–3 tests still pass | Full suite: 446 passed, 2 skipped |
 
 ## Reproducible local demonstration (simulated)
 
@@ -145,11 +175,34 @@ A verified run on 2026-10-18 printed `result=PASS`. The steps were:
 
 The run writes its report to `reports/week4_experimental_demo.json`.
 
+### Milestone D: gated live execution
+
+- **Migration `0008_experimental_live_execution.sql`:**
+  - adds `integration_route` and `max_participants` to the authorization record, and `owner_check_passed_at` and `no_purchased_credits_at` to the connection;
+  - adds the `CODEX_LIVE` profile, allowed only in the experimental scope;
+  - replaces `live_never_allowed` with a trigger: a LIVE ALLOW must cite a verified, route-covered (`CODEX_CLI_EXEC`), unexpired, unrevoked authorization for the same group, plus both owner attestations;
+  - narrows D-22. A personal resource can enroll a node only through a token issued by its own owner, and only while that owner is an active member of an active group. Marketplace enrollment of personal resources is still refused, and personal resources still can't be public.
+- **Policy (LIVE mode)** requires every SIMULATED condition plus: the operator switch, the covered route, the group fitting the authorized cap, both owner attestations, and a node advertising `executor=codex-subscription`.
+- **Routing.** A personal device's long poll goes to `ExperimentalDispatcher` and claims only `CODEX_LIVE` tasks. Every other node keeps the public `Dispatcher`, which still never selects personal resources. The lease carries `resource_scope` and `authorization_ref`.
+- **Device executor.** `CodexSubscriptionAdapter` runs shared work only when all of these hold:
+  - it was built with `SharedWorkConsent` (both CLI flags);
+  - the local `sharing pause` switch is off;
+  - the lease names an authorization;
+  - the task pins a repository commit.
+
+  It checks the commit out with the hardened `RepositoryManager`. Reviews use Codex's `read-only` sandbox; other tasks use `workspace-write`. A preamble tells Codex to stay in the checkout. The patch includes new files.
+- **Verification** (`verify_codex_live`):
+  - a SUMMARY is always required;
+  - WRITE_TESTS and CODE_FIX need a PATCH that passes the existing patch policy;
+  - a review must not contain a patch.
+- **Usage.** Server-computed at 0 cents and non-billable. A device-reported `SUBSCRIPTION_USAGE_LIMIT` becomes a `RATE_LIMITED` observation and a one-hour cooldown. `SUBSCRIPTION_AUTH_UNAVAILABLE` marks the connection EXPIRED until the owner reconnects.
+
 ## Known limitations and residual risks
 
 - **`auth_method` on connect is device-reported.** The server can't verify a ChatGPT login remotely (by design, it never sees credentials). The guarantee comes from the owner's own `codex-check` and the adapter's per-run check.
-- **Personal nodes can't be enrolled over the API.** D-22 still blocks it in the database. Simulated nodes are local fixtures. A real enrollment path for personal nodes belongs to Milestone D and is blocked with it.
-- **Purchased credits are invisible.** SpareAgent can't see whether Codex draws on purchased ChatGPT credits once plan limits are hit. Owners must keep any credit auto-top-up off. This is one more reason live sharing stays off (B-1, item 4).
+- **LIVE has never run against a real subscription.** All Milestone D tests use the fake CLI and a simulated device. Follow the recommended first-run order above.
+- **Purchased credits are invisible.** SpareAgent can't see whether Codex draws on purchased credits. The guarantee rests on owner attestations, which can be withdrawn at any time.
+- **A friend's prompt runs Codex on the owner's computer.** Codex's own sandbox (read-only for reviews, workspace-write otherwise, never full access) and per-task owner approval are the controls. Owners should read each prompt before approving.
+- **Live results aren't re-executed by the platform.** Only structure and patch-policy checks apply. Requesters should treat patches as untrusted code.
 - **The rate-limit cooldown is a fixed hour.** The reset hint is shown but not parsed into a time.
-- **The owner-only adapter isn't wired into a server-dispatched lease.** It runs today only through `codex-check`. Putting it behind a node's lease protocol would also need OWNER_ONLY task dispatch, which `main` doesn't implement (the PRD marks it "future").
 - **The UI (Milestone E) is not built** (see the table above).

@@ -55,6 +55,13 @@ if 'forced_login_method="chatgpt"' not in args:
     sys.exit(3)
 
 prompt = sys.stdin.read()
+if home:
+    with open(os.path.join(home, "last_prompt.txt"), "w") as fh:
+        fh.write(prompt)
+sandbox = args[args.index("--sandbox") + 1] if "--sandbox" in args else "read-only"
+if sandbox == "workspace-write" and mode == "chatgpt":
+    with open("test_added_by_codex.py", "w") as fh:
+        fh.write("def test_added():\n    assert True\n")
 
 
 def emit(obj):

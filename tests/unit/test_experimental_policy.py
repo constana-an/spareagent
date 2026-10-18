@@ -1,4 +1,4 @@
-"""ExperimentalSharingPolicy: every condition is required; live is always denied."""
+"""ExperimentalSharingPolicy: every condition is required; LIVE adds the Milestone D gates."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ import pytest
 
 from services.scheduler.policy import ResourceEligibilityPolicy
 from services.subscriptions.policy import (
-    LIVE_CROSS_USER_SUPPORTED,
     AuthorizationSnapshot,
     DispatchSnapshot,
     ExperimentalSharingPolicy,
@@ -45,6 +44,8 @@ def snap(**overrides) -> DispatchSnapshot:
             integration_route_covered=True,
             expires_at=NOW + timedelta(days=30),
             revoked_at=None,
+            integration_route="CODEX_CLI_EXEC",
+            max_participants=5,
         ),
         sharing_state="ENABLED",
         consent_accepted=True,
@@ -63,6 +64,12 @@ def snap(**overrides) -> DispatchSnapshot:
         node_online=True,
         active_tasks_on_connection=0,
         tasks_started_last_24h=0,
+        live_enabled=True,
+        group_member_count=2,
+        group_max_members=5,
+        owner_check_passed=True,
+        no_purchased_credits=True,
+        node_executor="codex-subscription",
     )
     return dataclasses.replace(base, **overrides)
 
@@ -76,17 +83,37 @@ def test_fully_consented_simulated_dispatch_is_allowed():
     assert d.allowed and d.mode == Mode.SIMULATED and d.reasons == ()
 
 
-def test_live_mode_is_always_blocked_even_when_everything_else_holds():
-    assert LIVE_CROSS_USER_SUPPORTED is False
+def test_live_allowed_only_when_every_milestone_d_gate_holds():
     d = ExperimentalSharingPolicy.evaluate(snap(), mode=Mode.LIVE)
-    assert not d.allowed and Reason.LIVE_EXECUTION_BLOCKED in d.reasons
+    assert d.allowed and d.mode == Mode.LIVE
 
 
-def test_live_mode_also_requires_route_coverage():
-    d = ExperimentalSharingPolicy.evaluate(
-        snap(authorization=auth(integration_route_covered=False)), mode=Mode.LIVE
-    )
-    assert Reason.INTEGRATION_ROUTE_NOT_COVERED in d.reasons
+@pytest.mark.parametrize(
+    ("overrides", "reason", "transient"),
+    [
+        ({"live_enabled": False}, Reason.LIVE_EXECUTION_DISABLED, False),
+        ({"authorization": "uncovered"}, Reason.INTEGRATION_ROUTE_NOT_COVERED, False),
+        ({"authorization": "other_route"}, Reason.INTEGRATION_ROUTE_NOT_COVERED, False),
+        ({"authorization": "no_cap"}, Reason.GROUP_EXCEEDS_AUTHORIZED_SIZE, False),
+        ({"group_max_members": 6}, Reason.GROUP_EXCEEDS_AUTHORIZED_SIZE, False),
+        ({"group_member_count": 6}, Reason.GROUP_EXCEEDS_AUTHORIZED_SIZE, False),
+        ({"owner_check_passed": False}, Reason.OWNER_CHECK_MISSING, False),
+        ({"no_purchased_credits": False}, Reason.CREDITS_ATTESTATION_MISSING, False),
+        ({"node_executor": None}, Reason.NODE_NOT_CODEX_CAPABLE, True),
+    ],
+)
+def test_each_live_gate_is_required(overrides, reason, transient):
+    special = overrides.get("authorization")
+    if special == "uncovered":
+        overrides = {"authorization": auth(integration_route_covered=False)}
+    elif special == "other_route":
+        overrides = {"authorization": auth(integration_route="APP_SERVER")}
+    elif special == "no_cap":
+        overrides = {"authorization": auth(max_participants=None)}
+    d = ExperimentalSharingPolicy.evaluate(snap(**overrides), mode=Mode.LIVE)
+    assert not d.allowed and reason in d.reasons and d.transient is transient
+    # The same snapshot is still fine for the simulation: LIVE gates only apply to LIVE.
+    assert ExperimentalSharingPolicy.evaluate(snap(**overrides)).allowed
 
 
 @pytest.mark.parametrize(

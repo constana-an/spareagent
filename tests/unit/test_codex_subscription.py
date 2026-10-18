@@ -1,5 +1,6 @@
-"""Week 4 Milestone A: owner-only Codex subscription adapter against a deterministic fake
-Codex CLI (no live credentials in CI)."""
+"""Week 4 Milestones A and D: Codex subscription adapter (owner-only by default; shared
+experimental work only with on-device opt-in) against a deterministic fake Codex CLI
+(no live credentials in CI)."""
 
 from __future__ import annotations
 
@@ -14,11 +15,14 @@ from packages.provider_sdk.base import PermanentProviderError
 from packages.provider_sdk.codex_subscription import (
     CodexSubscriptionAdapter,
     OwnerOnlyViolation,
+    SharedWorkConsent,
+    SharedWorkRefused,
     SubscriptionLimitReached,
     SubscriptionUnavailable,
 )
 from packages.provider_sdk.types import ExecutionRequest, ExecutionResult, ProgressEvent
 from packages.worker.codex_runtime import CodexRuntime, CodexRuntimeConfig, classify_error
+from packages.worker.local_controls import LocalSharingControl
 from packages.worker.subscription_auth import (
     FORBIDDEN_ENV,
     AuthMethod,
@@ -27,6 +31,8 @@ from packages.worker.subscription_auth import (
     probe_login,
     sanitized_env,
 )
+from services.execution.repository_manager import RepositoryManager
+from tests.conftest import PY_SHA, PY_URL
 
 FAKE = str(Path(__file__).resolve().parents[1] / "fakes" / "fake_codex.py")
 OWNER = "owner-ref-1"
@@ -180,12 +186,101 @@ async def test_expired_session_detected(codex_home):
     ],
 )
 async def test_cross_user_or_out_of_scope_requests_are_refused(codex_home, overrides):
+    """Without the owner's on-device shared-work opt-in, nothing but the owner's own
+    OWNER_ONLY task runs."""
     set_mode(codex_home, "chatgpt")
     with pytest.raises(PermanentProviderError) as exc:
         await run_all(adapter(), request(**overrides))
-    if "task_type" not in overrides:
+    if overrides.get("resource_scope") == "EXPERIMENTAL_SHARED_SUBSCRIPTION":
+        assert isinstance(exc.value, SharedWorkRefused)
+    elif "task_type" not in overrides:
         assert isinstance(exc.value, OwnerOnlyViolation)
     assert calls(codex_home) == []  # refused before Codex was even asked
+
+
+# ------------------------------------------------------------------ Milestone D shared mode
+def shared_adapter(tmp_path, fixture_root, *, paused=False) -> CodexSubscriptionAdapter:
+    control = LocalSharingControl(tmp_path / "state")
+    if paused:
+        control.pause()
+    return CodexSubscriptionAdapter(
+        owner_ref=OWNER,
+        runtime=CodexRuntime(CodexRuntimeConfig(codex_bin=FAKE)),
+        shared=SharedWorkConsent(
+            control,
+            no_purchased_credits_attested=True,
+            repository_manager=RepositoryManager(mirror_root=fixture_root),
+        ),
+    )
+
+
+def shared_request(**overrides) -> ExecutionRequest:
+    return request(
+        **{
+            "user_id": "redacted",
+            "resource_scope": "EXPERIMENTAL_SHARED_SUBSCRIPTION",
+            "authorization_ref": str(uuid.uuid4()),
+            "repository_url": PY_URL,
+            "commit_sha": PY_SHA,
+            **overrides,
+        }
+    )
+
+
+async def test_shared_review_runs_read_only_on_pinned_checkout(codex_home, tmp_path, fixture_root):
+    set_mode(codex_home, "chatgpt")
+    result = (await run_all(shared_adapter(tmp_path, fixture_root), shared_request()))[-1]
+    assert {a.kind for a in result.artifacts} == {"SUMMARY", "LOG"}  # a review changes nothing
+    exec_argv = [c for c in calls(codex_home) if "exec" in c["argv"]][0]["argv"]
+    assert exec_argv[exec_argv.index("--sandbox") + 1] == "read-only"
+    assert (codex_home / "last_prompt.txt").read_text().startswith("You are running a task")
+    assert result.usage.billable is False and result.usage.estimated_cost_cents == 0
+
+
+async def test_shared_write_tests_returns_patch_with_new_files(codex_home, tmp_path, fixture_root):
+    set_mode(codex_home, "chatgpt")
+    result = (
+        await run_all(
+            shared_adapter(tmp_path, fixture_root), shared_request(task_type="WRITE_TESTS")
+        )
+    )[-1]
+    patch = next(a for a in result.artifacts if a.kind == "PATCH").content
+    assert b"test_added_by_codex.py" in patch
+    exec_argv = [c for c in calls(codex_home) if "exec" in c["argv"]][0]["argv"]
+    assert exec_argv[exec_argv.index("--sandbox") + 1] == "workspace-write"
+    assert "danger-full-access" not in exec_argv
+
+
+@pytest.mark.parametrize("case", ["paused", "no_authorization", "public_scope", "no_repository"])
+async def test_shared_work_refused_without_every_device_side_gate(
+    codex_home, tmp_path, fixture_root, case
+):
+    set_mode(codex_home, "chatgpt")
+    a = shared_adapter(tmp_path, fixture_root, paused=case == "paused")
+    req = {
+        "paused": shared_request(),
+        "no_authorization": shared_request(authorization_ref=None),
+        "public_scope": shared_request(resource_scope="PUBLIC_MARKETPLACE"),
+        "no_repository": shared_request(repository_url=None),
+    }[case]
+    with pytest.raises(PermanentProviderError):
+        await run_all(a, req)
+    assert calls(codex_home) == []
+
+
+def test_shared_mode_requires_credit_attestation(tmp_path):
+    with pytest.raises(ValueError, match="no-purchased-credits"):
+        CodexSubscriptionAdapter(
+            owner_ref=OWNER,
+            shared=SharedWorkConsent(LocalSharingControl(tmp_path), False),
+        )
+
+
+async def test_shared_work_fails_closed_on_api_key_login(codex_home, tmp_path, fixture_root):
+    set_mode(codex_home, "apikey")
+    with pytest.raises(SubscriptionUnavailable):
+        await run_all(shared_adapter(tmp_path, fixture_root), shared_request())
+    assert all("exec" not in c["argv"] for c in calls(codex_home))
 
 
 # ------------------------------------------------------------------ acceptance 11, 12
