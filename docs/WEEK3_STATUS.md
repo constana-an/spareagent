@@ -14,7 +14,7 @@ Status values: **COMPLETE** (implemented and verified by an executed test), **PA
 make clean && make up && make migrate   # applied 0001, 0003, 0005
 make seed-dev && make seed-dev          # repeatable
 make lint                               # ruff + format + OpenAPI 3.1 (23 paths): OK
-SPAREAGENT_NETWORK_TESTS=1 make test    # 318 passed, 0 failed; coverage 88.96 % (gate 80 %)
+SPAREAGENT_NETWORK_TESTS=1 make test    # 319 passed, 0 failed; coverage 88.98 % (gate 80 %)
 make smoke                              # Week 1: SMOKE OK
 make e2e-remote                         # Week 2: 18/18 -> reports/week2_e2e_report.json
 make e2e-code                           # Week 3: all checks passed -> reports/week3_e2e_report.json
@@ -76,6 +76,12 @@ into the test container and enables the network tests.
    content-addressed row. Such submissions are now refused (D-40).
 3. **`/home` visible in the sandbox** (from the node base image) — removed from the image;
    the isolation probe enforces it.
+4. **Week 2 race, exposed by GitHub Actions timing** — a node's final `OFFLINE` heartbeat
+   during graceful shutdown could be undone by its own still-running long poll on the server,
+   which re-marked the node ONLINE each iteration. Only the first poll iteration may now
+   re-online a node; later iterations refresh liveness only and stop claiming once the node is
+   OFFLINE/DRAINING (`test_offline_announcement_not_undone_by_inflight_poll`, verified to fail
+   on the old code).
 
 ## Residual security risks (explicit)
 1. **Shared kernel.** Sandboxes are ordinary Docker containers. A kernel or runtime escape

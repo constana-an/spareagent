@@ -1,7 +1,7 @@
 {
   "report": "spareagent-week3-secure-execution-e2e",
-  "started_at": "2026-10-18T05:48:39.221447+00:00",
-  "finished_at": "2026-10-18T05:49:36.572058+00:00",
+  "started_at": "2026-10-18T13:09:23.374004+00:00",
+  "finished_at": "2026-10-18T13:10:26.329367+00:00",
   "fixtures": {
     "python-calc": "44d957e53add3b73f7eaaa9755b1525ff32bb8c3",
     "ts-strings": "115e49e8bffba58e74c029279a772fde67ffe9a6",
@@ -16,7 +16,7 @@
     {
       "check": "code worker registered over HTTPS with a healthy sandbox",
       "passed": true,
-      "detail": "71fd7b38-99e1-44cc-9077-966492600908"
+      "detail": "90a51553-56a3-4be6-a2f5-653ec4b047de"
     },
     {
       "check": "code worker holds no database/Redis/platform secrets",
@@ -176,7 +176,7 @@
       "check": "forged artifacts never published; task scheduled for retry",
       "passed": true,
       "detail": {
-        "status": "RETRY_PENDING",
+        "status": "QUEUED",
         "published": [
           "VERIFICATION_REPORT"
         ]
@@ -189,7 +189,7 @@
         [
           "1",
           "FAILED",
-          "forger-20261018054839"
+          "forger-20261018130923"
         ],
         [
           "2",
@@ -221,7 +221,7 @@
   ],
   "results": {
     "python-calc": {
-      "task_id": "63bac43b-73a3-4729-9535-3c418d1b61ad",
+      "task_id": "749c2ffb-bf70-44ae-9320-e92c18b52b36",
       "status": "SUCCEEDED",
       "events": [
         "CREATED",
@@ -236,7 +236,7 @@
       "patch": "diff --git a/calc.py b/calc.py\nindex f905fb959fec8bf8a8824b2acc6a1be05c8523f6..717f7eda038113a5fc8bc24c9035edd1e2aa3e62 100644\n--- a/calc.py\n+++ b/calc.py\n@@ -1,5 +1,5 @@\n def add(a, b):\n-    return a - b\n+    return a + b\n \n \n def mul(a, b):\n"
     },
     "ts-strings": {
-      "task_id": "1cc8c3f1-9599-4282-876b-aab5a965bf9b",
+      "task_id": "ae445d4d-2514-4454-97c0-92a3ed825374",
       "status": "SUCCEEDED",
       "events": [
         "CREATED",
@@ -251,7 +251,7 @@
       "patch": "diff --git a/src/strings.ts b/src/strings.ts\nindex 165d378527911aa13ea565e27e0f01b9759c871b..7434174de71f1797e4b107b9c560a176e7b85202 100644\n--- a/src/strings.ts\n+++ b/src/strings.ts\n@@ -1,5 +1,5 @@\n export function capitalize(s: string): string {\n-  return s.toLowerCase();\n+  return s.charAt(0).toUpperCase() + s.slice(1);\n }\n \n export function shout(s: string): string {\n"
     },
     "python-probe": {
-      "task_id": "96880f90-aa75-495e-9716-8d22462a441d",
+      "task_id": "837743e2-d791-4606-a9b2-e5c26e2f3eab",
       "status": "SUCCEEDED",
       "probes": {
         "test_greet": "ok",
@@ -263,13 +263,13 @@
       }
     },
     "forged": {
-      "task_id": "6a5b5810-982d-4b50-bbfe-4d1660091790",
+      "task_id": "37b67c72-e12f-4d20-aa07-2c37cbd37611",
       "status": "SUCCEEDED",
       "attempts": [
         [
           "1",
           "FAILED",
-          "forger-20261018054839"
+          "forger-20261018130923"
         ],
         [
           "2",

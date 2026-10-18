@@ -80,21 +80,31 @@ class RemoteWorkerService:
         }
 
     async def heartbeat(
-        self, node: NodePrincipal, state: str, capabilities: dict[str, Any] | None
-    ) -> None:
-        """Liveness + self-reported availability only. Eligibility is never touched here."""
+        self,
+        node: NodePrincipal,
+        state: str,
+        capabilities: dict[str, Any] | None,
+        *,
+        touch_only: bool = False,
+    ) -> str:
+        """Liveness + self-reported availability only. Eligibility is never touched here.
+
+        `touch_only` refreshes liveness without changing the node's status; returns status."""
         if state not in NODE_STATES:
             raise DomainError(422, "VALIDATION_ERROR", "state must be ONLINE, DRAINING or OFFLINE")
         async with self.ctx.sessionmaker() as session, session.begin():
             worker = await session.get(WorkerNode, node.worker_id, with_for_update=True)
             assert_alive(worker)
             worker.last_heartbeat = utcnow()
+            if touch_only:
+                return worker.status
             if capabilities is not None:
                 worker.capabilities = capabilities
             if state in ("DRAINING", "OFFLINE"):
                 worker.status = state
             elif worker.status in ("OFFLINE", "DRAINING", "ERROR"):
                 worker.status = "RUNNING" if worker.active_tasks else "IDLE"
+            return worker.status
 
     async def _reserved_for(self, worker_id: uuid.UUID) -> dict[str, Any] | None:
         async with self.ctx.sessionmaker() as session:
@@ -120,8 +130,15 @@ class RemoteWorkerService:
         """Bounded long poll: return an existing reservation or claim one atomically."""
         wait = max(0.0, min(wait_seconds, self.ctx.settings.lease_poll_max_wait_seconds))
         deadline = time.monotonic() + wait
+        first = True
         while True:
-            await self.heartbeat(node, "ONLINE", None)
+            # Only the start of a poll may bring a node back ONLINE. Later iterations only
+            # refresh liveness, so a node that announced OFFLINE/DRAINING while this request
+            # was still in flight (e.g. graceful shutdown) is not silently re-onlined.
+            status = await self.heartbeat(node, "ONLINE", None, touch_only=not first)
+            first = False
+            if status in ("OFFLINE", "DRAINING"):
+                return None
             found = await self._reserved_for(node.worker_id)
             if found is None:
                 if await self.dispatcher.dispatch_once((node.worker_id,)) is not None:
