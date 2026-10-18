@@ -262,4 +262,176 @@ class VerificationResult(Base):
     completed_at: Mapped[datetime | None] = mapped_column(TZ)
 
 
+# ---------------------------------------------------------------- 0007 experimental scope
+def _fk(target: str, *, nullable: bool = False, **kw: Any) -> Any:
+    return mapped_column(UUID(as_uuid=True), ForeignKey(target), nullable=nullable, **kw)
+
+
+def _jsonb(default: str) -> Any:
+    return mapped_column(JSONB, nullable=False, server_default=text(f"'{default}'::jsonb"))
+
+
+def _created() -> Any:
+    return mapped_column(TZ, nullable=False, server_default=text("now()"))
+
+
+class ExperimentalGroup(Base):
+    __tablename__ = "experimental_groups"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), **UUID_PK)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[uuid.UUID] = _fk("users.id")
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'ACTIVE'"))
+    sharing_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    max_members: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("5"))
+    max_concurrent_tasks: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("1")
+    )
+    max_tasks_per_day: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("5")
+    )
+    max_task_duration_seconds: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("900")
+    )
+    allowed_task_types: Mapped[list[str]] = _jsonb('["CODE_REVIEW","WRITE_TESTS","CODE_FIX"]')
+    created_at: Mapped[datetime] = _created()
+    disabled_at: Mapped[datetime | None] = mapped_column(TZ)
+
+
+class ExperimentalGroupMember(Base):
+    __tablename__ = "experimental_group_members"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), **UUID_PK)
+    group_id: Mapped[uuid.UUID] = _fk("experimental_groups.id")
+    user_id: Mapped[uuid.UUID] = _fk("users.id")
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'INVITED'"))
+    invited_by: Mapped[uuid.UUID] = _fk("users.id")
+    invited_at: Mapped[datetime] = _created()
+    joined_at: Mapped[datetime | None] = mapped_column(TZ)
+    removed_at: Mapped[datetime | None] = mapped_column(TZ)
+    terms_version: Mapped[str | None] = mapped_column(Text)
+    acknowledgements: Mapped[dict[str, Any]] = _jsonb("{}")
+
+
+class ExperimentalAuthorization(Base):
+    __tablename__ = "experimental_authorizations"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), **UUID_PK)
+    group_id: Mapped[uuid.UUID] = _fk("experimental_groups.id")
+    provider_name: Mapped[str] = mapped_column(Text, nullable=False)
+    authorization_source: Mapped[str] = mapped_column(Text, nullable=False)
+    authorization_reference: Mapped[str] = mapped_column(Text, nullable=False)
+    authorization_scope: Mapped[dict[str, Any]] = _jsonb("{}")
+    verification_status: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'UNVERIFIED'")
+    )
+    integration_route_covered: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    verified_by: Mapped[uuid.UUID | None] = _fk("users.id", nullable=True)
+    verified_at: Mapped[datetime | None] = mapped_column(TZ)
+    expires_at: Mapped[datetime] = mapped_column(TZ, nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(TZ)
+    created_by: Mapped[uuid.UUID] = _fk("users.id")
+    created_at: Mapped[datetime] = _created()
+
+
+class SubscriptionConnection(Base):
+    __tablename__ = "subscription_connections"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), **UUID_PK)
+    owner_id: Mapped[uuid.UUID] = _fk("users.id")
+    worker_id: Mapped[uuid.UUID] = _fk("worker_nodes.id", unique=True)
+    provider_name: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'openai-codex'")
+    )
+    subscription_type: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'UNKNOWN'")
+    )
+    auth_method: Mapped[str] = mapped_column(Text, nullable=False)
+    auth_state: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'VALID'"))
+    device_label: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'CONNECTED'"))
+    last_auth_check_at: Mapped[datetime | None] = mapped_column(TZ)
+    created_at: Mapped[datetime] = _created()
+
+
+class SubscriptionSharingPreference(Base):
+    __tablename__ = "subscription_sharing_preferences"
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("subscription_connections.id"), primary_key=True
+    )
+    group_id: Mapped[uuid.UUID] = _fk("experimental_groups.id")
+    sharing_state: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'DISABLED'")
+    )
+    consent_terms_version: Mapped[str | None] = mapped_column(Text)
+    consent_accepted_at: Mapped[datetime | None] = mapped_column(TZ)
+    max_concurrent_tasks: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("1")
+    )
+    max_tasks_per_day: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("5")
+    )
+    max_task_duration_seconds: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("900")
+    )
+    allowed_task_types: Mapped[list[str]] = _jsonb('["CODE_REVIEW","WRITE_TESTS","CODE_FIX"]')
+    require_owner_approval: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    advance_consent_requester_ids: Mapped[list[str]] = _jsonb("[]")
+    allow_paid_credits: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    paused_at: Mapped[datetime | None] = mapped_column(TZ)
+    revoked_at: Mapped[datetime | None] = mapped_column(TZ)
+    updated_at: Mapped[datetime] = _created()
+
+
+class SubscriptionUsageObservation(Base):
+    __tablename__ = "subscription_usage_observations"
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    connection_id: Mapped[uuid.UUID] = _fk("subscription_connections.id")
+    task_attempt_id: Mapped[uuid.UUID | None] = _fk("task_attempts.id", nullable=True)
+    event: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    duration_ms: Mapped[int | None] = mapped_column(BigInteger)
+    input_tokens: Mapped[int | None] = mapped_column(BigInteger)
+    output_tokens: Mapped[int | None] = mapped_column(BigInteger)
+    capacity_state: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'UNKNOWN'")
+    )
+    reset_hint: Mapped[str | None] = mapped_column(Text)
+    observed_at: Mapped[datetime] = _created()
+
+
+class ExperimentalTaskConsent(Base):
+    __tablename__ = "experimental_task_consents"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), **UUID_PK)
+    task_id: Mapped[uuid.UUID] = _fk("tasks.id", unique=True)
+    group_id: Mapped[uuid.UUID] = _fk("experimental_groups.id")
+    requester_id: Mapped[uuid.UUID] = _fk("users.id")
+    connection_id: Mapped[uuid.UUID] = _fk("subscription_connections.id")
+    owner_id: Mapped[uuid.UUID] = _fk("users.id")
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'PENDING'"))
+    consent_source: Mapped[str | None] = mapped_column(Text)
+    decided_at: Mapped[datetime | None] = mapped_column(TZ)
+    created_at: Mapped[datetime] = _created()
+
+
+class ExperimentalDispatchAudit(Base):
+    __tablename__ = "experimental_dispatch_audit"
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    task_id: Mapped[uuid.UUID] = _fk("tasks.id")
+    group_id: Mapped[uuid.UUID] = _fk("experimental_groups.id")
+    connection_id: Mapped[uuid.UUID | None] = _fk("subscription_connections.id", nullable=True)
+    authorization_id: Mapped[uuid.UUID | None] = _fk(
+        "experimental_authorizations.id", nullable=True
+    )
+    decision: Mapped[str] = mapped_column(Text, nullable=False)
+    reasons: Mapped[list[str]] = _jsonb("[]")
+    execution_mode: Mapped[str] = mapped_column(Text, nullable=False)
+    attempt_id: Mapped[uuid.UUID | None] = _fk("task_attempts.id", nullable=True)
+    created_at: Mapped[datetime] = _created()
+
+
 ALL_TABLES = [m.__table__ for m in Base.__subclasses__()]
