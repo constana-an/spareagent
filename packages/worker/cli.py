@@ -122,6 +122,21 @@ async def cmd_start(args: argparse.Namespace) -> int:
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, stop.set)
     client = _client(state)
+    code_adapter = None
+    capabilities = dict(DEFAULT_CAPABILITIES)
+    if args.executor == "code":
+        from services.execution.code_adapter import from_env
+
+        code_adapter = from_env()
+        try:
+            health = await asyncio.to_thread(code_adapter.sandbox.health)
+        except Exception as exc:  # noqa: BLE001
+            print(f"error: sandbox health check failed: {exc}", file=sys.stderr)
+            clear_pid(directory)
+            await client.aclose()
+            return 4
+        print(json.dumps({"sandbox": health}), file=sys.stderr)
+        capabilities.update({"sandbox": "docker", "languages": ["python", "typescript"]})
     agent = WorkerAgent(
         client,
         AgentConfig(
@@ -129,9 +144,10 @@ async def cmd_start(args: argparse.Namespace) -> int:
             poll_wait_seconds=args.poll_wait,
             heartbeat_interval_seconds=args.heartbeat_interval,
             shutdown_grace_seconds=args.shutdown_grace,
-            capabilities=dict(DEFAULT_CAPABILITIES),
+            capabilities=capabilities,
         ),
         adapter=MockProviderAdapter(step_delay_seconds=args.mock_step_delay),
+        code_adapter=code_adapter,
     )
     try:
         await agent.run(stop, state.node_key_expires_at)
@@ -210,6 +226,12 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--poll-wait", type=float, default=20.0)
     start.add_argument("--heartbeat-interval", type=float, default=10.0)
     start.add_argument("--shutdown-grace", type=float, default=20.0)
+    start.add_argument(
+        "--executor",
+        choices=("mock", "code"),
+        default=os.environ.get("SPAREAGENT_EXECUTOR", "mock"),
+        help="code = sandboxed deterministic code executor (requires Docker on this host)",
+    )
     start.add_argument(
         "--mock-step-delay",
         type=float,
