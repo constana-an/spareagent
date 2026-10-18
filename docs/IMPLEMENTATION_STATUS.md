@@ -1,6 +1,7 @@
 # Implementation status — Week 1
 
-> Week 2 (remote worker network) status: see [WEEK2_STATUS.md](WEEK2_STATUS.md). The Week 1
+> Week 2 (remote worker network) status: see [WEEK2_STATUS.md](WEEK2_STATUS.md).
+> Week 3 (secure execution & verification) status: see [WEEK3_STATUS.md](WEEK3_STATUS.md). The Week 1
 > checklist below is unchanged except where noted.
 
 Status values: **COMPLETE** (implemented and verified by an executed test), **PARTIAL**
@@ -68,7 +69,7 @@ Last verified run (2026-10-18, Docker Desktop 28.5.1, macOS host), from empty vo
 
 1. **No production authentication.** JWT/OIDC is not implemented; with `DEV_AUTH_ONLY=false` every authenticated route returns 401 (fail closed). Not deployable beyond localhost.
 2. ~~Remote workers disabled~~ — resolved in Week 2 (node credentials + lease protocol, D-20..D-30).
-3. **No real execution.** Mock outputs only; repositories are never cloned; no sandbox (W2/W3 gate).
+3. ~~No real execution~~ — Week 3 adds allow-listed sandboxed execution (disabled by default).
 4. **Budget hold is not persisted.** The reserve check (estimate + 10 % margin vs. remaining budget) runs at dispatch time; there is no ledger/hold row yet (W6).
 5. **Gateway rate limiter fails open** when Redis is down (D-17).
 6. **SSE uses DB polling** (0.5 s) rather than push; fine for W1 load, revisit for scale.

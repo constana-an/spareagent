@@ -229,3 +229,24 @@ PostgreSQL, workers keep their tokens and continue; the scheduler reconciles cap
 `Orchestrator`) and remote (`packages/worker/agent.py`, HTTPS) both drive the same
 `ProviderAdapter` (`MockProviderAdapter` only in W2) and the same `LeaseService`
 transitions. No repository checkout or shell execution exists in either mode.
+
+## 12. Week 3 addendum — secure code execution and independent verification (as implemented)
+
+```text
+consumer ─► API: POST /v1/tasks (catalog match + CODE_EXECUTION_ENABLED ⇒ execution_profile=CODE)
+code node (spareagent-worker --executor code, its own Docker daemon)
+  poll/accept lease ─► RepositoryManager: pinned shallow fetch, tree vetting, HEAD == SHA
+                   ─► CatalogEdits (allowlisted exact replacement)
+                   ─► DockerSandbox: trusted test argv, no network, read-only, no mounts
+                   ─► git diff ─► patch policy ─► complete(PATCH, TEST_REPORT, EXECUTION_LOG, SUMMARY)
+API: task VERIFYING, artifacts stored unpublished, node slot released
+verifier (platform): fresh checkout ─► patch policy ─► git apply ─► fresh sandbox, trusted verify argv
+                   ─► verification_results + VERIFICATION_REPORT ─► SUCCEEDED (publish) | RETRY_PENDING | FAILED
+DB triggers: CODE task SUCCEEDED / worker artifact published ⇒ PASSED verification must exist
+```
+
+Modules: `services/execution/{repository_manager,sandbox,catalog,patch_policy,test_report,code_adapter,fixtures}.py`,
+`services/verification/{service,runner}.py`, sandbox image `sandbox/Dockerfile`, migration
+`0005_code_execution.sql`. Compose profile `code`: `fixtures`, `verifier`, `code-worker`;
+`sandbox-image` (profile `build-only`). Both local (in-process, MOCK only) and remote nodes use
+the same lifecycle; only sandbox-capable, allow-listed nodes receive CODE leases.

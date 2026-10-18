@@ -53,8 +53,11 @@ packages/worker/     spareagent-worker CLI: state, HTTPS node client, agent loop
 services/registry/node_auth.py  enrollment + node credentials (W2)
 services/execution/remote.py    server side of the remote lease protocol (W2)
 services/scheduler/runner.py    central expiry/retry/reconciliation loop (W2)
+services/execution/{repository_manager,sandbox,code_adapter,catalog,patch_policy}.py  (W3)
+services/verification/          independent platform verifier (W3)
+sandbox/Dockerfile              sandbox image: python3 + node 22 only (W3)
 db/                  models (mirror of SQL), migrator, migrations
-tests/               unit / integration / e2e (226 tests)
+tests/               unit / integration / e2e (318 tests)
 ```
 
 ## Demo (seeded consumer `11111111-1111-4111-8111-111111111111`)
@@ -110,6 +113,17 @@ spareagent-worker register --api-url https://localhost:8443 --ca-file ca.pem --r
 (`ca.pem`: `docker compose cp api-tls:/certs/ca.pem ca.pem`.) Protocol details:
 `docs/ARCHITECTURE.md` §11; decisions D-20..D-32 in `docs/DECISIONS.md`; status in
 `docs/WEEK2_STATUS.md`.
+
+## Week 3: sandboxed code execution (disabled by default)
+Allow-listed fixture repositories (pinned commits) can be fixed by a deterministic executor that
+runs trusted tests in a hardened, network-less Docker sandbox; a separate platform verifier
+re-applies the patch to a clean checkout and re-runs the tests before the task can succeed.
+```bash
+make e2e-code            # python + typescript fixes, isolation probe, forged-patch rejection
+cat reports/week3_e2e_report.json
+```
+Details: `docs/ARCHITECTURE.md` §12, decisions D-33..D-43, status and **residual risks** in
+`docs/WEEK3_STATUS.md`. Do not enable `CODE_EXECUTION_ENABLED` for real workloads.
 
 ## Mock fault injection (tests/demo only)
 Put a marker in the prompt: `[mock:transient]` (attempt 1 fails, retry succeeds), `[mock:fail]`
