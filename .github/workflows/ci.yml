@@ -22,6 +22,15 @@ jobs:
         run: make test
       - name: Smoke
         run: make smoke
+      - name: Week 2 three-worker remote demo
+        run: make e2e-remote
+      - name: Upload e2e report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: week2-e2e-report
+          path: reports/week2_e2e_report.json
+          if-no-files-found: ignore
       - name: Logs on failure
         if: failure()
-        run: docker compose logs --tail=300
+        run: docker compose --profile remote logs --tail=300

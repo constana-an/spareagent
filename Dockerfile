@@ -13,8 +13,8 @@ COPY requirements.txt requirements-dev.txt ./
 RUN pip install -r requirements-dev.txt
 
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin app \
- && mkdir -p /var/lib/spareagent/artifacts \
- && chown -R app:app /var/lib/spareagent /app
+ && mkdir -p /var/lib/spareagent/artifacts /var/lib/spareagent-worker /certs \
+ && chown -R app:app /var/lib/spareagent /var/lib/spareagent-worker /certs /app
 
 COPY --chown=app:app . /app
 
