@@ -33,6 +33,12 @@ if home:
         )
 
 args = sys.argv[1:]
+if args == ["--version"]:
+    print("codex-cli 0.163.0")
+    sys.exit(0)
+if args == ["exec", "--help"]:
+    print("--json --ephemeral --ignore-user-config --ignore-rules")
+    sys.exit(0)
 if args[:2] == ["login", "status"]:
     if mode in ("logged_out",):
         print("Not logged in")

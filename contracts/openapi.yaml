@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SpareAgent MVP API
-  version: 1.5.0
+  version: 1.6.0
   description: 'W1: Tasks, Events, Models, Chat nonstream, health. W2: remote worker enrollment, node credentials and lease protocol.'
 servers:
   - url: http://localhost:8000
@@ -1165,6 +1165,57 @@ paths:
           $ref: '#/components/responses/ApiError'
       security:
       - friendsSession: []
+  /v1/workers/me/pilot-readiness:
+    get:
+      operationId: getWorkerPilotReadiness
+      summary: Read-only diagnostics for the authenticated node; never leases or enables LIVE
+      security: [{nodeAuth: []}]
+      parameters:
+        - in: query
+          name: task_id
+          schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Automatic policy checks, owner attestations, approval and physical-device checks distinguished
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        '401': {$ref: '#/components/responses/ApiError'}
+        '404': {$ref: '#/components/responses/ApiError'}
+  /v1/experiments/groups/{group_id}/metrics:
+    get:
+      operationId: getPilotMetrics
+      summary: Active member or operator aggregate pilot observations; LIVE and SIMULATED separated
+      parameters:
+        - in: path
+          name: group_id
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Devices, availability snapshot, task counts, observed execution/tokens, latency and limit errors; unknowns are null
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        '401': {$ref: '#/components/responses/ApiError'}
+        '404': {$ref: '#/components/responses/ApiError'}
+  /v1/experimental-tasks/{task_id}/pilot-report:
+    get:
+      operationId: getPilotReport
+      summary: Owner/requester-only redacted protocol evidence; never certifies a physical two-device pilot
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Task, attempts, consent, audit, observations and verification references; physical device and billing fields remain manual
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        '401': {$ref: '#/components/responses/ApiError'}
+        '404': {$ref: '#/components/responses/ApiError'}
 components:
   securitySchemes:
     friendsSession:

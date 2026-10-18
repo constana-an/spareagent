@@ -89,3 +89,13 @@ is listed here.
 | D-61 | LIVE always requires per-task OWNER_APPROVAL, including with old advance-consent preferences. Recheck policy at lease acceptance. Personal node concurrency remains forced to one. Renewals are attempted at most five seconds apart; lost lease renewal cancels execution. | Pause/expiry/revoke must survive queued/reserved/running races. |
 | D-62 | Shared Codex tools receive a named minimal-system/checkout-only permission profile with tool networking and escalation disabled; no user config/rules, MCP, apps, search or subagents. Patches are generated with RepositoryManager's hardened Git environment. Actual OS marker probe verifies the filesystem boundary without inference. | A read-only mode alone is not a guarantee against reading owner secrets. |
 | D-63 | Codex event totals are observations; cached/reasoning details are not counted twice. Successful completion, runtime token observations and financial metering are separate; completion/observations commit atomically and replay once. No extra Credits can be verified remotely: both pre-run owner confirmation and post-run manual usage check remain necessary. | No invented precise quota or software billing guarantee. |
+
+
+## Week 6 (pilot readiness)
+
+| ID | Decision | Why |
+|---|---|---|
+| D-64 | Build a separate worker-only wheel using existing packages and common stdlib helpers; retain backend compatibility imports. Reviewed macOS setup installs into an isolated user venv; no backend clone/install or auto-start. | Friends need only Codex CLI and Worker, with small transport dependencies. |
+| D-65 | pilot-check never runs inference, leases work or changes flags. Reuse the dispatch policy for node-scoped diagnostics; manual attestations remain separate and there is no unconditional READY exit. | Login, balance, vendor permission and two physical devices have different evidence boundaries. |
+| D-66 | Recheck durable LIVE authority during progress/renew/complete and before verification publication; invalid renew authority stops local execution; late LIVE results cannot escape task deadlines. | Expiry, revocation and outages must survive lifecycle races. Pause/capacity limits continue to govern new work. |
+| D-67 | Metrics separate LIVE/SIMULATED, preserve unknowns, define denominators, and claim no quota/cost savings. Server pilot reports are protocol evidence only; real two-device record remains NOT_RUN until manual execution. | Deterministic protocol tests cannot certify physical devices, billing or semantic correctness. |

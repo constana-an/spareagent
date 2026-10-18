@@ -113,7 +113,11 @@ class ExperimentalDispatcher:
                 max_participants=auth.max_participants,
             ),
             sharing_state=prefs.sharing_state if prefs_group_ok else "DISABLED",
-            consent_accepted=bool(prefs_group_ok and prefs.consent_accepted_at),
+            consent_accepted=bool(
+                prefs_group_ok
+                and prefs.consent_accepted_at
+                and prefs.consent_terms_version == self.ctx.settings.experiment_terms_version
+            ),
             allow_paid_credits=bool(prefs and prefs.allow_paid_credits),
             owner_allowed_task_types=frozenset(prefs.allowed_task_types if prefs else ()),
             owner_max_task_duration_seconds=prefs.max_task_duration_seconds if prefs else 0,

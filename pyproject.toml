@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "spareagent"
 version = "0.1.0"
-description = "SpareAgent Week 1: mock-first coding task marketplace and OpenAI-style gateway"
+description = "SpareAgent mock-first coordinator and invite-only friends pilot"
 requires-python = ">=3.12"
 # Runtime dependencies are pinned in requirements.txt; dev tools in requirements-dev.txt.
 dependencies = [
@@ -36,6 +36,7 @@ dev = [
 
 [tool.setuptools.packages.find]
 include = ["apps*", "services*", "packages*", "db*"]
+exclude = ["packages.worker.build*"]
 
 [tool.setuptools.package-data]
 db = ["migrations/*.sql"]

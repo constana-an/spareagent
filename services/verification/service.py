@@ -42,6 +42,7 @@ from services.execution.patch_policy import PatchRejected, inspect_patch
 from services.execution.repository_manager import RepositoryError, RepositoryManager
 from services.execution.sandbox import DockerSandbox, SandboxError
 from services.execution.test_report import ReportInvalid, build_report, validate_report
+from services.experiments.safety import enforce_live_authority
 from services.scheduler.lease_service import (
     close_attempt,
     store_artifacts,
@@ -360,6 +361,14 @@ class VerificationService:
                 or result.claimed_until <= now
             ):
                 return "STALE"
+            await enforce_live_authority(self.ctx, session, task)
+            if task.status == TaskStatus.CANCELLING:
+                outcome.status, outcome.reason = "FAILED", "CANCELLED_BEFORE_PUBLICATION"
+                report.update(
+                    status=outcome.status,
+                    reason=outcome.reason,
+                    semantic_correctness="NOT_ESTABLISHED",
+                )
             if outcome.status == "ERROR" and result.error_count + 1 < s.verification_max_errors:
                 result.status = "ERROR"
                 result.error_count += 1

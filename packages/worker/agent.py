@@ -348,7 +348,7 @@ class WorkerAgent:
                     cancel.set()
                     await adapter.cancel(attempt_id)  # stops a running sandbox promptly
             except WorkerApiError as exc:
-                if exc.status == 409:
+                if exc.status in (401, 403, 404, 409) or time.monotonic() >= renewed_until:
                     cancel.set()
                     await adapter.cancel(attempt_id)
                     return

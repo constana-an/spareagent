@@ -11,3 +11,7 @@ var/
 **/node_modules
 **/.next
 output/
+
+**/build/
+**/*.egg-info/
+output/worker-bundle/

@@ -22,6 +22,7 @@ import signal
 import sys
 import time
 
+from packages.common.observability import configure_logging
 from packages.provider_sdk.mock import MockProviderAdapter
 from packages.worker.agent import AgentConfig, WorkerAgent
 from packages.worker.lease_client import NodeClient, TransportError, WorkerApiError
@@ -35,7 +36,6 @@ from packages.worker.state import (
     state_dir,
     write_pid,
 )
-from services.observability import configure_logging
 
 DEFAULT_CAPABILITIES = {"code": True, "chat": False, "provider": "mock", "languages": ["python"]}
 
@@ -156,7 +156,19 @@ async def cmd_start(args: argparse.Namespace) -> int:
     code_adapter = None
     capabilities = dict(DEFAULT_CAPABILITIES)
     if args.executor == "code":
-        from services.execution.code_adapter import from_env
+        try:
+            from services.execution.code_adapter import from_env
+        except ModuleNotFoundError:
+            print(
+                (
+                    "error: the standalone worker supports mock and "
+                    "codex-subscription; code requires the operator installation"
+                ),
+                file=sys.stderr,
+            )
+            clear_pid(directory)
+            await client.aclose()
+            return 4
 
         code_adapter = from_env()
         try:
@@ -406,6 +418,14 @@ def build_parser() -> argparse.ArgumentParser:
         default="Reply with exactly: SPAREAGENT_OWNER_ONLY_OK. Do not run any commands.",
     )
 
+    pilot = sub.add_parser(
+        "pilot-check", help="read-only readiness checks; never consumes subscription usage"
+    )
+    pilot.add_argument("--codex-bin", default=os.environ.get("SPAREAGENT_CODEX_BIN", "codex"))
+    pilot.add_argument(
+        "--task-id", default=None, help="check this device's individual task approval too"
+    )
+
     sharing = sub.add_parser("sharing", help="local kill switch for experimental sharing")
     sharing.add_argument("action", choices=("pause", "resume", "status"))
     return parser
@@ -427,6 +447,12 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(cmd_status(args))
     if args.command == "codex-check":
         return asyncio.run(cmd_codex_check(args))
+    if args.command == "pilot-check":
+        from packages.worker.pilot import run_check
+
+        report, code = asyncio.run(run_check(args, _client))
+        _print(report)
+        return code
     if args.command == "sharing":
         return cmd_sharing(args)
     return cmd_stop(args)

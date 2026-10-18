@@ -16,6 +16,8 @@ import json
 import uuid
 from collections.abc import AsyncIterator
 
+from packages.common.estimator import estimate_tokens
+from packages.common.observability import redact
 from packages.provider_sdk.base import PermanentProviderError, TransientProviderError
 from packages.provider_sdk.types import (
     ArtifactPayload,
@@ -27,8 +29,6 @@ from packages.provider_sdk.types import (
     ProviderCapabilities,
     UsageReport,
 )
-from services.metering.estimator import estimate_tokens
-from services.observability import redact
 
 PROVIDER_NAME = "mock"
 CODE_MODEL = "mock-code-v1"

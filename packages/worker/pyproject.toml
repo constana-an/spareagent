@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spareagent-worker"
+version = "0.6.0"
+description = "Owner-operated SpareAgent Codex worker; no coordinator dependencies"
+requires-python = ">=3.12"
+dependencies = ["httpx==0.28.1"]
+
+[project.scripts]
+spareagent-worker = "packages.worker.cli:main"
+
+[tool.setuptools]
+packages = ["packages", "packages.worker", "packages.provider_sdk", "packages.common"]
+package-dir = {"packages" = ".."}

@@ -22,6 +22,7 @@ from packages.provider_sdk.types import ArtifactPayload, UsageReport
 from services.context import AppContext
 from services.errors import DomainError, conflict, forbidden, not_found
 from services.execution import verifier
+from services.experiments.safety import enforce_live_authority
 from services.metering.service import record_usage
 from services.observability import redact
 from services.tasks import repository as repo
@@ -208,6 +209,7 @@ class LeaseService:
             now = utcnow()
             if attempt.status != "RUNNING" or attempt.leased_until <= now:
                 raise conflict("LEASE_EXPIRED", "Lease is not active")
+            await enforce_live_authority(self.ctx, session, task)
             if task.status == TaskStatus.CANCELLING:
                 return False
             if task.status != TaskStatus.RUNNING:
@@ -234,6 +236,7 @@ class LeaseService:
                 raise conflict("LEASE_EXPIRED", "Lease is not active")
             if task.status not in (TaskStatus.RUNNING, TaskStatus.CANCELLING):
                 raise conflict("LEASE_REVOKED", "Task is no longer running")
+            await enforce_live_authority(self.ctx, session, task)
             attempt.leased_until = now + self.lease_window
             return attempt.leased_until, task.status == TaskStatus.CANCELLING
 
@@ -270,6 +273,9 @@ class LeaseService:
         if attempt.status != "RUNNING":
             raise conflict("LEASE_REVOKED", "Lease is no longer valid")
 
+        await enforce_live_authority(self.ctx, session, task)
+        if task.execution_profile == "CODEX_LIVE" and task_deadline_passed(task, now):
+            data = replace(data, succeeded=False, timed_out=True)
         attempt.finalization_key = data.finalization_key
         attempt.completed_at = now
         if task.execution_profile == "CODEX_LIVE":
@@ -285,7 +291,7 @@ class LeaseService:
             ).scalar_one()
             event = (
                 "TASK_COMPLETED"
-                if data.succeeded
+                if data.succeeded and task.status != TaskStatus.CANCELLING
                 else {
                     "SUBSCRIPTION_USAGE_LIMIT": "RATE_LIMITED",
                     "SUBSCRIPTION_AUTH_UNAVAILABLE": "AUTH_EXPIRED",

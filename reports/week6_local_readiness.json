@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "kind": "PILOT_READINESS_NO_INFERENCE",
+  "inference_executed": false,
+  "result": "BLOCKED",
+  "checks": [
+    {
+      "id": "local_registration",
+      "status": "BLOCKED",
+      "source": "AUTOMATIC",
+      "action": "Enroll this Mac using its owner's one-time enrollment token."
+    },
+    {
+      "id": "codex_available",
+      "status": "PASS",
+      "source": "AUTOMATIC",
+      "action": "Install the official Codex CLI or set --codex-bin."
+    },
+    {
+      "id": "cli_compatibility",
+      "status": "PASS",
+      "source": "AUTOMATIC",
+      "action": "Use an official CLI supporting ephemeral JSON execution and ignored user config/rules."
+    },
+    {
+      "id": "chatgpt_login",
+      "status": "PASS",
+      "source": "AUTOMATIC",
+      "action": "Run codex login with your own ChatGPT Plus account; API-key/unknown logins are refused."
+    },
+    {
+      "id": "local_sandbox",
+      "status": "PASS",
+      "source": "AUTOMATIC",
+      "action": "The no-inference OS sandbox probe must pass on this Mac/CLI version; do not weaken isolation."
+    },
+    {
+      "id": "local_sharing",
+      "status": "PASS",
+      "source": "AUTOMATIC",
+      "action": "Local sharing is paused. Resume only by the owner's explicit choice."
+    },
+    {
+      "id": "local_concurrency",
+      "status": "BLOCKED",
+      "source": "AUTOMATIC",
+      "action": "This pilot requires one local execution slot."
+    }
+  ],
+  "manual_checks": [
+    {
+      "id": "official_install_source",
+      "status": "REQUIRED",
+      "source": "OWNER_OPERATOR_ATTESTATION",
+      "action": "Verify this executable came from OpenAI's official CLI distribution; a version string is not provenance."
+    },
+    {
+      "id": "funding_source",
+      "status": "REQUIRED",
+      "source": "OWNER_ATTESTATION",
+      "action": "Before any real task: confirm Plus, no purchased or granted Credits, auto-reload off; check usage again afterward."
+    },
+    {
+      "id": "authorization_scope",
+      "status": "REQUIRED",
+      "source": "OPERATOR_ATTESTATION",
+      "action": "Validate project-specific Support ticket 10766658 and actual scope/expiry. A database record is not vendor endorsement."
+    },
+    {
+      "id": "two_physical_devices",
+      "status": "REQUIRED",
+      "source": "OPERATOR_ATTESTATION",
+      "action": "Confirm Alice and Bob use two distinct owner-controlled devices. This command cannot establish that."
+    },
+    {
+      "id": "task_approval",
+      "status": "REQUIRED",
+      "source": "OWNER_ATTESTATION",
+      "action": "Alice must read the public pinned repository, complete prompt and 60-second limit and approve each task."
+    }
+  ],
+  "codex_version": "codex-cli 0.163.0-alpha.10.2",
+  "auth_method": "CHATGPT",
+  "runtime": {
+    "os": "Darwin",
+    "release": "25.6.0",
+    "architecture": "arm64"
+  },
+  "sandbox": {
+    "kind": "REAL_OS_SANDBOX_NO_INFERENCE",
+    "passed": true,
+    "checks": {
+      "read-only": {
+        "exit_code": 0,
+        "checkout_read": true,
+        "outside_read_blocked": true,
+        "checkout_write_allowed": false
+      },
+      "workspace-write": {
+        "exit_code": 0,
+        "checkout_read": true,
+        "outside_read_blocked": true,
+        "checkout_write_allowed": true
+      }
+    }
+  },
+  "server": null,
+  "api_billing_env_in_shell": [],
+  "api_billing_env_passed_to_codex": [],
+  "real_two_person_pilot": "NOT_RUN_BY_THIS_COMMAND",
+  "recorded_at": "2026-10-18",
+  "scope_note": "Owner Mac, empty isolated worker state; no server or remote-device validation, no inference."
+}

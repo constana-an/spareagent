@@ -608,3 +608,44 @@ footer {
     font-size: 35px;
   }
 }
+
+.setup-steps {
+  padding-left: 24px;
+  line-height: 1.7;
+}
+.setup-steps li {
+  margin-bottom: 14px;
+}
+.setup-steps code {
+  display: block;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.timeline {
+  list-style: none;
+  padding: 0 0 0 20px;
+  border-left: 2px solid var(--border, #d5ddd7);
+}
+.timeline li {
+  display: grid;
+  gap: 5px;
+  padding: 0 0 20px 8px;
+  overflow-wrap: anywhere;
+}
+.pilot-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+}
+.pilot-metrics div {
+  padding: 12px;
+  border: 1px solid var(--border, #d5ddd7);
+  border-radius: 8px;
+}
+.pilot-metrics dt {
+  font-size: 12px;
+}
+.pilot-metrics dd {
+  margin: 8px 0 0;
+  font-weight: 600;
+}

@@ -1,3 +1,22 @@
+# Standalone friends Worker (Week 6)
+
+Friends use the worker-only wheel and macOS setup script. They do not install this
+repository's root package, requirements-dev, backend, Docker, PostgreSQL or Redis.
+See [the controlled runbook](../../docs/WEEK6_PILOT_RUNBOOK.md).
+
+Operator build: `python scripts/build_worker_bundle.py`. The package manifest in this
+folder selects worker/provider SDK and dependency-free common helpers only; direct
+dependency: httpx. CI installs the built wheel outside this checkout on macOS/Linux.
+
+`spareagent-worker pilot-check` checks CLI/login/OS isolation and node-scoped coordinator
+readiness with no inference. It never accepts leases or enables LIVE. Exit 1 is blocked;
+2 means automatic checks passed but manual attestations remain. `--task-id UUID` checks
+that device's specific owner approval too. The `code` executor is available only in the
+operator distribution; friends need `codex-subscription`, with explicit device/credit
+consent flags and their own ChatGPT Plus login. Never use an API key or extra Credits.
+
+The older worker protocol reference follows for operator/developer context.
+
 # spareagent-worker
 
 Outbound-only remote worker for SpareAgent (Week 2). Installs with the repository package:

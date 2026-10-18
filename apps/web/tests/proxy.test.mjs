@@ -115,3 +115,15 @@ test("login preserves secure cookie; artifact integrity header is forwarded", as
   assert.match(r.headers.get("set-cookie"), /HttpOnly/);
   assert.equal(r.headers.get("x-artifact-sha256"), "abc");
 });
+
+test("pilot relay allows only read-only metrics and participant evidence; node diagnostics stay private", () => {
+  const id = "aaaaaaaa-0000-4000-8000-00000000000a";
+  for (const path of [
+    `experiments/groups/${id}/metrics`,
+    `experimental-tasks/${id}/pilot-report`,
+  ]) {
+    assert.equal(allowed("GET", path), true);
+    assert.equal(allowed("POST", path), false);
+  }
+  assert.equal(allowed("GET", "workers/me/pilot-readiness"), false);
+});

@@ -1,13 +1,42 @@
-# SpareAgent — Week 1 vertical slice
+# SpareAgent — private friends pilot
 
-Mock-first implementation of the SpareAgent MVP: an asynchronous coding-task marketplace and
-an OpenAI-style chat gateway sharing one authorization policy, resource registry and usage
-accounting. Week 1 runs **only** the deterministic local MOCK provider: no model calls, no
-network calls, no repository checkout, no code execution, no charges.
+SpareAgent combines a mock-first task coordinator with an invite-only, voluntary friends
+experiment using each owner's own ChatGPT Plus Codex login and device. Defaults remain
+simulated and LIVE-off. Real subscription tasks require manual operator activation,
+owner consent and individual approval; no payments, credential sharing or paid fallback.
+The original marketplace/gateway policy still excludes personal subscriptions.
 
 Specifications: `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/WEEK1.md`, `docs/ACCEPTANCE.md`,
 `contracts/openapi.yaml`, `db/migrations/0001_initial.sql`. Status: `docs/IMPLEMENTATION_STATUS.md`.
 Deviations: `docs/DECISIONS.md`.
+
+## Week 6: friends install the Worker only
+
+Friends need the official Codex CLI and a standalone SpareAgent Worker (Python 3.12+
+with Git); **no backend, database, Redis or Docker installation**. The operator runs the
+private coordinator. Bob can request a review through the dashboard without a Worker.
+
+The operator builds `python scripts/build_worker_bundle.py` and privately distributes the
+reviewed macOS script, small worker wheel and SHA-256. On the friend's Mac:
+
+```sh
+bash setup-worker-macos.sh ./spareagent_worker-0.6.0-py3-none-any.whl OPERATOR_SHA256
+export PATH="$HOME/.local/share/spareagent-worker/bin:$PATH"
+codex login  # your own ChatGPT Plus login
+spareagent-worker pilot-check
+```
+
+`pilot-check` performs **no inference** and changes no sharing/LIVE switches. It separates
+automatic blockers from required owner/operator confirmations. Setup does not start the
+Worker or enable LIVE. All subscription-consuming checks remain manually opted in;
+no API keys, purchased/granted Credits or paid fallback. The **real Alice/Bob experiment
+is NOT_RUN** until it is actually run on two devices and funding is manually confirmed.
+
+Read the [controlled runbook](docs/WEEK6_PILOT_RUNBOOK.md),
+[readiness and status](docs/WEEK6_STATUS.md), [security review](docs/WEEK6_SECURITY_REVIEW.md),
+[metrics definitions](docs/WEEK6_METRICS.md) and
+[unexecuted real pilot record](reports/week6_two_device_pilot.json).
+The Docker quick start below is for the **operator/developer**, not friends.
 
 ## Policy invariants (enforced in code and tests)
 - `PERSONAL_SUBSCRIPTION` resources are never scheduled for marketplace tasks and never routed by

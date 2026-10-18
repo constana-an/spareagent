@@ -481,3 +481,25 @@ async def reject(
 ) -> ExperimentalTaskOut:
     tid = parse_uuid_or_404(task_id, "TASK_NOT_FOUND")
     return await _task_out(request, await svc(request).decide(principal, tid, approve=False))
+
+
+@router.get("/experiments/groups/{group_id}/metrics", operation_id="getPilotMetrics")
+async def pilot_metrics(
+    group_id: str, request: Request, principal: Principal = Depends(get_principal)
+) -> dict:
+    from services.experiments.pilot import group_metrics
+
+    return await group_metrics(
+        get_ctx(request), principal, parse_uuid_or_404(group_id, "GROUP_NOT_FOUND")
+    )
+
+
+@router.get("/experimental-tasks/{task_id}/pilot-report", operation_id="getPilotReport")
+async def export_pilot_report(
+    task_id: str, request: Request, principal: Principal = Depends(get_principal)
+) -> dict:
+    from services.experiments.pilot import pilot_report
+
+    return await pilot_report(
+        get_ctx(request), principal, parse_uuid_or_404(task_id, "TASK_NOT_FOUND")
+    )

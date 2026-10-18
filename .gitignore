@@ -15,3 +15,7 @@ node_modules/
 playwright-report/
 test-results/
 output/playwright/
+
+output/worker-bundle/
+build/
+*.egg-info/
