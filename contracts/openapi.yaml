@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SpareAgent MVP API
-  version: 1.2.0
+  version: 1.3.0
   description: 'W1: Tasks, Events, Models, Chat nonstream, health. W2: remote worker enrollment, node credentials and lease protocol.'
 servers:
   - url: http://localhost:8000
@@ -385,6 +385,611 @@ paths:
         '403': {$ref: '#/components/responses/ApiError'}
         '404': {$ref: '#/components/responses/ApiError'}
         '422': {$ref: '#/components/responses/ApiError'}
+  /v1/experiments/groups:
+    post:
+      operationId: createExperimentalGroup
+      x-spareagent-extension: W4 experimental scope (docs/WEEK4_SUBSCRIPTION_STATUS.md). Invitation-only, non-commercial; cross-user execution is SIMULATED only in this build.
+      description: ADMIN (operator) only. max_members is capped by EXPERIMENT_MAX_GROUP_MEMBERS (default 5).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExperimentalGroupCreate'
+      responses:
+        '201':
+          description: group
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExperimentalGroup'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '403':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
+        '422':
+          $ref: '#/components/responses/ApiError'
+  /v1/experiments/groups/{group_id}:
+    get:
+      operationId: getExperimentalGroup
+      x-spareagent-extension: W4 experimental scope (docs/WEEK4_SUBSCRIPTION_STATUS.md). Invitation-only, non-commercial; cross-user execution is SIMULATED only in this build.
+      description: Operator, or a member of the group (others get 404).
+      parameters:
+      - in: path
+        name: group_id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: group with members and current authorization record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExperimentalGroup'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
+  /v1/experiments/groups/{group_id}/invite:
+    post:
+      operationId: inviteExperimentalMember
+      x-spareagent-extension: W4 experimental scope (docs/WEEK4_SUBSCRIPTION_STATUS.md). Invitation-only, non-commercial; cross-user execution is SIMULATED only in this build.
+      description: ADMIN only. Fails with 409 GROUP_FULL at the membership cap.
+      parameters:
+      - in: path
+        name: group_id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExperimentalInvite'
+      responses:
+        '201':
+          description: member
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExperimentalMember'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '403':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
+        '409':
+          $ref: '#/components/responses/ApiError'
+        '422':
+          $ref: '#/components/responses/ApiError'
+  /v1/experiments/groups/{group_id}/join:
+    post:
+      operationId: joinExperimentalGroup
+      x-spareagent-extension: W4 experimental scope (docs/WEEK4_SUBSCRIPTION_STATUS.md). Invitation-only, non-commercial; cross-user execution is SIMULATED only in this build.
+      description: Invited users only, with every required acknowledgement and the current terms version.
+      parameters:
+      - in: path
+        name: group_id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExperimentalConsent'
+      responses:
+        '200':
+          description: member
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExperimentalMember'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
+        '409':
+          $ref: '#/components/responses/ApiError'
+        '422':
+          $ref: '#/components/responses/ApiError'
+  /v1/experiments/groups/{group_id}/authorizations:
+    post:
+      operationId: recordExperimentalAuthorization
+      x-spareagent-extension: W4 experimental scope (docs/WEEK4_SUBSCRIPTION_STATUS.md). Invitation-only, non-commercial; cross-user execution is SIMULATED only in this build.
+      description: ADMIN only. Stores an opaque reference to private correspondence (never its text). Created UNVERIFIED.
+      parameters:
+      - in: path
+        name: group_id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExperimentalAuthorizationCreate'
+      responses:
+        '201':
+          description: authorization record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExperimentalAuthorization'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '403':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
+        '422':
+          $ref: '#/components/responses/ApiError'
+  /v1/experiments/authorizations/{authorization_id}/verify:
+    post:
+      operationId: verifyExperimentalAuthorization
+      x-spareagent-extension: W4 experimental scope (docs/WEEK4_SUBSCRIPTION_STATUS.md). Invitation-only, non-commercial; cross-user execution is SIMULATED only in this build.
+      description: ADMIN only. Records the operator's verification decision. Does not enable live execution.
+      parameters:
+      - in: path
+        name: authorization_id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExperimentalAuthorizationVerify'
+      responses:
+        '200':
+          description: authorization record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExperimentalAuthorization'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '403':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
+        '409':
+          $ref: '#/components/responses/ApiError'
+        '422':
+          $ref: '#/components/responses/ApiError'
+  /v1/experiments/authorizations/{authorization_id}/revoke:
+    post:
+      operationId: revokeExperimentalAuthorization
+      x-spareagent-extension: W4 experimental scope (docs/WEEK4_SUBSCRIPTION_STATUS.md). Invitation-only, non-commercial; cross-user execution is SIMULATED only in this build.
+      description: ADMIN only.
+      parameters:
+      - in: path
+        name: authorization_id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: authorization record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExperimentalAuthorization'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '403':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
+  /v1/experiments/groups/{group_id}/sharing:
+    post:
+      operationId: setGroupSharing
+      x-spareagent-extension: W4 experimental scope (docs/WEEK4_SUBSCRIPTION_STATUS.md). Invitation-only, non-commercial; cross-user execution is SIMULATED only in this build.
+      description: ADMIN only. Group-level sharing switch (default off).
+      parameters:
+      - in: path
+        name: group_id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExperimentalGroupSharing'
+      responses:
+        '200':
+          description: group
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExperimentalGroup'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '403':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
+        '409':
+          $ref: '#/components/responses/ApiError'
+        '422':
+          $ref: '#/components/responses/ApiError'
+  /v1/experiments/kill-switch:
+    post:
+      operationId: experimentKillSwitch
+      x-spareagent-extension: W4 experimental scope (docs/WEEK4_SUBSCRIPTION_STATUS.md). Invitation-only, non-commercial; cross-user execution is SIMULATED only in this build.
+      description: ADMIN only. Disables every group and cancels every unfinished experimental task.
+      responses:
+        '200':
+          description: result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExperimentalKillSwitch'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '403':
+          $ref: '#/components/responses/ApiError'
+  /v1/experiments/groups/{group_id}/audit:
+    get:
+      operationId: listExperimentalAudit
+      x-spareagent-extension: W4 experimental scope (docs/WEEK4_SUBSCRIPTION_STATUS.md). Invitation-only, non-commercial; cross-user execution is SIMULATED only in this build.
+      description: ADMIN only. Append-only cross-user scheduling decisions, newest first.
+      parameters:
+      - in: path
+        name: group_id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 500
+          default: 100
+      responses:
+        '200':
+          description: decisions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ExperimentalDispatchDecision'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '403':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
+        '422':
+          $ref: '#/components/responses/ApiError'
+  /v1/subscriptions/connect:
+    post:
+      operationId: connectSubscription
+      x-spareagent-extension: W4 experimental scope (docs/WEEK4_SUBSCRIPTION_STATUS.md). Invitation-only, non-commercial; cross-user execution is SIMULATED only in this build.
+      description: Owner links their own PERSONAL_SUBSCRIPTION node. Only auth_method=CHATGPT is accepted. Unknown fields (e.g. any token) are rejected; credentials never leave the owner's device.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubscriptionConnect'
+      responses:
+        '201':
+          description: connection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionConnection'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '403':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
+        '422':
+          $ref: '#/components/responses/ApiError'
+  /v1/subscriptions/status:
+    get:
+      operationId: getSubscriptionStatus
+      x-spareagent-extension: W4 experimental scope (docs/WEEK4_SUBSCRIPTION_STATUS.md). Invitation-only, non-commercial; cross-user execution is SIMULATED only in this build.
+      description: Caller's own connections, node state and sharing preferences.
+      responses:
+        '200':
+          description: status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionStatus'
+        '401':
+          $ref: '#/components/responses/ApiError'
+  /v1/subscriptions/usage:
+    get:
+      operationId: getSubscriptionUsage
+      x-spareagent-extension: W4 experimental scope (docs/WEEK4_SUBSCRIPTION_STATUS.md). Invitation-only, non-commercial; cross-user execution is SIMULATED only in this build.
+      description: Observed usage only. plan_remaining/plan_limits are always NOT_AVAILABLE (no supported measurement).
+      responses:
+        '200':
+          description: usage
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionUsageList'
+        '401':
+          $ref: '#/components/responses/ApiError'
+  /v1/sharing/preferences:
+    put:
+      operationId: putSharingPreferences
+      x-spareagent-extension: W4 experimental scope (docs/WEEK4_SUBSCRIPTION_STATUS.md). Invitation-only, non-commercial; cross-user execution is SIMULATED only in this build.
+      description: Owner only. Limits cannot exceed the group's; allow_paid_credits can only be false.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SharingPreferencesUpdate'
+      responses:
+        '200':
+          description: preferences
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SharingPreferences'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '403':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
+        '409':
+          $ref: '#/components/responses/ApiError'
+        '422':
+          $ref: '#/components/responses/ApiError'
+  /v1/sharing/enable:
+    post:
+      operationId: enableSharing
+      x-spareagent-extension: W4 experimental scope (docs/WEEK4_SUBSCRIPTION_STATUS.md). Invitation-only, non-commercial; cross-user execution is SIMULATED only in this build.
+      description: Owner only. Requires every sharing acknowledgement and the current terms version.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SharingEnable'
+      responses:
+        '200':
+          description: preferences
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SharingPreferences'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '403':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
+        '409':
+          $ref: '#/components/responses/ApiError'
+        '422':
+          $ref: '#/components/responses/ApiError'
+  /v1/sharing/pause:
+    post:
+      operationId: pauseSharing
+      x-spareagent-extension: W4 experimental scope (docs/WEEK4_SUBSCRIPTION_STATUS.md). Invitation-only, non-commercial; cross-user execution is SIMULATED only in this build.
+      description: Owner only. No new assignment while paused.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SharingTarget'
+      responses:
+        '200':
+          description: preferences
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SharingPreferences'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
+        '409':
+          $ref: '#/components/responses/ApiError'
+        '422':
+          $ref: '#/components/responses/ApiError'
+  /v1/sharing/revoke:
+    post:
+      operationId: revokeSharing
+      x-spareagent-extension: W4 experimental scope (docs/WEEK4_SUBSCRIPTION_STATUS.md). Invitation-only, non-commercial; cross-user execution is SIMULATED only in this build.
+      description: 'Owner only. Immediate: cancels unfinished tasks on the connection and prevents new assignment.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SharingTarget'
+      responses:
+        '200':
+          description: preferences
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SharingPreferences'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
+        '409':
+          $ref: '#/components/responses/ApiError'
+        '422':
+          $ref: '#/components/responses/ApiError'
+  /v1/experimental-tasks/nodes:
+    get:
+      operationId: listExperimentalNodes
+      x-spareagent-extension: W4 experimental scope (docs/WEEK4_SUBSCRIPTION_STATUS.md). Invitation-only, non-commercial; cross-user execution is SIMULATED only in this build.
+      description: 'Active members only: opted-in nodes of a group.'
+      parameters:
+      - in: query
+        name: group_id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: nodes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExperimentalNodeList'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '403':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
+        '422':
+          $ref: '#/components/responses/ApiError'
+  /v1/experimental-tasks:
+    post:
+      operationId: createExperimentalTask
+      x-spareagent-extension: W4 experimental scope (docs/WEEK4_SUBSCRIPTION_STATUS.md). Invitation-only, non-commercial; cross-user execution is SIMULATED only in this build.
+      description: Active members only, to an opted-in node of the same group. Queued until the owner approves (or scoped advance consent applies).
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          type: string
+          pattern: ^[A-Za-z0-9._:-]{8,128}$
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExperimentalTaskCreate'
+      responses:
+        '202':
+          description: task
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExperimentalTask'
+        '400':
+          $ref: '#/components/responses/ApiError'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '403':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
+        '409':
+          $ref: '#/components/responses/ApiError'
+        '422':
+          $ref: '#/components/responses/ApiError'
+    get:
+      operationId: listExperimentalTasks
+      x-spareagent-extension: W4 experimental scope (docs/WEEK4_SUBSCRIPTION_STATUS.md). Invitation-only, non-commercial; cross-user execution is SIMULATED only in this build.
+      description: role=requester (default) or role=owner (incoming requests).
+      parameters:
+      - in: query
+        name: role
+        schema:
+          type: string
+          enum:
+          - requester
+          - owner
+          default: requester
+      responses:
+        '200':
+          description: tasks
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExperimentalTaskList'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '422':
+          $ref: '#/components/responses/ApiError'
+  /v1/experimental-tasks/{task_id}:
+    get:
+      operationId: getExperimentalTask
+      x-spareagent-extension: W4 experimental scope (docs/WEEK4_SUBSCRIPTION_STATUS.md). Invitation-only, non-commercial; cross-user execution is SIMULATED only in this build.
+      description: Requester or owner only (others get 404). Results are downloaded through the existing /v1/tasks/{task_id}/artifacts contract.
+      parameters:
+      - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: task
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExperimentalTask'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
+  /v1/experimental-tasks/{task_id}/approve:
+    post:
+      operationId: approveExperimentalTask
+      x-spareagent-extension: W4 experimental scope (docs/WEEK4_SUBSCRIPTION_STATUS.md). Invitation-only, non-commercial; cross-user execution is SIMULATED only in this build.
+      description: Owner of the target subscription only.
+      parameters:
+      - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: task
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExperimentalTask'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
+        '409':
+          $ref: '#/components/responses/ApiError'
+  /v1/experimental-tasks/{task_id}/reject:
+    post:
+      operationId: rejectExperimentalTask
+      x-spareagent-extension: W4 experimental scope (docs/WEEK4_SUBSCRIPTION_STATUS.md). Invitation-only, non-commercial; cross-user execution is SIMULATED only in this build.
+      description: Owner of the target subscription only. Cancels the task.
+      parameters:
+      - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: task
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExperimentalTask'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
+        '409':
+          $ref: '#/components/responses/ApiError'
 components:
   securitySchemes:
     bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
@@ -603,3 +1208,754 @@ components:
               name: {type: string, pattern: '^[A-Za-z0-9._-]{1,100}$'}
               media_type: {type: string, enum: [text/plain, text/x-diff, application/json]}
               content_base64: {type: string}
+    ExperimentalGroupCreate:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        max_members:
+          type: integer
+          minimum: 2
+          maximum: 20
+        max_concurrent_tasks:
+          type: integer
+          minimum: 1
+          maximum: 4
+        max_tasks_per_day:
+          type: integer
+          minimum: 1
+          maximum: 50
+        max_task_duration_seconds:
+          type: integer
+          minimum: 10
+          maximum: 3600
+        allowed_task_types:
+          type: array
+          items:
+            type: string
+            enum:
+            - CODE_REVIEW
+            - WRITE_TESTS
+            - CODE_FIX
+          minItems: 1
+      required:
+      - name
+      additionalProperties: false
+    ExperimentalMember:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+          - INVITED
+          - ACTIVE
+          - REMOVED
+        invited_at:
+          type: string
+          format: date-time
+        joined_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+      required:
+      - user_id
+      - status
+      - invited_at
+      - joined_at
+    ExperimentalAuthorization:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        provider_name:
+          type: string
+        authorization_source:
+          type: string
+        authorization_reference:
+          type: string
+        authorization_scope:
+          type: object
+        verification_status:
+          type: string
+          enum:
+          - UNVERIFIED
+          - OPERATOR_VERIFIED
+          - REJECTED
+        integration_route_covered:
+          type: boolean
+        verified_by:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+        verified_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        expires_at:
+          type: string
+          format: date-time
+        revoked_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        created_at:
+          type: string
+          format: date-time
+        live_execution_enabled:
+          type: boolean
+          const: false
+      required:
+      - id
+      - verification_status
+      - expires_at
+      - live_execution_enabled
+    ExperimentalGroup:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        status:
+          type: string
+          enum:
+          - ACTIVE
+          - DISABLED
+        sharing_enabled:
+          type: boolean
+        max_members:
+          type: integer
+        max_concurrent_tasks:
+          type: integer
+        max_tasks_per_day:
+          type: integer
+        max_task_duration_seconds:
+          type: integer
+        allowed_task_types:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExperimentalMember'
+        authorization:
+          anyOf:
+          - $ref: '#/components/schemas/ExperimentalAuthorization'
+          - type: 'null'
+      required:
+      - id
+      - name
+      - status
+      - sharing_enabled
+      - max_members
+    ExperimentalInvite:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+      required:
+      - user_id
+      additionalProperties: false
+    ExperimentalConsent:
+      type: object
+      properties:
+        terms_version:
+          type: string
+          minLength: 1
+          maxLength: 64
+        acknowledgements:
+          type: object
+          additionalProperties:
+            type: boolean
+      required:
+      - terms_version
+      - acknowledgements
+      additionalProperties: false
+    ExperimentalAuthorizationCreate:
+      type: object
+      properties:
+        provider_name:
+          type: string
+          enum:
+          - openai-codex
+        authorization_source:
+          type: string
+          enum:
+          - VENDOR_SUPPORT_CORRESPONDENCE
+          - VENDOR_WRITTEN_AGREEMENT
+        authorization_reference:
+          type: string
+          minLength: 1
+          maxLength: 200
+          pattern: ^[A-Za-z0-9 ._:#/-]+$
+        authorization_scope:
+          type: object
+        expires_at:
+          type: string
+          format: date-time
+      required:
+      - provider_name
+      - authorization_source
+      - authorization_reference
+      - expires_at
+      additionalProperties: false
+    ExperimentalAuthorizationVerify:
+      type: object
+      properties:
+        verification_status:
+          type: string
+          enum:
+          - OPERATOR_VERIFIED
+          - REJECTED
+        integration_route_covered:
+          type: boolean
+          default: false
+      required:
+      - verification_status
+      additionalProperties: false
+    ExperimentalGroupSharing:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+      required:
+      - enabled
+      additionalProperties: false
+    ExperimentalKillSwitch:
+      type: object
+      properties:
+        groups_disabled:
+          type: integer
+        tasks_cancelled:
+          type: integer
+      required:
+      - groups_disabled
+      - tasks_cancelled
+    ExperimentalDispatchDecision:
+      type: object
+      properties:
+        id:
+          type: integer
+        task_id:
+          type: string
+          format: uuid
+        connection_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+        authorization_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+        decision:
+          type: string
+          enum:
+          - ALLOW
+          - DENY
+        reasons:
+          type: array
+          items:
+            type: string
+        execution_mode:
+          type: string
+          enum:
+          - SIMULATED
+          - LIVE
+        attempt_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - task_id
+      - decision
+      - reasons
+      - execution_mode
+      - created_at
+    SubscriptionConnect:
+      type: object
+      properties:
+        worker_id:
+          type: string
+          format: uuid
+        device_label:
+          type: string
+          minLength: 1
+          maxLength: 80
+        subscription_type:
+          type: string
+          enum:
+          - PLUS
+          - PRO
+          - UNKNOWN
+          default: UNKNOWN
+        auth_method:
+          type: string
+          enum:
+          - CHATGPT
+          - API_KEY
+          - NOT_LOGGED_IN
+          - UNKNOWN
+          description: as reported by `spareagent-worker codex-check`; only CHATGPT is accepted
+      required:
+      - worker_id
+      - device_label
+      - auth_method
+      additionalProperties: false
+    SubscriptionConnection:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        worker_id:
+          type: string
+          format: uuid
+        provider_name:
+          type: string
+        subscription_type:
+          type: string
+        auth_method:
+          type: string
+          const: CHATGPT
+        auth_state:
+          type: string
+          enum:
+          - VALID
+          - EXPIRED
+          - UNKNOWN
+        device_label:
+          type: string
+        status:
+          type: string
+          enum:
+          - CONNECTED
+          - DISCONNECTED
+        last_auth_check_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - worker_id
+      - auth_method
+      - auth_state
+      - status
+    SharingPreferences:
+      type: object
+      properties:
+        connection_id:
+          type: string
+          format: uuid
+        group_id:
+          type: string
+          format: uuid
+        sharing_state:
+          type: string
+          enum:
+          - DISABLED
+          - ENABLED
+          - PAUSED
+          - REVOKED
+        consent_terms_version:
+          anyOf:
+          - type: string
+          - type: 'null'
+        consent_accepted_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        max_concurrent_tasks:
+          type: integer
+        max_tasks_per_day:
+          type: integer
+        max_task_duration_seconds:
+          type: integer
+        allowed_task_types:
+          type: array
+          items:
+            type: string
+        require_owner_approval:
+          type: boolean
+        advance_consent_requester_ids:
+          type: array
+          items:
+            type: string
+        allow_paid_credits:
+          type: boolean
+          const: false
+        paused_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        revoked_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+      required:
+      - connection_id
+      - group_id
+      - sharing_state
+      - allow_paid_credits
+    SharingPreferencesUpdate:
+      type: object
+      properties:
+        connection_id:
+          type: string
+          format: uuid
+        group_id:
+          type: string
+          format: uuid
+        max_concurrent_tasks:
+          type: integer
+          minimum: 1
+          maximum: 4
+        max_tasks_per_day:
+          type: integer
+          minimum: 0
+          maximum: 50
+        max_task_duration_seconds:
+          type: integer
+          minimum: 10
+          maximum: 3600
+        allowed_task_types:
+          type: array
+          items:
+            type: string
+            enum:
+            - CODE_REVIEW
+            - WRITE_TESTS
+            - CODE_FIX
+          minItems: 1
+        require_owner_approval:
+          type: boolean
+        advance_consent_requester_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          maxItems: 20
+        allow_paid_credits:
+          type: boolean
+          const: false
+      required:
+      - connection_id
+      - group_id
+      additionalProperties: false
+    SharingEnable:
+      type: object
+      properties:
+        connection_id:
+          type: string
+          format: uuid
+        terms_version:
+          type: string
+          minLength: 1
+          maxLength: 64
+        acknowledgements:
+          type: object
+          additionalProperties:
+            type: boolean
+      required:
+      - connection_id
+      - terms_version
+      - acknowledgements
+      additionalProperties: false
+    SharingTarget:
+      type: object
+      properties:
+        connection_id:
+          type: string
+          format: uuid
+      required:
+      - connection_id
+      additionalProperties: false
+    SubscriptionStatus:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              connection:
+                $ref: '#/components/schemas/SubscriptionConnection'
+              worker_status:
+                type: string
+              last_heartbeat:
+                anyOf:
+                - type: string
+                  format: date-time
+                - type: 'null'
+              preferences:
+                anyOf:
+                - $ref: '#/components/schemas/SharingPreferences'
+                - type: 'null'
+            required:
+            - connection
+            - worker_status
+      required:
+      - items
+    SubscriptionUsage:
+      type: object
+      properties:
+        connection_id:
+          type: string
+          format: uuid
+        subscription_type:
+          type: string
+        auth_state:
+          type: string
+        active_sessions:
+          type: integer
+        tasks_completed:
+          type: integer
+        tasks_failed:
+          type: integer
+        throttling_errors:
+          type: integer
+        auth_errors:
+          type: integer
+        total_duration_ms:
+          type: integer
+        observed_input_tokens:
+          type: integer
+        observed_output_tokens:
+          type: integer
+        tasks_started_last_24h:
+          type: integer
+        local_limits:
+          anyOf:
+          - type: object
+          - type: 'null'
+        plan_remaining:
+          type: string
+          const: NOT_AVAILABLE
+        plan_limits:
+          type: string
+          const: NOT_AVAILABLE
+        capacity_state:
+          type: string
+          enum:
+          - UNKNOWN
+          - AVAILABLE
+          - LIMITED
+        reset_hint:
+          anyOf:
+          - type: string
+          - type: 'null'
+        rate_limited_until:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        last_observation_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        last_observation_age_seconds:
+          anyOf:
+          - type: integer
+          - type: 'null'
+      required:
+      - connection_id
+      - plan_remaining
+      - capacity_state
+    SubscriptionUsageList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubscriptionUsage'
+      required:
+      - items
+    ExperimentalNodeList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              connection_id:
+                type: string
+                format: uuid
+              owner_id:
+                type: string
+                format: uuid
+              device_label:
+                type: string
+              auth_state:
+                type: string
+              online:
+                type: boolean
+              allowed_task_types:
+                type: array
+                items:
+                  type: string
+              max_task_duration_seconds:
+                type: integer
+              requires_approval:
+                type: boolean
+            required:
+            - connection_id
+            - owner_id
+            - online
+            - requires_approval
+      required:
+      - items
+    ExperimentalTaskCreate:
+      type: object
+      properties:
+        group_id:
+          type: string
+          format: uuid
+        connection_id:
+          type: string
+          format: uuid
+        task_type:
+          type: string
+          enum:
+          - CODE_REVIEW
+          - WRITE_TESTS
+          - CODE_FIX
+        repository_url:
+          type: string
+          format: uri
+          pattern: ^https://github\.com/
+        commit_sha:
+          type: string
+          pattern: ^[a-fA-F0-9]{40}$
+        prompt:
+          type: string
+          minLength: 1
+          maxLength: 12000
+        max_duration_seconds:
+          type: integer
+          minimum: 10
+          maximum: 3600
+      required:
+      - group_id
+      - connection_id
+      - task_type
+      - repository_url
+      - commit_sha
+      - prompt
+      - max_duration_seconds
+      additionalProperties: false
+    ExperimentalTask:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+        task_type:
+          type: string
+        resource_scope:
+          type: string
+          const: EXPERIMENTAL_SHARED_SUBSCRIPTION
+        execution_mode:
+          type: string
+          const: SIMULATED
+        group_id:
+          type: string
+          format: uuid
+        connection_id:
+          type: string
+          format: uuid
+        requester_id:
+          type: string
+          format: uuid
+        owner_id:
+          type: string
+          format: uuid
+        approval_status:
+          type: string
+          enum:
+          - PENDING
+          - APPROVED
+          - REJECTED
+          - WITHDRAWN
+        approval_source:
+          anyOf:
+          - type: string
+            enum:
+            - OWNER_APPROVAL
+            - ADVANCE_CONSENT
+          - type: 'null'
+        last_decision:
+          anyOf:
+          - type: object
+            properties:
+              decision:
+                type: string
+              reasons:
+                type: array
+                items:
+                  type: string
+              execution_mode:
+                type: string
+              created_at:
+                type: string
+                format: date-time
+            required:
+            - decision
+            - reasons
+            - execution_mode
+            - created_at
+          - type: 'null'
+        created_at:
+          type: string
+          format: date-time
+        result_summary:
+          anyOf:
+          - type: string
+          - type: 'null'
+      required:
+      - id
+      - status
+      - resource_scope
+      - execution_mode
+      - approval_status
+    ExperimentalTaskList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExperimentalTask'
+      required:
+      - items
