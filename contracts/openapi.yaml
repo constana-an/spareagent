@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: SpareAgent MVP API
-  version: 1.0.0
-  description: 'W1 implemented subset is Tasks, Events, Models, Chat nonstream, and health. Worker endpoints are contracted for W2.'
+  version: 1.1.0
+  description: 'W1: Tasks, Events, Models, Chat nonstream, health. W2: remote worker enrollment, node credentials and lease protocol.'
 servers:
   - url: http://localhost:8000
 security:
@@ -131,53 +131,215 @@ paths:
         '404': {$ref: '#/components/responses/ApiError'}
         '422': {$ref: '#/components/responses/ApiError'}
         '429': {$ref: '#/components/responses/ApiError'}
+  /v1/enrollment-tokens:
+    post:
+      operationId: createEnrollmentToken
+      description: 'W2. ADMIN for any public-type resource, or PROVIDER for an own admin-APPROVED resource. PERSONAL_SUBSCRIPTION is always refused. Token is single use and shown once.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/EnrollmentCreate'}
+      responses:
+        '201':
+          description: enrollment token (secret shown once)
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/EnrollmentToken'}
+        '401': {$ref: '#/components/responses/ApiError'}
+        '403': {$ref: '#/components/responses/ApiError'}
+        '404': {$ref: '#/components/responses/ApiError'}
+        '422': {$ref: '#/components/responses/ApiError'}
+  /v1/admin/workers/{worker_id}/revoke:
+    post:
+      operationId: revokeWorker
+      description: 'W2. ADMIN only. Revokes all node credentials and expires active leases (tasks are retried or failed).'
+      parameters: [{$ref: '#/components/parameters/WorkerId'}]
+      responses:
+        '200':
+          description: revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [worker_id, revoked, leases_expired]
+                properties:
+                  worker_id: {type: string, format: uuid}
+                  revoked: {type: boolean}
+                  leases_expired: {type: integer}
+        '403': {$ref: '#/components/responses/ApiError'}
+        '404': {$ref: '#/components/responses/ApiError'}
   /v1/workers/register:
     post:
       operationId: registerWorker
-      description: W2; node credential required; provider resources must already be approved by admin
+      description: 'W2. Authorization: Bearer <enrollment token>. Anonymous or consumer/dev authentication is rejected. Registration never grants marketplace eligibility.'
+      security: [{enrollmentToken: []}]
       requestBody:
         required: true
         content:
           application/json:
             schema: {$ref: '#/components/schemas/WorkerRegistration'}
       responses:
-        '201': {description: created worker}
+        '201':
+          description: created worker; node key and access token shown once
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/NodeRegistration'}
+        '401': {$ref: '#/components/responses/ApiError'}
+        '403': {$ref: '#/components/responses/ApiError'}
+        '422': {$ref: '#/components/responses/ApiError'}
+  /v1/workers/token:
+    post:
+      operationId: exchangeNodeKey
+      description: 'W2. Authorization: Bearer <node key>. Returns a short-lived node-scoped access token.'
+      security: [{nodeKey: []}]
+      responses:
+        '200':
+          description: access token
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [worker_id, access_token, expires_at]
+                properties:
+                  worker_id: {type: string, format: uuid}
+                  access_token: {type: string}
+                  expires_at: {type: string, format: date-time}
+        '401': {$ref: '#/components/responses/ApiError'}
+  /v1/workers/me:
+    get:
+      operationId: getWorkerSelf
+      security: [{nodeAuth: []}]
+      responses:
+        '200':
+          description: this node as seen by the API
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/WorkerSelf'}
+        '401': {$ref: '#/components/responses/ApiError'}
+  /v1/workers/{worker_id}/credentials/rotate:
+    post:
+      operationId: rotateNodeCredentials
+      description: 'W2. Revokes every live credential of the node and issues a new node key + access token.'
+      security: [{nodeAuth: []}]
+      parameters: [{$ref: '#/components/parameters/WorkerId'}]
+      responses:
+        '200':
+          description: rotated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/NodeRegistration'}
+        '401': {$ref: '#/components/responses/ApiError'}
         '403': {$ref: '#/components/responses/ApiError'}
   /v1/workers/{worker_id}/heartbeat:
     post:
       operationId: workerHeartbeat
-      parameters:
-        - {in: path, name: worker_id, required: true, schema: {type: string, format: uuid}}
+      security: [{nodeAuth: []}]
+      parameters: [{$ref: '#/components/parameters/WorkerId'}]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                state: {type: string, enum: [ONLINE, DRAINING, OFFLINE], default: ONLINE}
+                capabilities: {type: object}
       responses:
         '204': {description: heartbeat recorded}
+        '401': {$ref: '#/components/responses/ApiError'}
+        '403': {$ref: '#/components/responses/ApiError'}
+  /v1/workers/{worker_id}/leases/next:
+    get:
+      operationId: pollLease
+      description: 'W2. Bounded long poll (server caps wait). Returns an existing reservation for this node or atomically claims the oldest eligible task within the node''s capacity.'
+      security: [{nodeAuth: []}]
+      parameters:
+        - {$ref: '#/components/parameters/WorkerId'}
+        - {in: query, name: wait_seconds, schema: {type: number, minimum: 0, maximum: 60, default: 20}}
+      responses:
+        '200':
+          description: lease assignment
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/LeaseAssignment'}
+        '204': {description: no work within the wait window}
+        '401': {$ref: '#/components/responses/ApiError'}
         '403': {$ref: '#/components/responses/ApiError'}
   /v1/leases/{lease_id}/accept:
     post:
       operationId: acceptLease
-      parameters:
-        - {in: path, name: lease_id, required: true, schema: {type: string, format: uuid}}
+      security: [{nodeAuth: []}]
+      parameters: [{$ref: '#/components/parameters/LeaseId'}]
       responses:
         '204': {description: accepted}
+        '403': {$ref: '#/components/responses/ApiError'}
         '409': {$ref: '#/components/responses/ApiError'}
-  /v1/leases/{lease_id}/complete:
+  /v1/leases/{lease_id}/progress:
     post:
-      operationId: completeLease
-      parameters:
-        - {in: path, name: lease_id, required: true, schema: {type: string, format: uuid}}
+      operationId: reportLeaseProgress
+      description: 'W2. Records a progress event and renews the lease; cancel_requested tells the node to stop.'
+      security: [{nodeAuth: []}]
+      parameters: [{$ref: '#/components/parameters/LeaseId'}]
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [finalization_key, succeeded]
+              additionalProperties: false
+              required: [message, percent]
               properties:
-                finalization_key: {type: string, minLength: 8}
-                succeeded: {type: boolean}
-                result_summary: {type: string}
+                message: {type: string, maxLength: 500}
+                percent: {type: integer, minimum: 0, maximum: 100}
       responses:
-        '200': {description: 'finalized; idempotent replay permitted'}
+        '200':
+          description: lease state
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/LeaseState'}
+        '403': {$ref: '#/components/responses/ApiError'}
         '409': {$ref: '#/components/responses/ApiError'}
+  /v1/leases/{lease_id}/renew:
+    post:
+      operationId: renewLease
+      security: [{nodeAuth: []}]
+      parameters: [{$ref: '#/components/parameters/LeaseId'}]
+      responses:
+        '200':
+          description: lease state
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/LeaseState'}
+        '403': {$ref: '#/components/responses/ApiError'}
+        '409': {$ref: '#/components/responses/ApiError'}
+  /v1/leases/{lease_id}/complete:
+    post:
+      operationId: completeLease
+      description: 'Finalizes an attempt exactly once per finalization_key; replay with the same key returns replayed=true. Usage is computed by the API, never reported by the node. Retryability is decided by the API.'
+      security: [{nodeAuth: []}]
+      parameters: [{$ref: '#/components/parameters/LeaseId'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/LeaseCompletion'}
+      responses:
+        '200':
+          description: 'finalized; idempotent replay permitted'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [task_status, replayed]
+                properties:
+                  task_status: {type: string}
+                  replayed: {type: boolean}
+        '403': {$ref: '#/components/responses/ApiError'}
+        '409': {$ref: '#/components/responses/ApiError'}
+        '413': {$ref: '#/components/responses/ApiError'}
+        '422': {$ref: '#/components/responses/ApiError'}
   /v1/tasks/{task_id}/artifacts/{artifact_id}/content:
     get:
       operationId: getTaskArtifactContent
@@ -226,7 +388,20 @@ paths:
 components:
   securitySchemes:
     bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
+    enrollmentToken: {type: http, scheme: bearer, description: 'single-use sa_enr_ token'}
+    nodeKey: {type: http, scheme: bearer, description: 'long-lived sa_nk_ node key (token exchange only)'}
+    nodeAuth: {type: http, scheme: bearer, description: 'short-lived node-scoped sa_at_ access token'}
   parameters:
+    WorkerId:
+      in: path
+      name: worker_id
+      required: true
+      schema: {type: string, format: uuid}
+    LeaseId:
+      in: path
+      name: lease_id
+      required: true
+      schema: {type: string, format: uuid}
     TaskId:
       in: path
       name: task_id
@@ -334,8 +509,94 @@ components:
             total_tokens: {type: integer}
     WorkerRegistration:
       type: object
+      additionalProperties: false
       required: [resource_id, name, capabilities]
       properties:
         resource_id: {type: string, format: uuid}
-        name: {type: string}
+        name: {type: string, pattern: '^[A-Za-z0-9._-]{1,100}$'}
         capabilities: {type: object}
+        max_concurrency: {type: integer, minimum: 1, maximum: 100, default: 1}
+    NodeRegistration:
+      type: object
+      required: [worker_id, node_key, node_key_expires_at, access_token, access_token_expires_at]
+      properties:
+        worker_id: {type: string, format: uuid}
+        node_key: {type: string}
+        node_key_expires_at: {type: string, format: date-time}
+        access_token: {type: string}
+        access_token_expires_at: {type: string, format: date-time}
+    EnrollmentCreate:
+      type: object
+      additionalProperties: false
+      required: [resource_id]
+      properties:
+        resource_id: {type: string, format: uuid}
+        ttl_seconds: {type: integer, minimum: 60, maximum: 604800, default: 3600}
+    EnrollmentToken:
+      type: object
+      required: [id, token, resource_id, expires_at]
+      properties:
+        id: {type: string, format: uuid}
+        token: {type: string}
+        resource_id: {type: string, format: uuid}
+        expires_at: {type: string, format: date-time}
+    WorkerSelf:
+      type: object
+      required: [worker_id, resource_id, name, status, max_concurrency, active_tasks]
+      properties:
+        worker_id: {type: string, format: uuid}
+        resource_id: {type: string, format: uuid}
+        name: {type: string}
+        status: {type: string}
+        max_concurrency: {type: integer}
+        active_tasks: {type: integer}
+        last_heartbeat: {type: [string, 'null'], format: date-time}
+    LeaseAssignment:
+      type: object
+      required: [lease_id, attempt_id, attempt_number, leased_until, lease_seconds, task]
+      properties:
+        lease_id: {type: string, format: uuid}
+        attempt_id: {type: string, format: uuid}
+        attempt_number: {type: integer}
+        leased_until: {type: string, format: date-time}
+        lease_seconds: {type: integer}
+        task:
+          type: object
+          required: [task_id, task_type, repository_url, commit_sha, prompt, max_duration_seconds, max_budget_cents]
+          properties:
+            task_id: {type: string, format: uuid}
+            task_type: {type: string}
+            repository_url: {type: string}
+            commit_sha: {type: string}
+            prompt: {type: string, description: 'secret-redacted before leaving the API'}
+            max_duration_seconds: {type: integer}
+            max_budget_cents: {type: integer}
+    LeaseState:
+      type: object
+      required: [leased_until, cancel_requested]
+      properties:
+        leased_until: {type: [string, 'null'], format: date-time}
+        cancel_requested: {type: boolean}
+    LeaseCompletion:
+      type: object
+      additionalProperties: false
+      required: [finalization_key, succeeded]
+      properties:
+        finalization_key: {type: string, minLength: 8, maxLength: 128}
+        succeeded: {type: boolean}
+        result_summary: {type: string, maxLength: 2000}
+        retryable: {type: boolean, default: false}
+        error_code: {type: string, enum: [TRANSIENT_PROVIDER_ERROR, PERMANENT_PROVIDER_ERROR, NO_RESULT, WORKER_SHUTDOWN, CANCELLED, EXECUTION_ERROR]}
+        timed_out: {type: boolean, default: false}
+        artifacts:
+          type: array
+          maxItems: 8
+          items:
+            type: object
+            additionalProperties: false
+            required: [kind, name, media_type, content_base64]
+            properties:
+              kind: {type: string, enum: [PATCH, TEST_REPORT, LOG, SUMMARY]}
+              name: {type: string, pattern: '^[A-Za-z0-9._-]{1,100}$'}
+              media_type: {type: string, enum: [text/plain, text/x-diff, application/json]}
+              content_base64: {type: string}

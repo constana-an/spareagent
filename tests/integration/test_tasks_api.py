@@ -217,13 +217,14 @@ async def test_auth_002_provider_cannot_self_approve(client, ctx):
     assert resp.status_code == 403
     assert resp.json()["error"]["code"] == "ADMIN_REQUIRED"
     assert await fetch_val(ctx, "SELECT public_eligible FROM resources WHERE id=:r", r=rid) is False
-    # worker control plane cannot be used with user credentials either
+    # worker control plane cannot be used with user (dev) credentials either (Week 2: 401)
     resp = await client.post(
         "/v1/workers/register",
         json={"resource_id": str(rid), "name": "x", "capabilities": {}},
         headers=headers(PROVIDER),
     )
-    assert resp.status_code == 403
+    assert resp.status_code == 401
+    assert resp.json()["error"]["code"] == "NODE_AUTH_REQUIRED"
 
 
 async def test_admin_approval_and_personal_refusal(client, ctx):
