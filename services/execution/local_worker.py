@@ -44,7 +44,11 @@ class LocalWorker:
             )
             await session.execute(
                 update(WorkerNode)
-                .where(WorkerNode.id.in_(self.node_ids), WorkerNode.status == "OFFLINE")
+                .where(
+                    WorkerNode.id.in_(self.node_ids),
+                    WorkerNode.status == "OFFLINE",
+                    WorkerNode.revoked_at.is_(None),
+                )
                 .values(status="IDLE")
             )
         for node_id in self.node_ids:
@@ -66,7 +70,9 @@ class LocalWorker:
         await self.heartbeat()
         await self.leases.recover_expired()
         await self.dispatcher.promote_retries()
-        await self.dispatcher.dispatch_all()
+        # Hybrid mode: the local worker only claims work for its own nodes; remote nodes
+        # claim for themselves through the lease long-poll endpoint.
+        await self.dispatcher.dispatch_all(worker_ids=self.node_ids)
         ran = 0
         for attempt_id in await self.reserved_attempts():
             await self.orchestrator.run_attempt(attempt_id)
