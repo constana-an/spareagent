@@ -8,3 +8,6 @@
 .coverage
 htmlcov
 var/
+**/node_modules
+**/.next
+output/
