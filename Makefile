@@ -3,7 +3,7 @@ COMPOSE ?= docker compose
 export DOCKER_GID ?= $(shell stat -c %g /var/run/docker.sock 2>/dev/null || echo 0)
 RUN_TEST = $(COMPOSE) run --rm -T test
 
-.PHONY: help up down build migrate seed-dev test test-unit lint format validate-openapi smoke e2e-remote e2e-code sandbox-image logs clean
+.PHONY: help up down build migrate seed-dev test test-unit lint format validate-openapi smoke e2e-remote e2e-code e2e-experimental sandbox-image logs clean
 
 help:
 	@echo "Targets: up down build migrate seed-dev test test-unit lint format validate-openapi smoke logs clean"
@@ -58,6 +58,11 @@ e2e-remote:
 # Writes reports/week3_e2e_report.json.
 e2e-code: sandbox-image
 	python3 scripts/e2e_code_demo.py
+
+# Week 4: simulated invitation-only sharing (consent, approval, limits, revoke, kill switch).
+# Use a disposable database. Writes reports/week4_experimental_demo.json.
+e2e-experimental:
+	python3 scripts/e2e_experimental_demo.py
 
 logs:
 	$(COMPOSE) logs --tail=200 api api-tls scheduler worker

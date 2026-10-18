@@ -250,3 +250,31 @@ Modules: `services/execution/{repository_manager,sandbox,catalog,patch_policy,te
 `0005_code_execution.sql`. Compose profile `code`: `fixtures`, `verifier`, `code-worker`;
 `sandbox-image` (profile `build-only`). Both local (in-process, MOCK only) and remote nodes use
 the same lifecycle; only sandbox-capable, allow-listed nodes receive CODE leases.
+
+## 13. Week 4 addendum — experimental subscription-sharing scope (as implemented)
+
+```text
+owner device (Alice)                         SpareAgent API / scheduler
+  codex login (ChatGPT)  ── stays local ──x  (no credential ever crosses this line)
+  spareagent-worker codex-check              POST /v1/subscriptions/connect  (auth_method=CHATGPT, no tokens)
+    CodexSubscriptionAdapter (OWNER_ONLY)    PUT/POST /v1/sharing/{preferences,enable,pause,revoke}
+      codex -c forced_login_method=chatgpt   POST /v1/experimental-tasks  (Bob, active member)
+        exec --json  (env: no API keys)        └─ experimental_task_consents: PENDING ─► owner approve/reject
+  spareagent-worker sharing pause            ExperimentalDispatcher (scope EXPERIMENTAL_SHARED_SUBSCRIPTION only)
+                                               └─ ExperimentalSharingPolicy(snapshot from DB) ─► experimental_dispatch_audit
+                                               └─ ALLOW (SIMULATED) ─► attempt+lease on owner's node
+                                                    ─► existing LeaseService ─► verifier ─► artifacts
+public Dispatcher: PUBLIC_MARKETPLACE + ResourceEligibilityPolicy only (unchanged)
+```
+
+- Two independent authorities: `ResourceEligibilityPolicy` (public, unchanged; personal
+  subscriptions never eligible) and `ExperimentalSharingPolicy` (experimental scope only,
+  live mode denied by the `LIVE_CROSS_USER_SUPPORTED = False` constant).
+- Cross-user execution is SIMULATED (`services/experiments/simulation.py`); the database
+  forbids non-MOCK experimental tasks and LIVE allows (migration 0007). Real Codex usage is
+  owner-only (`packages/provider_sdk/codex_subscription.py`). See
+  `docs/WEEK4_SUBSCRIPTION_STATUS.md` (blocker B-1) for why.
+- Modules: `packages/worker/{subscription_auth,codex_runtime,local_controls}.py`,
+  `packages/provider_sdk/codex_subscription.py`, `services/subscriptions/{policy,usage}.py`,
+  `services/experiments/{participation,dispatcher,simulation}.py`,
+  `apps/api/routes/experiments.py`, migration `0007_experimental_subscriptions.sql`.
