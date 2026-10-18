@@ -1,0 +1,179 @@
+{
+  "report": "spareagent-week2-remote-workers-e2e",
+  "started_at": "2026-10-18T04:44:48.596183+00:00",
+  "finished_at": "2026-10-18T04:45:28.503976+00:00",
+  "lease_seconds": 8,
+  "mock_step_delay_seconds": 2.0,
+  "transport": "https://api-tls:8443 (dev CA)",
+  "workers": [
+    "remote-worker-1",
+    "remote-worker-2",
+    "remote-worker-3"
+  ],
+  "task_ids": [
+    "fe85deb9-819e-4ef2-b3d0-619d6da39342",
+    "fd7294c1-af60-4a3e-af51-5318ab19ed16",
+    "4cb64e0c-ef8e-4d23-988e-c58e463ba8e4",
+    "3749bbea-8bf3-4f24-a432-25a0612d1e72",
+    "b78986e2-26d3-4d72-a1b5-6af938ea2707",
+    "a3b12b0d-88ae-495e-8873-4320289be31a",
+    "c7f258e2-8c6e-4af0-863c-73eab0fa6ab9",
+    "6d4a9d98-18cd-4c18-96eb-0469edd25396",
+    "609837bc-1328-4599-8c3e-d53e8943a722",
+    "a1bfcaa7-f4a9-4b89-a0aa-4162ae5abce5"
+  ],
+  "summary": {
+    "passed": true,
+    "checks_total": 18,
+    "checks_failed": 0
+  },
+  "checks": [
+    {
+      "check": "three remote workers registered and heartbeating",
+      "passed": true,
+      "detail": {
+        "remote-2": "63efe355-3d3d-4b0c-8dfd-c8ed80fb230b",
+        "remote-3": "396efffb-14ab-4306-a3c8-c61204d1ee8d",
+        "remote-1": "44dbed1d-b499-4fff-b7ad-304451db9fc9"
+      }
+    },
+    {
+      "check": "`spareagent-worker status` reports server-side identity",
+      "passed": true,
+      "detail": {
+        "worker_id": "44dbed1d-b499-4fff-b7ad-304451db9fc9",
+        "name": "remote-1",
+        "running": true
+      }
+    },
+    {
+      "check": "remote workers hold no database/Redis/platform credentials",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "check": "enrollment tokens are single use",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "check": "remote-worker-2 is executing a task before the disconnect",
+      "passed": true,
+      "detail": [
+        [
+          "2e288a6f-e875-4f95-ad93-94822830b9ee",
+          "fd7294c1-af60-4a3e-af51-5318ab19ed16"
+        ]
+      ]
+    },
+    {
+      "check": "killed worker's lease expired (no heartbeat/renewal)",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "check": "remote-worker-2 reconnected as the same node (no re-enrollment)",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "check": "only three remote nodes exist (identity persisted)",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "check": "all 10 tasks SUCCEEDED",
+      "passed": true,
+      "detail": {
+        "SUCCEEDED": 10
+      }
+    },
+    {
+      "check": "affected task recovered by retry on another attempt",
+      "passed": true,
+      "detail": [
+        [
+          "1",
+          "EXPIRED",
+          "remote-2"
+        ],
+        [
+          "2",
+          "SUCCEEDED",
+          "remote-2"
+        ]
+      ]
+    },
+    {
+      "check": "work distributed: all three workers claimed work, >=2 completed it",
+      "passed": true,
+      "detail": {
+        "succeeded_by_worker": {
+          "remote-1": "4",
+          "remote-2": "2",
+          "remote-3": "4"
+        },
+        "attempts_by_worker": {
+          "remote-1": "4",
+          "remote-2": "3",
+          "remote-3": "4"
+        }
+      }
+    },
+    {
+      "check": "exactly one terminal event per task (no duplicate finalization)",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "check": "at most one successful attempt per task",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "check": "one usage record per finalized attempt (no double billing)",
+      "passed": true,
+      "detail": {
+        "rows": "10",
+        "distinct_attempts": "10",
+        "estimated_cents": "100"
+      }
+    },
+    {
+      "check": "40 artifacts (4 per task), none from the killed attempt",
+      "passed": true,
+      "detail": {
+        "total": "40",
+        "from_killed_attempt": "0"
+      }
+    },
+    {
+      "check": "all worker capacity released",
+      "passed": true,
+      "detail": "0"
+    },
+    {
+      "check": "`spareagent-worker stop` shuts down gracefully and reports OFFLINE",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "check": "no credentials in API, scheduler or worker logs",
+      "passed": true,
+      "detail": {
+        "raw_token_hits": 0,
+        "pattern_hits": 0
+      }
+    }
+  ],
+  "distribution": {
+    "remote-1": "4",
+    "remote-2": "2",
+    "remote-3": "4"
+  },
+  "nodes": {
+    "remote-2": "63efe355-3d3d-4b0c-8dfd-c8ed80fb230b",
+    "remote-3": "396efffb-14ab-4306-a3c8-c61204d1ee8d",
+    "remote-1": "44dbed1d-b499-4fff-b7ad-304451db9fc9"
+  }
+}

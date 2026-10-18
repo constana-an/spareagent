@@ -192,3 +192,40 @@ W1 can run worker locally and simulate leases, but schema and contract must supp
 
 ## 10. Monitoring
 Metrics: task_count(status), queue_wait_seconds, attempt_duration_seconds, verified_success_ratio, cost_per_verified_success_cents, lease_expiry_count, active_workers, gateway_requests_by_model, provider_rate_limit, token_usage. Logs include request_id/task_id/attempt_id, never raw secrets.
+
+## 11. Week 2 addendum — hybrid remote worker network (as implemented)
+
+```text
+consumer ──HTTP(localhost dev auth)──► api :8000 ─┐
+                                                 ├─► PostgreSQL (system of record)
+remote worker ──HTTPS + node token──► api-tls :8443 ┘   Redis (wake-ups, rate limit)
+   (spareagent-worker, outbound only,              scheduler (expiry, retries, reconcile)
+    no DB/Redis credentials)                       local worker (in-process, own nodes only)
+```
+
+**Credentials.** Enrollment token (single use, admin- or approved-provider-issued) →
+`POST /v1/workers/register` → node key (30 d) + access token (15 min). Node key is only
+exchangeable at `POST /v1/workers/token`; rotation at `/v1/workers/{id}/credentials/rotate`;
+admin revocation at `/v1/admin/workers/{id}/revoke`. Only HMAC digests are stored
+(`node_credentials`, `enrollment_tokens`, migration 0003).
+
+**Lease protocol (node-scoped access token on every call).**
+1. `GET /v1/workers/{id}/leases/next?wait_seconds=N` — bounded long poll; counts as a
+   heartbeat; returns the node's existing reservation or atomically claims one
+   (`Dispatcher.dispatch_once(worker_ids=(id,))`, same locks and capacity rules as W1).
+2. `POST /v1/leases/{lease}/accept` → task `RUNNING`.
+3. `POST /v1/leases/{lease}/progress` (event + renewal, returns `cancel_requested`) and
+   `POST /v1/leases/{lease}/renew` (renewal only) every `lease_seconds / 3`.
+4. `POST /v1/leases/{lease}/complete` with `finalization_key = fin-<attempt_id>` and inline
+   artifacts; retried with the same key until acknowledged (replay returns `replayed=true`).
+5. `POST /v1/workers/{id}/heartbeat` (`ONLINE|DRAINING|OFFLINE`) every 10 s.
+
+**Failure handling.** Missed renewals → lease expiry → `RETRY_PENDING`/`QUEUED` (bounded by
+`max_attempts`) or `FAILED`; stale completions → 409; duplicate completions → idempotent
+replay; graceful shutdown → `WORKER_SHUTDOWN` hand-back; API restart → state is entirely in
+PostgreSQL, workers keep their tokens and continue; the scheduler reconciles capacity.
+
+**Execution modes.** Local (`services/execution/local_worker.py`, in-process
+`Orchestrator`) and remote (`packages/worker/agent.py`, HTTPS) both drive the same
+`ProviderAdapter` (`MockProviderAdapter` only in W2) and the same `LeaseService`
+transitions. No repository checkout or shell execution exists in either mode.
