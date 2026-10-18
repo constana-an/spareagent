@@ -43,8 +43,9 @@ PUBLIC_RESOURCE = uuid.UUID("33333333-3333-4333-8333-333333333333")
 PUBLIC_WORKER = uuid.UUID("44444444-4444-4444-8444-444444444444")
 
 TABLES = (
-    "node_credentials, enrollment_tokens, audit_logs, usage_records, gateway_requests, "
-    "artifacts, execution_events, task_attempts, tasks, worker_nodes, resources, users"
+    "verification_results, node_credentials, enrollment_tokens, audit_logs, usage_records, "
+    "gateway_requests, artifacts, execution_events, task_attempts, tasks, worker_nodes, "
+    "resources, users"
 )
 
 VALID_TASK = {
@@ -213,3 +214,91 @@ async def register_node(
 
 def bearer(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
+
+
+# ---------------------------------------------------------------- Week 3 code execution
+SANDBOX_IMAGE = os.environ.get("SANDBOX_IMAGE", "spareagent-sandbox:dev")
+PY_URL = "https://github.com/spareagent-fixtures/python-calc"
+PY_SHA = "44d957e53add3b73f7eaaa9755b1525ff32bb8c3"
+TS_URL = "https://github.com/spareagent-fixtures/ts-strings"
+TS_SHA = "115e49e8bffba58e74c029279a772fde67ffe9a6"
+PROBE_URL = "https://github.com/spareagent-fixtures/python-probe"
+PROBE_SHA = "5ba6b859e9b8819a030de9f54a80c5c815f42e48"
+
+
+@pytest.fixture(scope="session")
+def fixture_root(tmp_path_factory):
+    from services.execution.fixtures import build_all
+
+    root = tmp_path_factory.mktemp("git-fixtures")
+    build_all(root)
+    return root
+
+
+@pytest.fixture(scope="session")
+def sandbox():
+    """Real hardened Docker sandbox. Fails (not skips) when SPAREAGENT_REQUIRE_SANDBOX=1."""
+    from services.execution.sandbox import DockerSandbox, SandboxError, SandboxLimits
+
+    box = DockerSandbox(SANDBOX_IMAGE, SandboxLimits(timeout_seconds=60))
+    try:
+        box.health()
+    except SandboxError as exc:
+        if os.environ.get("SPAREAGENT_REQUIRE_SANDBOX") == "1":
+            raise
+        pytest.skip(f"Docker sandbox unavailable: {exc}")
+    return box
+
+
+@pytest.fixture
+async def code_ctx(migrated_database, tmp_path, fixture_root, sandbox):
+    """App context with CODE execution enabled for the seeded public resource."""
+    settings = make_settings(
+        tmp_path,
+        code_execution_enabled=True,
+        code_execution_resource_ids=str(PUBLIC_RESOURCE),
+        repo_fixture_root=str(fixture_root),
+        sandbox_image=SANDBOX_IMAGE,
+        lease_poll_max_wait_seconds=0.5,
+        lease_poll_interval_seconds=0.05,
+    )
+    context = build_context(settings)
+    await seed_fixtures(context)
+    try:
+        yield context
+    finally:
+        await context.aclose()
+
+
+@pytest.fixture
+async def code_client(code_ctx) -> AsyncIterator[httpx.AsyncClient]:
+    app = create_app(code_ctx.settings, code_ctx)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://localhost") as c:
+        c.app = app  # type: ignore[attr-defined]
+        yield c
+
+
+def code_adapter(fixture_root, sandbox, **kw):
+    from services.execution.code_adapter import CodeExecutionAdapter
+    from services.execution.repository_manager import RepositoryManager
+
+    return CodeExecutionAdapter(RepositoryManager(mirror_root=fixture_root), sandbox, **kw)
+
+
+def verification_service(ctx, fixture_root, sandbox, **kw):
+    from services.execution.repository_manager import RepositoryManager
+    from services.verification.service import VerificationService
+
+    return VerificationService(ctx, RepositoryManager(mirror_root=fixture_root), sandbox, **kw)
+
+
+async def register_code_node(client, name="code-node", max_concurrency=1) -> dict:
+    reg = await register_node(client, name=name, max_concurrency=max_concurrency)
+    resp = await client.post(
+        f"/v1/workers/{reg['worker_id']}/heartbeat",
+        json={"state": "ONLINE", "capabilities": {"code": True, "sandbox": "docker"}},
+        headers=bearer(reg["access_token"]),
+    )
+    assert resp.status_code == 204
+    return reg
