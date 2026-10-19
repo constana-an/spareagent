@@ -16,6 +16,28 @@ Friends need the official Codex CLI and a standalone SpareAgent Worker (Python 3
 with Git); **no backend, database, Redis or Docker installation**. The operator runs the
 private coordinator. Bob can request a review through the dashboard without a Worker.
 
+### Device roles: 1 号 is the service host; 2 号、3 号等 are users
+
+| Device | Role | Runs |
+|---|---|---|
+| **#1 / 1 号** | Main service host / operator | API, database, Redis, Scheduler, Verifier, Dashboard and private HTTPS ingress. |
+| **#2, #3, etc. / 2 号、3 号等** | Users | Browser access to #1; official Codex CLI and SpareAgent Worker only when volunteering their own device. No backend installation. |
+
+These are device labels, not database user IDs. The operator's administrative identity
+does not occupy a participant slot. The current pilot is still capped at two users
+(#2 and #3); further device numbers do not authorize expanding the experiment.
+
+Use LAN HTTPS first. **Tailscale is an optional fallback** for blocked campus peer access
+or off-campus users: approved devices join the private network, with private HTTPS via
+Serve and explicit access rules. Funnel exposes a service publicly and is not the
+SpareAgent fallback. Installing Tailscale alone does not configure the application.
+See the [Mac deployment and shutdown record](docs/MAC_PRIVATE_DEPLOYMENT.md) for setup
+boundaries, HTTPS changes and preserving data when stopping containers. The local stack
+was validated and then stopped at the owner's request; this is not a continuously hosted
+service or a completed real two-user experiment.
+
+### Worker installation
+
 The operator builds `python scripts/build_worker_bundle.py` and privately distributes the
 reviewed macOS script, small worker wheel and SHA-256. On the friend's Mac:
 
