@@ -26,6 +26,10 @@ x-app-env: &app-env
   EXPERIMENT_ENABLED: ${EXPERIMENT_ENABLED:-false}
   EXPERIMENT_LIVE_ENABLED: ${EXPERIMENT_LIVE_ENABLED:-false}
   FRIENDS_AUTH_ENABLED: ${FRIENDS_AUTH_ENABLED:-false}
+  # One-click sharing (self-serve provider groups); off unless the operator enables it.
+  SELF_SERVE_ENABLED: ${SELF_SERVE_ENABLED:-false}
+  SELF_SERVE_SIGNUP_CODE: ${SELF_SERVE_SIGNUP_CODE:-}
+  SELF_SERVE_AUTHORIZATION_ID: ${SELF_SERVE_AUTHORIZATION_ID:-}
   FRIENDS_WEB_ORIGIN: ${FRIENDS_WEB_ORIGIN:-http://localhost:3000}
   ARTIFACT_ROOT: /var/lib/spareagent/artifacts
   # The API port is published on 127.0.0.1 only (see `ports`). Requests forwarded by Docker's

@@ -297,6 +297,10 @@ class ExperimentalGroup(Base):
     allowed_task_types: Mapped[list[str]] = _jsonb('["CODE_REVIEW","WRITE_TESTS","CODE_FIX"]')
     created_at: Mapped[datetime] = _created()
     disabled_at: Mapped[datetime | None] = mapped_column(TZ)
+    # 0010: self-serve groups are owned by one provider and joined with an invite code.
+    owner_id: Mapped[uuid.UUID | None] = _fk("users.id", nullable=True)
+    invite_code_digest: Mapped[str | None] = mapped_column(CHAR(64), unique=True)
+    invite_code_rotated_at: Mapped[datetime | None] = mapped_column(TZ)
 
 
 class ExperimentalGroupMember(Base):
@@ -383,6 +387,10 @@ class SubscriptionSharingPreference(Base):
         Boolean, nullable=False, server_default=text("true")
     )
     advance_consent_requester_ids: Mapped[list[str]] = _jsonb("[]")
+    # 0010: standing approval for tasks from active members of the owner's group.
+    auto_approve_members: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
     allow_paid_credits: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )

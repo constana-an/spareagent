@@ -13,7 +13,16 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from apps.api.config import Settings, load_settings
 from apps.api.middleware.request_id import RequestIdMiddleware
-from apps.api.routes import admin, experiments, friends, gateway, health, tasks, workers
+from apps.api.routes import (
+    admin,
+    experiments,
+    friends,
+    gateway,
+    health,
+    self_serve,
+    tasks,
+    workers,
+)
 from services.context import AppContext, build_context
 from services.errors import DomainError
 from services.gateway.service import GatewayService
@@ -112,6 +121,6 @@ def create_app(settings: Settings | None = None, ctx: AppContext | None = None) 
     app.state.node_auth = NodeAuthService(ctx)
     app.add_middleware(RequestIdMiddleware)
     install_error_handlers(app)
-    for module in (health, tasks, gateway, workers, admin, experiments, friends):
+    for module in (health, tasks, gateway, workers, admin, experiments, friends, self_serve):
         app.include_router(module.router)
     return app

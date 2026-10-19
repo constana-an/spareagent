@@ -37,7 +37,7 @@ from db.models import (
     TaskAttempt,
 )
 from services.context import AppContext
-from services.experiments.participation import current_authorization
+from services.experiments.participation import STANDING_APPROVAL, current_authorization
 from services.scheduler.lease_service import task_deadline_passed, utcnow
 from services.subscriptions.policy import (
     EXPERIMENTAL_SCOPE,
@@ -56,6 +56,16 @@ log = logging.getLogger(__name__)
 SCAN_LIMIT = 20
 LIVE_PROFILE = "CODEX_LIVE"
 ONLINE_STATUSES = ("IDLE", "RESERVED", "RUNNING")
+
+
+def _approval_still_valid(
+    task: Task, consent: ExperimentalTaskConsent, prefs: SubscriptionSharingPreference | None
+) -> bool:
+    """LIVE runs need the owner's own approval: per task, or a standing approval that is
+    still switched on right now (turning it off makes queued tasks wait for the owner)."""
+    if consent.consent_source == STANDING_APPROVAL:
+        return bool(prefs and prefs.auto_approve_members)
+    return task.execution_profile != LIVE_PROFILE or consent.consent_source == "OWNER_APPROVAL"
 
 
 class ExperimentalDispatcher:
@@ -125,9 +135,8 @@ class ExperimentalDispatcher:
             owner_max_tasks_per_day=prefs.max_tasks_per_day if prefs else 0,
             task_consent_status=(
                 "PENDING"
-                if task.execution_profile == LIVE_PROFILE
-                and consent.status == "APPROVED"
-                and consent.consent_source != "OWNER_APPROVAL"
+                if consent.status == "APPROVED"
+                and not _approval_still_valid(task, consent, prefs if prefs_group_ok else None)
                 else consent.status
             ),
             resource_type=resource.resource_type,

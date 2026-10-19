@@ -31,7 +31,7 @@ python scripts/build_worker_bundle.py
 ```
 
 Give friends `output/worker-bundle/setup-worker-macos.sh`, the
-`spareagent_worker-0.6.0-py3-none-any.whl`, and its SHA-256 over your trusted private
+`spareagent_worker-0.7.0-py3-none-any.whl`, and its SHA-256 over your trusted private
 channel. Review the script and compare its source to this revision. The wheel contains
 only `packages.worker`, `packages.provider_sdk` and dependency-free common helpers;
 its sole direct dependency is httpx. It contains no API, DB, Redis, Docker executor or
@@ -51,7 +51,7 @@ OS isolation are checked afterward; there is no fallback to a weaker CLI. See th
 [ChatGPT authentication guide](https://learn.chatgpt.com/docs/auth).
 
 ```sh
-bash setup-worker-macos.sh ./spareagent_worker-0.6.0-py3-none-any.whl OPERATOR_SHA256
+bash setup-worker-macos.sh ./spareagent_worker-0.7.0-py3-none-any.whl OPERATOR_SHA256
 export PATH="$HOME/.local/share/spareagent-worker/bin:$PATH"
 codex login
 spareagent-worker pilot-check

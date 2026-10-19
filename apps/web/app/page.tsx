@@ -1,5 +1,6 @@
 "use client";
 import { FormEvent, useCallback, useEffect, useState } from "react";
+import { initialLang, Lang, saveLang, Translate, translator } from "./i18n";
 
 type Me = {
   user_id: string;
@@ -26,6 +27,7 @@ type Prefs = {
   sharing_state: string;
   max_tasks_per_day: number;
   max_task_duration_seconds: number;
+  auto_approve_members?: boolean;
 };
 type Device = {
   connection: {
@@ -59,6 +61,7 @@ type Task = {
   commit_sha: string;
   max_duration_seconds: number;
   approval_status: string;
+  approval_source: string | null;
   owner_id: string;
   verification_status: string;
   result_summary: string | null;
@@ -122,21 +125,25 @@ function resultLabel(t: Task): string {
     return t.verification_status === "PASSED" ? "VERIFIED" : "UNVERIFIED";
   return t.status;
 }
-const eventLabels: Record<string, string> = {
-  "task.created": "Request recorded",
-  "task.queued": "Waiting for approval or capacity",
-  "task.reserved": "Device reserved",
-  "task.started": "Execution started",
-  "task.progress": "Execution update",
-  "task.verifying": "Verification stage",
-  "task.succeeded": "Execution and result handling completed",
-  "task.failed": "Failed",
-  "task.cancelled": "Cancelled",
-  "task.timed_out": "Timed out",
-  "task.retrying": "Retry pending",
-};
 type Artifact = { id: string; kind: string; source: string; sha256: string };
 const terminal = new Set(["SUCCEEDED", "FAILED", "CANCELLED", "TIMED_OUT"]);
+// Must match the server's EXPERIMENT_TERMS_VERSION; the API rejects a mismatch.
+const TERMS_VERSION = "2026-10-experimental-v1";
+const eventKeys: Record<string, true> = Object.fromEntries(
+  [
+    "created",
+    "queued",
+    "reserved",
+    "started",
+    "progress",
+    "verifying",
+    "succeeded",
+    "failed",
+    "cancelled",
+    "timed_out",
+    "retrying",
+  ].map((x) => [`task.${x}`, true]),
+);
 const joinAcks = [
   "non_commercial_experimental_use",
   "no_payment_or_compensation",
@@ -149,20 +156,6 @@ const sharingAcks = [
   "owner_controls_local_credentials",
   "owner_may_add_restrictions",
 ];
-const labels: Record<string, string> = {
-  non_commercial_experimental_use:
-    "This is a private, non-commercial experiment.",
-  no_payment_or_compensation: "There is no payment, resale or compensation.",
-  participation_revocable_any_time:
-    "I can pause or revoke my participation at any time.",
-  subscription_usage_may_be_consumed_within_confirmed_scope:
-    "Approved tasks consume my subscription usage within the recorded scope.",
-  device_executes_opted_in_workloads: "My device executes the tasks I approve.",
-  owner_controls_local_credentials:
-    "My ChatGPT credentials stay on my own device.",
-  owner_may_add_restrictions:
-    "I control task approval and can add restrictions.",
-};
 async function api<T>(
   path: string,
   method = "GET",
@@ -189,10 +182,12 @@ function Checks({
   names,
   values,
   set,
+  t,
 }: {
   names: string[];
   values: Record<string, boolean>;
   set: (x: Record<string, boolean>) => void;
+  t: Translate;
 }) {
   return (
     <div className="checks">
@@ -203,13 +198,27 @@ function Checks({
             checked={!!values[k]}
             onChange={(e) => set({ ...values, [k]: e.target.checked })}
           />
-          {labels[k]}
+          {t(`ack.${k}` as never)}
         </label>
       ))}
     </div>
   );
 }
 export default function Dashboard() {
+  const [lang, setLang] = useState<Lang>("zh");
+  useEffect(() => setLang(initialLang()), []);
+  useEffect(() => {
+    document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
+  }, [lang]);
+  const t = translator(lang);
+  const switchLang = () => {
+    const next: Lang = lang === "zh" ? "en" : "zh";
+    setLang(next);
+    saveLang(next);
+  };
+  const [loginTab, setLoginTab] = useState<"signin" | "join">("signin"),
+    [joinCode, setJoinCode] = useState(""),
+    [joinAcksLogin, setJoinAcksLogin] = useState<Record<string, boolean>>({});
   const [me, setMe] = useState<Me | null>(null),
     [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
@@ -273,7 +282,20 @@ export default function Dashboard() {
     }
   }, [me, gid]);
   useEffect(() => {
-    api<Me>("friends/me")
+    // Links from the one-click app: #login=<one-time code> or #join=<group invite code>.
+    const hash = new URLSearchParams(window.location.hash.slice(1));
+    const login = hash.get("login"),
+      join = hash.get("join");
+    if (login || join)
+      window.history.replaceState(null, "", window.location.pathname);
+    if (join) {
+      setJoinCode(join);
+      setLoginTab("join");
+    }
+    const start = login
+      ? api<Me>("friends/login", "POST", { token: login })
+      : api<Me>("friends/me");
+    start
       .then(setMe)
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -287,7 +309,7 @@ export default function Dashboard() {
   }, [me, refresh]);
   async function act(
     fn: () => Promise<unknown>,
-    message = "Saved",
+    message = t("saved"),
     reload = true,
   ) {
     setBusy(true);
@@ -360,9 +382,7 @@ export default function Dashboard() {
       stream.addEventListener(name, listen as EventListener);
     stream.onerror = () => {
       if (!closed && !finished)
-        setNotice(
-          "Event stream reconnecting; task state is refreshed automatically.",
-        );
+        setNotice(t("stream_reconnect"));
     };
     void update();
     const timer = setInterval(update, 5000);
@@ -399,7 +419,7 @@ export default function Dashboard() {
   if (loading)
     return (
       <main className="login">
-        <p>Opening your private workspace…</p>
+        <p>{t("opening")}</p>
       </main>
     );
   if (!me)
@@ -408,48 +428,116 @@ export default function Dashboard() {
         <div className="mark">
           S<span>•</span>
         </div>
-        <p className="eyebrow">SPAREAGENT / FRIENDS BETA</p>
+        <p className="eyebrow">{t("login_eyebrow")}</p>
         <h1>
-          A little spare capacity.
-          <br />A trusted circle.
+          {t("hero_1")}
+          <br />
+          {t("hero_2")}
         </h1>
-        <p>Sign in with the one-time code your operator shared privately.</p>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            const f = new FormData(e.currentTarget);
-            void act(async () => {
-              setMe(
-                await api<Me>("friends/login", "POST", {
-                  token: f.get("token"),
-                }),
-              );
-            }, "Signed in");
-          }}
-        >
-          <label>
-            Invitation code
-            <input
-              name="token"
-              type="password"
-              autoComplete="off"
-              required
-              minLength={20}
-              maxLength={256}
-            />
-          </label>
-          <button disabled={busy}>
-            Enter workspace <span>↗</span>
+        <div className="tabs" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={loginTab === "signin"}
+            className={loginTab === "signin" ? "" : "quiet"}
+            onClick={() => setLoginTab("signin")}
+          >
+            {t("tab_signin")}
           </button>
-        </form>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={loginTab === "join"}
+            className={loginTab === "join" ? "" : "quiet"}
+            onClick={() => setLoginTab("join")}
+          >
+            {t("tab_join")}
+          </button>
+        </div>
+        {loginTab === "signin" ? (
+          <>
+            <p>{t("login_intro")}</p>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const f = new FormData(e.currentTarget);
+                void act(async () => {
+                  setMe(
+                    await api<Me>("friends/login", "POST", {
+                      token: f.get("token"),
+                    }),
+                  );
+                }, t("signed_in"));
+              }}
+            >
+              <label>
+                {t("invitation_code")}
+                <input
+                  name="token"
+                  type="password"
+                  autoComplete="off"
+                  required
+                  minLength={20}
+                  maxLength={256}
+                />
+              </label>
+              <button disabled={busy}>
+                {t("enter")} <span>↗</span>
+              </button>
+            </form>
+          </>
+        ) : (
+          <>
+            <p>{t("join_intro")}</p>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void act(async () => {
+                  setMe(
+                    await api<Me>("friends/join-code", "POST", {
+                      code: joinCode.trim(),
+                      terms_version: TERMS_VERSION,
+                      acknowledgements: joinAcksLogin,
+                    }),
+                  );
+                }, t("joined_group"));
+              }}
+            >
+              <label>
+                {t("group_invite_code")}
+                <input
+                  value={joinCode}
+                  onChange={(e) => setJoinCode(e.target.value)}
+                  autoComplete="off"
+                  required
+                  minLength={12}
+                  maxLength={32}
+                  placeholder="ABCD-EFGH-JKLM"
+                />
+              </label>
+              <Checks
+                names={joinAcks}
+                values={joinAcksLogin}
+                set={setJoinAcksLogin}
+                t={t}
+              />
+              <button
+                disabled={busy || !joinAcks.every((k) => joinAcksLogin[k])}
+              >
+                {t("join_button")} <span>↗</span>
+              </button>
+            </form>
+          </>
+        )}
         {error && (
           <p role="alert" className="error">
             {error}
           </p>
         )}
-        <small>
-          Invite only · No payments · Credentials stay on your device
-        </small>
+        <small>{t("login_footer")}</small>
+        <button className="quiet lang" type="button" onClick={switchLang}>
+          {t("lang_toggle")}
+        </button>
       </main>
     );
   return (
@@ -461,12 +549,12 @@ export default function Dashboard() {
           </div>
           SpareAgent
         </div>
-        <p className="eyebrow">FRIENDS BETA / 06</p>
+        <p className="eyebrow">FRIENDS BETA / 07</p>
         <nav>
-          <a href="#overview">Overview</a>
-          <a href="#devices">Your devices</a>
+          <a href="#overview">{t("nav_overview")}</a>
+          <a href="#devices">{t("nav_devices")}</a>
           <a href="#requests">
-            Requests{" "}
+            {t("nav_requests")}{" "}
             <b>
               {
                 incoming.filter(
@@ -476,16 +564,19 @@ export default function Dashboard() {
               }
             </b>
           </a>
-          <a href="#submit">New review</a>
-          <a href="#history">Audit history</a>
+          <a href="#submit">{t("nav_submit")}</a>
+          <a href="#history">{t("nav_history")}</a>
         </nav>
         <div className="aside-bottom">
-          <span className="dot" /> Private experiment
+          <span className="dot" /> {t("private_experiment")}
           <p>
-            Voluntary. Revocable.
+            {t("aside_1")}
             <br />
-            Always owner controlled.
+            {t("aside_2")}
           </p>
+          <button className="quiet" type="button" onClick={switchLang}>
+            {t("lang_toggle")}
+          </button>
           <button
             className="quiet"
             onClick={() =>
@@ -496,24 +587,24 @@ export default function Dashboard() {
                   setSelected(null);
                   setEnrollment(null);
                 },
-                "Signed out",
+                t("signed_out"),
                 false,
               )
             }
           >
-            Sign out
+            {t("sign_out")}
           </button>
         </div>
       </aside>
       <main>
         <header>
           <div>
-            <p className="eyebrow">YOUR PRIVATE WORKSPACE</p>
-            <h1>Good work, shared carefully.</h1>
-            <p>Small tasks. Explicit permission. Your device, your call.</p>
+            <p className="eyebrow">{t("ws_eyebrow")}</p>
+            <h1>{t("ws_title")}</h1>
+            <p>{t("ws_sub")}</p>
           </div>
           <span className="pill">
-            {me.live_enabled ? "LIVE gate enabled" : "LIVE disabled"}
+            {me.live_enabled ? t("live_on") : t("live_off")}
           </span>
         </header>
         <div role="status" aria-live="polite">
@@ -527,7 +618,7 @@ export default function Dashboard() {
         <section id="overview" className="overview">
           <div>
             <label>
-              Experimental group
+              {t("group_label")}
               <select
                 value={gid}
                 onChange={(e) => {
@@ -544,30 +635,33 @@ export default function Dashboard() {
               </select>
             </label>
             {!groups.length && (
-              <p>No group invitations. Ask your operator for access.</p>
+              <p>{t("no_groups")}</p>
             )}
             <span className="muted">
-              {group?.members.filter((m) => m.status === "ACTIVE").length || 0}{" "}
-              active participants · maximum {group?.max_members || 5} in this
-              group
+              {t("participants", {
+                n: group?.members.filter((m) => m.status === "ACTIVE").length || 0,
+                max: group?.max_members || 5,
+              })}
             </span>
           </div>
           <div>
-            <p className="eyebrow">AUTHORIZATION</p>
+            <p className="eyebrow">{t("authorization")}</p>
             <strong>
-              {group?.authorization?.authorization_reference || "Not recorded"}
+              {group?.authorization?.authorization_reference || t("not_recorded")}
             </strong>
             <p className="muted">
               {group?.authorization
-                ? `Expires ${new Date(group.authorization.expires_at).toLocaleDateString()}`
-                : "Operator review required"}
+                ? t("expires", {
+                    date: new Date(group.authorization.expires_at).toLocaleDateString(),
+                  })
+                : t("operator_review")}
             </p>
           </div>
         </section>
         {group && !active && (
           <section>
-            <h2>Accept your group invitation</h2>
-            <Checks names={joinAcks} values={joinChecks} set={setJoinChecks} />
+            <h2>{t("accept_invitation")}</h2>
+            <Checks names={joinAcks} values={joinChecks} set={setJoinChecks} t={t} />
             <button
               disabled={busy || !joinAcks.every((k) => joinChecks[k])}
               onClick={() =>
@@ -577,17 +671,17 @@ export default function Dashboard() {
                       terms_version: me.terms_version,
                       acknowledgements: joinChecks,
                     }),
-                  "Joined group",
+                  t("joined_group"),
                 )
               }
             >
-              Join {group.name}
+              {t("join_named", { name: group.name })}
             </button>
           </section>
         )}
         <div className="stats">
           <article>
-            <span>Connected devices</span>
+            <span>{t("stat_devices")}</span>
             <strong>
               {devices
                 .filter(
@@ -599,36 +693,34 @@ export default function Dashboard() {
                 .length.toString()
                 .padStart(2, "0")}
             </strong>
-            <small>Recently observed online</small>
+            <small>{t("stat_devices_sub")}</small>
           </article>
           <article>
-            <span>Tasks started / 24h</span>
+            <span>{t("stat_tasks")}</span>
             <strong>
               {usage
                 .reduce((n, u) => n + u.tasks_started_last_24h, 0)
                 .toString()
                 .padStart(2, "0")}
             </strong>
-            <small>Platform observations</small>
+            <small>{t("stat_tasks_sub")}</small>
           </article>
           <article>
-            <span>Plan remaining</span>
-            <strong className="unavailable">Not available</strong>
-            <small>Check your ChatGPT usage page</small>
+            <span>{t("stat_plan")}</span>
+            <strong className="unavailable">{t("not_available")}</strong>
+            <small>{t("check_usage")}</small>
           </article>
         </div>
         <section id="devices">
           <div className="section-head">
             <div>
-              <p className="eyebrow">OWNER CONTROLS</p>
-              <h2>Your connected devices</h2>
+              <p className="eyebrow">{t("owner_controls")}</p>
+              <h2>{t("your_devices")}</h2>
             </div>
-            <span className="muted">One task at a time</span>
+            <span className="muted">{t("one_at_time")}</span>
           </div>
           {!devices.length && (
-            <p className="empty">
-              No device connected yet. Register your own Mac to get started.
-            </p>
+            <p className="empty">{t("no_device")}</p>
           )}
           {devices.map((d) => {
             const u = usage.find((x) => x.connection_id === d.connection.id),
@@ -648,14 +740,17 @@ export default function Dashboard() {
                     {d.connection.device_label}
                   </h3>
                   <p>
-                    {fresh ? d.worker_status : "OFFLINE / stale heartbeat"} ·
-                    ChatGPT {d.connection.auth_state} ·{" "}
-                    {d.preferences?.sharing_state || "Not sharing"}
+                    {fresh ? d.worker_status : t("offline_stale")} · ChatGPT{" "}
+                    {d.connection.auth_state} ·{" "}
+                    {d.preferences?.sharing_state || t("not_sharing")}
+                    {d.preferences?.auto_approve_members ? ` · ${t("auto_on")}` : ""}
                   </p>
                   <small>
                     {d.last_heartbeat
-                      ? `Last seen ${new Date(d.last_heartbeat).toLocaleString()}`
-                      : "Heartbeat not observed"}
+                      ? t("last_seen", {
+                          time: new Date(d.last_heartbeat).toLocaleString(),
+                        })
+                      : t("no_heartbeat")}
                   </small>
                 </div>
                 <div className="actions">
@@ -668,11 +763,11 @@ export default function Dashboard() {
                           api("sharing/pause", "POST", {
                             connection_id: d.connection.id,
                           }),
-                        "Sharing paused; queued tasks wait",
+                        t("paused_msg"),
                       )
                     }
                   >
-                    Pause
+                    {t("pause")}
                   </button>
                   <button
                     className="danger"
@@ -683,28 +778,31 @@ export default function Dashboard() {
                           api("sharing/revoke", "POST", {
                             connection_id: d.connection.id,
                           }),
-                        "Sharing revoked; unfinished tasks are cancelling",
+                        t("revoked_msg"),
                       )
                     }
                   >
-                    Revoke
+                    {t("revoke")}
                   </button>
                 </div>
                 <div className="device-detail">
                   <span>
-                    {u?.tasks_started_last_24h || 0} /{" "}
-                    {d.preferences?.max_tasks_per_day ?? "—"} tasks in rolling
-                    24h
+                    {t("tasks_rolling", {
+                      n: u?.tasks_started_last_24h || 0,
+                      max: d.preferences?.max_tasks_per_day ?? "—",
+                    })}
                   </span>
                   <span>
-                    {u?.last_observation_at ? u.observed_input_tokens : "Unknown"} input /{" "}
-                    {u?.last_observation_at ? u.observed_output_tokens : "Unknown"} output tokens observed
+                    {t("tokens_observed", {
+                      i: u?.last_observation_at ? u.observed_input_tokens : t("unknown"),
+                      o: u?.last_observation_at ? u.observed_output_tokens : t("unknown"),
+                    })}
                   </span>
-                  <span>Capacity: {u?.capacity_state || "UNKNOWN"}</span>
+                  <span>{t("capacity", { c: u?.capacity_state || "UNKNOWN" })}</span>
                   {u?.reset_hint && <span>{u.reset_hint}</span>}
                 </div>
                 <details>
-                  <summary>Configure limits, attest and enable sharing</summary>
+                  <summary>{t("configure")}</summary>
                   <form
                     onSubmit={(e) => {
                       e.preventDefault();
@@ -726,12 +824,12 @@ export default function Dashboard() {
                           terms_version: me.terms_version,
                           acknowledgements: shareChecks,
                         });
-                      }, "Sharing enabled with per-task approval");
+                      }, t("enabled_msg"));
                     }}
                   >
                     <div className="form-row">
                       <label>
-                        Daily task limit
+                        {t("daily_limit")}
                         <input
                           name="daily"
                           type="number"
@@ -742,7 +840,7 @@ export default function Dashboard() {
                         />
                       </label>
                       <label>
-                        Hard timeout (seconds)
+                        {t("hard_timeout")}
                         <input
                           name="duration"
                           type="number"
@@ -759,6 +857,7 @@ export default function Dashboard() {
                       names={sharingAcks}
                       values={shareChecks}
                       set={setShareChecks}
+                      t={t}
                     />
                     <button
                       disabled={
@@ -767,7 +866,7 @@ export default function Dashboard() {
                         !sharingAcks.every((k) => shareChecks[k])
                       }
                     >
-                      Enable / resume sharing
+                      {t("enable_resume")}
                     </button>
                   </form>
                   <form
@@ -782,13 +881,13 @@ export default function Dashboard() {
                             no_purchased_credits: f.get("credits") === "on",
                             no_auto_reload: f.get("reload") === "on",
                           }),
-                        "Attestation recorded",
+                        t("attest_msg"),
                       );
                     }}
                   >
-                    <h3>Local validation statements</h3>
+                    <h3>{t("local_statements")}</h3>
                     <label>
-                      Actual codex-check result
+                      {t("actual_check")}
                       <select
                         name="check"
                         defaultValue="AUTH_OK_INFERENCE_SKIPPED"
@@ -800,70 +899,51 @@ export default function Dashboard() {
                     </label>
                     <label className="check">
                       <input name="credits" type="checkbox" />
-                      No additional purchased or granted credits
+                      {t("no_credits")}
                     </label>
                     <label className="check">
                       <input name="reload" type="checkbox" />
-                      Automatic credit reload is off
+                      {t("reload_off")}
                     </label>
                     <button className="quiet" disabled={busy}>
-                      Record / withdraw attestations
+                      {t("record_attest")}
                     </button>
-                    <small>
-                      Login and credit balance are owner statements. Credits are
-                      not observable by SpareAgent.
-                    </small>
+                    <small>{t("attest_note")}</small>
                   </form>
                 </details>
               </article>
             );
           })}
           <details>
-            <summary>Connect your own Mac</summary>
-            <p>
-              Friends install only the official Codex CLI and the standalone
-              Worker. The operator runs the coordinator. You do not need Docker,
-              PostgreSQL, Redis or backend credentials.
-            </p>
+            <summary>{t("connect_mac")}</summary>
+            <p className="notice">{t("one_click_tip")}</p>
+            <p>{t("setup_intro")}</p>
             <ol className="setup-steps">
               <li>
-                Get the reviewed macOS setup script, Worker wheel and SHA-256
-                from your operator.
+                {t("step_1")}
                 <code>
                   bash setup-worker-macos.sh
-                  ./spareagent_worker-0.6.0-py3-none-any.whl SHA256
+                  ./spareagent_worker-0.7.0-py3-none-any.whl SHA256
                 </code>
               </li>
               <li>
-                Run <code>codex login</code> locally with your own ChatGPT Plus
-                account.
+                {t("step_2_pre")} <code>codex login</code> {t("step_2_post")}
               </li>
+              <li>{t("step_3")}</li>
+              <li>{t("step_4")}</li>
               <li>
-                Create your enrollment token below and register this Mac. This
-                is a SpareAgent token; never paste ChatGPT credentials.
-              </li>
-              <li>
-                Connect the returned worker ID, set CODE_REVIEW / 600 seconds /
-                one task, and accept sharing terms.
-              </li>
-              <li>
-                Run <code>spareagent-worker pilot-check</code>. It uses no
-                inference and lists blocked conditions separately from
-                owner/operator attestations.
+                {t("step_5_pre")} <code>spareagent-worker pilot-check</code>
+                {t("step_5_post")}
               </li>
             </ol>
-            <p className="notice">
-              LIVE starts off. Real validation consumes subscription usage only
-              when you manually opt in. Confirm no extra purchased or granted
-              Credits and no auto-reload before every real task.
-            </p>
+            <p className="notice">{t("live_starts_off")}</p>
             <p>
               <a
                 href="https://github.com/constana-an/spareagent/blob/main/docs/WEEK6_PILOT_RUNBOOK.md"
                 target="_blank"
                 rel="noreferrer"
               >
-                Controlled two-device runbook ↗
+                {t("runbook")}
               </a>
             </p>
             <button
@@ -875,29 +955,29 @@ export default function Dashboard() {
                     setEnrollment(
                       await api("subscriptions/enrollment-tokens", "POST", {}),
                     ),
-                  "Private enrollment token created",
+                  t("token_created"),
                 )
               }
             >
-              Create one-time enrollment token
+              {t("create_token")}
             </button>
             {enrollment && (
               <div className="notice">
                 <p>
-                  Resource: <code>{enrollment.resource_id}</code>
+                  {t("resource")} <code>{enrollment.resource_id}</code>
                 </p>
                 <label>
-                  Private enrollment token (expires{" "}
-                  {new Date(enrollment.expires_at).toLocaleTimeString()})
+                  {t("private_token", {
+                    time: new Date(enrollment.expires_at).toLocaleTimeString(),
+                  })}
                   <textarea readOnly value={enrollment.token} />
                 </label>
                 <p>
-                  Use this token locally with{" "}
-                  <code>spareagent-worker register</code>. Do not share it or
-                  paste ChatGPT credentials here.
+                  {t("use_token_pre")} <code>spareagent-worker register</code>{" "}
+                  {t("use_token_post")}
                 </p>
                 <button className="quiet" onClick={() => setEnrollment(null)}>
-                  Hide token
+                  {t("hide_token")}
                 </button>
               </div>
             )}
@@ -913,69 +993,63 @@ export default function Dashboard() {
                       subscription_type: "PLUS",
                       auth_method: "CHATGPT",
                     }),
-                  "Device connected",
+                  t("device_connected"),
                 );
               }}
             >
               <label>
-                Registered worker ID
+                {t("registered_worker")}
                 <input
                   name="worker"
                   required
                   pattern="[0-9a-fA-F-]{36}"
-                  placeholder="From spareagent-worker register"
+                  placeholder={t("worker_placeholder")}
                 />
               </label>
               <label>
-                Device name
+                {t("device_name")}
                 <input
                   name="label"
                   maxLength={80}
                   required
-                  placeholder="Alice’s Mac"
+                  placeholder={t("device_placeholder")}
                 />
               </label>
               <label className="check">
-                <input type="checkbox" required />I verified a local ChatGPT
-                login on this device.
+                <input type="checkbox" required />
+                {t("verified_login")}
               </label>
-              <button disabled={busy || !active}>Connect device</button>
+              <button disabled={busy || !active}>{t("connect_device")}</button>
             </form>
           </details>
         </section>
         <div className="columns">
           <section id="requests">
-            <p className="eyebrow">YOUR PERMISSION FIRST</p>
-            <h2>Incoming requests</h2>
-            <p className="muted">
-              Approval and node acceptance must happen within 10 minutes of submission.
-              The execution time limit starts when the worker accepts the task
-              and can be up to 10 minutes, subject to owner and group limits.
-            </p>
+            <p className="eyebrow">{t("permission_first")}</p>
+            <h2>{t("incoming")}</h2>
+            <p className="muted">{t("incoming_note")}</p>
             {!incoming.filter((t) => t.group_id === gid).length && (
-              <p className="empty">
-                Your circle is quiet. New requests appear here.
-              </p>
+              <p className="empty">{t("quiet")}</p>
             )}
             {incoming
-              .filter((t) => t.group_id === gid)
-              .map((t) => (
-                <article className="request" key={t.id}>
+              .filter((x) => x.group_id === gid)
+              .map((x) => (
+                <article className="request" key={x.id}>
                   <div className="section-head">
-                    <h3>{t.task_type.replaceAll("_", " ")}</h3>
-                    <span className="pill">{t.execution_mode}</span>
+                    <h3>{x.task_type.replaceAll("_", " ")}</h3>
+                    <span className="pill">{x.execution_mode}</span>
                   </div>
-                  <p>{t.prompt}</p>
+                  <p>{x.prompt}</p>
                   <p className="muted break">
-                    {t.repository_url}
+                    {x.repository_url}
                     <br />
-                    <code>{t.commit_sha}</code>
+                    <code>{x.commit_sha}</code>
                     <br />
-                    Hard timeout: {t.max_duration_seconds}s
+                    {t("hard_timeout_n", { n: x.max_duration_seconds })}
                   </p>
                   <div className="actions">
-                    {t.approval_status === "PENDING" &&
-                      !terminal.has(t.status) && (
+                    {x.approval_status === "PENDING" &&
+                      !terminal.has(x.status) && (
                         <>
                           <button
                             disabled={busy}
@@ -983,14 +1057,14 @@ export default function Dashboard() {
                               void act(
                                 () =>
                                   api(
-                                    `experimental-tasks/${t.id}/approve`,
+                                    `experimental-tasks/${x.id}/approve`,
                                     "POST",
                                   ),
-                                "Task approved",
+                                t("task_approved"),
                               )
                             }
                           >
-                            Approve task
+                            {t("approve_task")}
                           </button>
                           <button
                             className="quiet"
@@ -999,27 +1073,29 @@ export default function Dashboard() {
                               void act(
                                 () =>
                                   api(
-                                    `experimental-tasks/${t.id}/reject`,
+                                    `experimental-tasks/${x.id}/reject`,
                                     "POST",
                                   ),
-                                "Task rejected",
+                                t("task_rejected"),
                               )
                             }
                           >
-                            Reject
+                            {t("reject")}
                           </button>
                         </>
                       )}
-                    <button className="quiet" onClick={() => setSelected(t)}>
-                      Inspect {t.approval_status.toLowerCase()}
+                    <button className="quiet" onClick={() => setSelected(x)}>
+                      {x.approval_source === "OWNER_STANDING_APPROVAL"
+                        ? t("auto_approved")
+                        : `${t("inspect")} · ${x.approval_status.toLowerCase()}`}
                     </button>
                   </div>
                 </article>
               ))}
           </section>
           <section id="submit">
-            <p className="eyebrow">ASK YOUR CIRCLE</p>
-            <h2>Submit a code review</h2>
+            <p className="eyebrow">{t("ask_circle")}</p>
+            <h2>{t("submit_review")}</h2>
             <form
               onSubmit={(e: FormEvent<HTMLFormElement>) => {
                 e.preventDefault();
@@ -1041,23 +1117,24 @@ export default function Dashboard() {
                     crypto.randomUUID(),
                   );
                   setSelected(t);
-                }, "Review submitted for owner approval");
+                }, t("submitted"));
               }}
             >
               <label>
-                Owner device
+                {t("owner_device")}
                 <select name="connection" required>
                   {nodes
                     .filter((n) => n.owner_id !== me.user_id)
                     .map((n) => (
                       <option key={n.connection_id} value={n.connection_id}>
-                        {n.device_label} · {n.online ? "online" : "offline"}
+                        {n.device_label} · {n.online ? t("online") : t("offline")}
+                        {n.requires_approval ? "" : ` · ${t("auto_label")}`}
                       </option>
                     ))}
                 </select>
               </label>
               <label>
-                Public GitHub repository
+                {t("public_repo")}
                 <input
                   name="repo"
                   type="url"
@@ -1066,27 +1143,27 @@ export default function Dashboard() {
                 />
               </label>
               <label>
-                Pinned commit
+                {t("pinned_commit")}
                 <input
                   name="sha"
                   required
                   pattern="[a-fA-F0-9]{40}"
                   maxLength={40}
-                  placeholder="Full 40-character commit SHA"
+                  placeholder={t("sha_placeholder")}
                 />
               </label>
               <label>
-                Review instructions
+                {t("review_instructions")}
                 <textarea
                   name="prompt"
                   required
                   maxLength={12000}
-                  placeholder="What should your friend’s device review?"
+                  placeholder={t("prompt_placeholder")}
                 />
               </label>
               <div className="form-row">
                 <label>
-                  Hard timeout (seconds)
+                  {t("hard_timeout")}
                   <input
                     name="timeout"
                     type="number"
@@ -1097,14 +1174,14 @@ export default function Dashboard() {
                   />
                 </label>
                 <label>
-                  Execution
+                  {t("execution")}
                   <select name="mode">
-                    <option value="SIMULATED">Simulated</option>
+                    <option value="SIMULATED">{t("simulated")}</option>
                     <option
                       value="LIVE"
                       disabled={!group?.authorization?.live_execution_enabled}
                     >
-                      LIVE · uses owner’s plan
+                      {t("live_option")}
                     </option>
                   </select>
                 </label>
@@ -1116,43 +1193,40 @@ export default function Dashboard() {
                   !nodes.some((n) => n.owner_id !== me.user_id)
                 }
               >
-                Request review <span>↗</span>
+                {t("request_review")} <span>↗</span>
               </button>
-              <small>
-                Every LIVE task needs explicit owner approval. No token
-                redistribution.
-              </small>
+              <small>{t("submit_note")}</small>
             </form>
           </section>
         </div>
         <section>
           <div className="section-head">
-            <h2>Your task history</h2>
+            <h2>{t("history")}</h2>
             <button
               className="quiet"
               disabled={busy}
-              onClick={() => void act(refresh, "Updated")}
+              onClick={() => void act(refresh, t("updated"))}
             >
-              Refresh
+              {t("refresh")}
             </button>
           </div>
           {!taskHistory.length && (
-            <p className="empty">No participant tasks yet.</p>
+            <p className="empty">{t("no_tasks")}</p>
           )}
           {taskHistory
-            .filter((t) => t.group_id === gid)
-            .map((t) => (
+            .filter((x) => x.group_id === gid)
+            .map((x) => (
               <button
                 className="task-row"
-                key={t.id}
-                onClick={() => setSelected(t)}
+                key={x.id}
+                onClick={() => setSelected(x)}
               >
-                <code>{t.id.slice(0, 8)}</code>
+                <code>{x.id.slice(0, 8)}</code>
                 <span>
-                  {t.task_type.replaceAll("_", " ")} · {t.execution_mode} ·{" "}
-                  {t.owner_id === me.user_id ? "Your device" : "Your request"}
+                  {x.task_type.replaceAll("_", " ")} · {x.execution_mode} ·{" "}
+                  {x.owner_id === me.user_id ? t("your_device") : t("your_request")}
                 </span>
-                <span className="pill">{resultLabel(t)}</span>
+                <span className="pill">{resultLabel(x)}</span>
               </button>
             ))}
         </section>
@@ -1160,37 +1234,27 @@ export default function Dashboard() {
           <section className="selected">
             <div className="section-head">
               <div>
-                <p className="eyebrow">TASK {selected.id.slice(0, 8)}</p>
+                <p className="eyebrow">{t("task_n", { id: selected.id.slice(0, 8) })}</p>
                 <h2>
                   {resultLabel(selected)} · {selected.execution_mode}
                 </h2>
               </div>
               <button className="quiet" onClick={() => setSelected(null)}>
-                Close
+                {t("close")}
               </button>
             </div>
             <p>
               {selected.result_summary ||
                 selected.last_decision?.reasons.join(", ") ||
-                "Waiting for owner approval or device execution."}
+                t("waiting")}
             </p>
             {selected.verification_status === "UNVERIFIED" && (
-              <p className="notice">
-                This result has not established semantic correctness. Read the
-                platform verification report before using it.
-              </p>
+              <p className="notice">{t("unverified_note")}</p>
             )}
             <p className="muted">
-              Execution: {selected.status}. Verification:{" "}
-              {selected.verification_status}.
+              {t("exec_verif", { s: selected.status, v: selected.verification_status })}
             </p>
-            <p className="muted">
-              VERIFIED means the catalog’s trusted checks passed; UNVERIFIED
-              means correctness needs human review. FAILED and CANCELLED results
-              do not publish successful worker artifacts. A passed verification
-              establishes only the catalog’s trusted tests. Review correctness
-              still needs human assessment.
-            </p>
+            <p className="muted">{t("verified_explain")}</p>
             {!terminal.has(selected.status) && (
               <button
                 className="danger"
@@ -1198,11 +1262,11 @@ export default function Dashboard() {
                 onClick={() =>
                   void act(
                     () => api(`tasks/${selected.id}/cancel`, "POST"),
-                    "Cancellation requested",
+                    t("cancel_requested"),
                   )
                 }
               >
-                Cancel task
+                {t("cancel_task")}
               </button>
             )}
             <div className="downloads">
@@ -1213,7 +1277,7 @@ export default function Dashboard() {
                   onClick={() =>
                     void act(
                       () => download(a),
-                      "SHA-256 checked; artifact downloaded",
+                      t("sha_checked"),
                     )
                   }
                 >
@@ -1221,7 +1285,7 @@ export default function Dashboard() {
                 </button>
               ))}
             </div>
-            <h3>Task timeline</h3>
+            <h3>{t("timeline")}</h3>
             <ol className="timeline" aria-label="Task timeline">
               {events.map((e) => (
                 <li key={e.seq}>
@@ -1231,20 +1295,19 @@ export default function Dashboard() {
                       ? new Date(e.created_at).toLocaleTimeString()
                       : ""}
                   </span>
-                  <strong>{eventLabels[e.type] || e.type}</strong>
+                  <strong>
+                    {e.type in eventKeys ? t(`event.${e.type}` as never) : e.type}
+                  </strong>
                   <span>
                     {e.payload.status === "CANCELLING"
-                      ? "Cancellation requested; waiting for device cleanup"
+                      ? t("cancelling_wait")
                       : e.payload.message}
                   </span>
                 </li>
               ))}
             </ol>
             {!events.length && (
-              <p className="muted">
-                Loading persisted history… Automatic reconnect preserves the
-                cursor.
-              </p>
+              <p className="muted">{t("loading_history")}</p>
             )}
             <button
               className="quiet"
@@ -1266,24 +1329,25 @@ export default function Dashboard() {
                     link.click();
                     setTimeout(() => URL.revokeObjectURL(url), 1000);
                   },
-                  "Protocol evidence exported; physical devices and billing still require manual confirmation",
+                  t("exported"),
                   false,
                 )
               }
             >
-              Export redacted pilot evidence
+              {t("export_evidence")}
             </button>
           </section>
         )}
         {metrics && (
           <section aria-label="Pilot observations">
-            <p className="eyebrow">MEASURED EXPERIMENT</p>
-            <h2>Pilot observations</h2>
+            <p className="eyebrow">{t("measured")}</p>
+            <h2>{t("pilot_obs")}</h2>
             <p>
-              {metrics.participating_devices} participating owner devices ·{" "}
-              {metrics.online_devices} online ·{" "}
-              {metrics.available_owner_devices} idle and sharing. Availability
-              is a heartbeat snapshot, not a quota or assignment guarantee.
+              {t("metrics_line", {
+                a: metrics.participating_devices,
+                b: metrics.online_devices,
+                c: metrics.available_owner_devices,
+              })}
             </p>
             {(["LIVE", "SIMULATED"] as const).map((mode) => {
               const m = metrics.modes[mode];
@@ -1292,80 +1356,77 @@ export default function Dashboard() {
                   <h3>
                     {mode}{" "}
                     {mode === "SIMULATED"
-                      ? "· test protocol only"
-                      : "· device-reported observations"}
+                      ? t("test_protocol")
+                      : t("device_reported")}
                   </h3>
                   <dl className="pilot-metrics">
                     <div>
-                      <dt>Submitted / completed / failed / cancelled</dt>
+                      <dt>{t("m_counts")}</dt>
                       <dd>
                         {m.submitted} / {m.completed} / {m.failed} /{" "}
                         {m.cancelled}
                       </dd>
                     </div>
                     <div>
-                      <dt>Completion rate · terminal tasks</dt>
+                      <dt>{t("m_rate")}</dt>
                       <dd>
                         {m.success_rate === null
-                          ? "Not observed"
-                          : `${Math.round(m.success_rate * 100)}% of ${m.success_rate_denominator}`}
+                          ? t("not_observed")
+                          : t("rate_of", {
+                              p: Math.round(m.success_rate * 100),
+                              n: m.success_rate_denominator,
+                            })}
                       </dd>
                     </div>
                     <div>
-                      <dt>Total execution</dt>
+                      <dt>{t("m_exec")}</dt>
                       <dd>
                         {m.total_execution_ms === null
-                          ? "Not observed"
+                          ? t("not_observed")
                           : `${(m.total_execution_ms / 1000).toFixed(1)} s`}
                       </dd>
                     </div>
                     <div>
-                      <dt>Input / output tokens observed</dt>
+                      <dt>{t("m_tokens")}</dt>
                       <dd>
-                        {m.observed_input_tokens ?? "Unknown"} /{" "}
-                        {m.observed_output_tokens ?? "Unknown"}
+                        {m.observed_input_tokens ?? t("unknown")} /{" "}
+                        {m.observed_output_tokens ?? t("unknown")}
                       </dd>
                     </div>
                     <div>
-                      <dt>Average completed latency</dt>
+                      <dt>{t("m_latency")}</dt>
                       <dd>
                         {m.average_completed_latency_ms === null
-                          ? "Not observed"
+                          ? t("not_observed")
                           : `${(m.average_completed_latency_ms / 1000).toFixed(1)} s`}
                       </dd>
                     </div>
                     <div>
-                      <dt>Usage-limit errors</dt>
+                      <dt>{t("m_limit_errors")}</dt>
                       <dd>{m.usage_limit_errors}</dd>
                     </div>
                   </dl>
                 </div>
               );
             })}
-            <p className="muted">
-              Completion measures execution and handling, not semantic
-              correctness. No exact remaining subscription quota or financial
-              savings are inferred. Protocol counters cannot prove a real
-              two-device experiment. Confirm devices and funding in the
-              controlled runbook.
-            </p>
+            <p className="muted">{t("metrics_note")}</p>
           </section>
         )}
         <section id="history">
-          <p className="eyebrow">TRACEABLE DECISIONS</p>
-          <h2>Experiment audit history</h2>
+          <p className="eyebrow">{t("traceable")}</p>
+          <h2>{t("audit_h")}</h2>
           {!audit.length ? (
-            <p className="empty">No dispatch decisions yet.</p>
+            <p className="empty">{t("no_decisions")}</p>
           ) : (
             <div className="table-wrap">
               <table>
                 <thead>
                   <tr>
-                    <th>Time</th>
-                    <th>Task</th>
-                    <th>Mode</th>
-                    <th>Decision</th>
-                    <th>Reason</th>
+                    <th>{t("th_time")}</th>
+                    <th>{t("th_task")}</th>
+                    <th>{t("th_mode")}</th>
+                    <th>{t("th_decision")}</th>
+                    <th>{t("th_reason")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1378,7 +1439,7 @@ export default function Dashboard() {
                       <td>{a.execution_mode}</td>
                       <td>{a.decision}</td>
                       <td>
-                        {a.reasons.join(", ") || "All dispatch gates passed"}
+                        {a.reasons.join(", ") || t("all_gates")}
                       </td>
                     </tr>
                   ))}
@@ -1388,10 +1449,7 @@ export default function Dashboard() {
           )}
         </section>
         <footer>
-          SpareAgent · Private friends beta{" "}
-          <span>
-            Exact subscription quota is not available through this integration.
-          </span>
+          {t("footer")} <span>{t("footer_note")}</span>
         </footer>
       </main>
     </div>

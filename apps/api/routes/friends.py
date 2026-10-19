@@ -14,6 +14,7 @@ from sqlalchemy import select, update
 from apps.api.dependencies import get_ctx
 from apps.api.middleware.auth import get_principal
 from apps.api.schemas.experiments import AuditOut
+from apps.api.schemas.self_serve import JoinCodeIn
 from db.models import (
     ExperimentalDispatchAudit,
     ExperimentalTaskConsent,
@@ -23,7 +24,8 @@ from db.models import (
 )
 from services.errors import DomainError
 from services.experiments.participation import ExperimentalParticipationService, _audit
-from services.friends_auth import COOKIE, check_origin, digest, invited
+from services.experiments.self_serve import SelfServeSharingService
+from services.friends_auth import COOKIE, check_origin, digest, invited, session_principal
 from services.tasks.service import Principal
 
 router = APIRouter(prefix="/v1/friends", tags=["friends"])
@@ -96,7 +98,6 @@ async def login(body: Login, request: Request, response: Response) -> Identity:
     ctx = require_enabled(request)
     check_origin(request, ctx)
     now = datetime.now(UTC)
-    token = secrets.token_urlsafe(32)
     async with ctx.sessionmaker() as session, session.begin():
         row = (
             await session.execute(
@@ -115,21 +116,29 @@ async def login(body: Login, request: Request, response: Response) -> Identity:
         ):
             raise DomainError(401, "INVALID_INVITE", "Invite is invalid, expired or already used")
         row.used_at = now
-        # Rotate any current browser session at login.
-        if request.cookies.get(COOKIE):
-            await session.execute(
-                update(FriendsSession)
-                .where(FriendsSession.token_digest == digest(request.cookies[COOKIE]))
-                .values(revoked_at=now)
-            )
-        session.add(
-            FriendsSession(
-                user_id=user.id,
-                token_digest=digest(token),
-                expires_at=now + timedelta(hours=ctx.settings.friends_session_hours),
-            )
-        )
+        await _open_session(session, request, response, ctx, user.id)
         _audit(session, user.id, "friends.login", "user", user.id)
+    response.headers["Cache-Control"] = "no-store"
+    return identity(user.id, user.role, ctx)
+
+
+async def _open_session(session, request: Request, response: Response, ctx, user_id) -> None:
+    """Rotate any current browser session and set a new one for `user_id`."""
+    now = datetime.now(UTC)
+    token = secrets.token_urlsafe(32)
+    if request.cookies.get(COOKIE):
+        await session.execute(
+            update(FriendsSession)
+            .where(FriendsSession.token_digest == digest(request.cookies[COOKIE]))
+            .values(revoked_at=now)
+        )
+    session.add(
+        FriendsSession(
+            user_id=user_id,
+            token_digest=digest(token),
+            expires_at=now + timedelta(hours=ctx.settings.friends_session_hours),
+        )
+    )
     response.set_cookie(
         COOKIE,
         token,
@@ -139,8 +148,27 @@ async def login(body: Login, request: Request, response: Response) -> Identity:
         max_age=ctx.settings.friends_session_hours * 3600,
         path="/",
     )
+
+
+@router.post("/join-code", operation_id="joinWithInviteCode", response_model=Identity)
+async def join_with_code(body: JoinCodeIn, request: Request, response: Response) -> Identity:
+    """Join a one-click sharing group with its invite code; signs the browser in."""
+    ctx = require_enabled(request)
+    check_origin(request, ctx)
+    principal = None
+    if request.cookies.get(COOKIE):
+        try:
+            principal = await session_principal(request, ctx)
+        except DomainError:
+            principal = None  # stale session: join as a new participant
+    user_id, role, _ = await SelfServeSharingService(ctx).join_with_code(
+        principal, body.code, body.acknowledgements, body.terms_version
+    )
+    if principal is None or principal.user_id != user_id:
+        async with ctx.sessionmaker() as session, session.begin():
+            await _open_session(session, request, response, ctx, user_id)
     response.headers["Cache-Control"] = "no-store"
-    return identity(user.id, user.role, ctx)
+    return identity(user_id, role, ctx)
 
 
 def identity(user_id, role, ctx):

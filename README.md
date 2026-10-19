@@ -10,6 +10,10 @@ Specifications: `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/WEEK1.md`, `docs/AC
 `contracts/openapi.yaml`, `db/migrations/0001_initial.sql`. Status: `docs/IMPLEMENTATION_STATUS.md`.
 Deviations: `docs/DECISIONS.md`.
 
+## 一键提供算力 / One-click sharing
+
+新人解压运营者的 `SpareAgent-mac.zip`，双击 `SpareAgent.command`，点一下「上线」即可：自动安装、登录自己的 ChatGPT、创建小组与邀请码、自动批准组员任务；再点一下下线。人数与任务上限随时可调，界面默认中文。See [docs/ONE_CLICK_SHARING.md](docs/ONE_CLICK_SHARING.md) and D-68…D-72.
+
 ## Week 6: friends install the Worker only
 
 Friends need the official Codex CLI and a standalone SpareAgent Worker (Python 3.12+
@@ -42,7 +46,7 @@ The operator builds `python scripts/build_worker_bundle.py` and privately distri
 reviewed macOS script, small worker wheel and SHA-256. On the friend's Mac:
 
 ```sh
-bash setup-worker-macos.sh ./spareagent_worker-0.6.0-py3-none-any.whl OPERATOR_SHA256
+bash setup-worker-macos.sh ./spareagent_worker-0.7.0-py3-none-any.whl OPERATOR_SHA256
 export PATH="$HOME/.local/share/spareagent-worker/bin:$PATH"
 codex login  # your own ChatGPT Plus login
 spareagent-worker pilot-check
