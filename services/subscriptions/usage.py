@@ -123,20 +123,25 @@ class SubscriptionUsageMonitor:
 
     @staticmethod
     async def started_last_24h(
-        session: AsyncSession, connection_id: uuid.UUID, now: datetime
+        session: AsyncSession,
+        connection_id: uuid.UUID,
+        now: datetime,
+        *,
+        exclude_task_id: uuid.UUID | None = None,
     ) -> int:
-        """Cross-user tasks placed on this connection in the last 24 h (audited ALLOWs)."""
-        return (
-            await session.execute(
-                select(func.count())
-                .select_from(ExperimentalDispatchAudit)
-                .where(
-                    ExperimentalDispatchAudit.connection_id == connection_id,
-                    ExperimentalDispatchAudit.decision == "ALLOW",
-                    ExperimentalDispatchAudit.created_at >= now - timedelta(hours=24),
-                )
+        """Audited placements in 24 h; acceptance excludes its already-charged task."""
+        stmt = (
+            select(func.count())
+            .select_from(ExperimentalDispatchAudit)
+            .where(
+                ExperimentalDispatchAudit.connection_id == connection_id,
+                ExperimentalDispatchAudit.decision == "ALLOW",
+                ExperimentalDispatchAudit.created_at >= now - timedelta(hours=24),
             )
-        ).scalar_one()
+        )
+        if exclude_task_id is not None:
+            stmt = stmt.where(ExperimentalDispatchAudit.task_id != exclude_task_id)
+        return (await session.execute(stmt)).scalar_one()
 
     @staticmethod
     async def rate_limited_until(

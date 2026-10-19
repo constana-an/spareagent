@@ -13,6 +13,7 @@ type Group = {
   status: string;
   sharing_enabled: boolean;
   max_members: number;
+  max_task_duration_seconds: number;
   members: { user_id: string; status: string }[];
   authorization: null | {
     authorization_reference: string;
@@ -111,8 +112,9 @@ type TimelineEvent = {
 };
 function resultLabel(t: Task): string {
   if (t.status === "CANCELLED" || t.status === "CANCELLING") return t.status;
+  if (t.status === "TIMED_OUT") return "TIMED_OUT";
   if (
-    ["FAILED", "TIMED_OUT"].includes(t.status) ||
+    t.status === "FAILED" ||
     ["FAILED", "ERROR"].includes(t.verification_status)
   )
     return "FAILED";
@@ -745,9 +747,9 @@ export default function Dashboard() {
                           name="duration"
                           type="number"
                           min="10"
-                          max="60"
+                          max={group?.max_task_duration_seconds ?? 600}
                           defaultValue={
-                            d.preferences?.max_task_duration_seconds ?? 60
+                            d.preferences?.max_task_duration_seconds ?? 600
                           }
                           required
                         />
@@ -841,7 +843,7 @@ export default function Dashboard() {
                 is a SpareAgent token; never paste ChatGPT credentials.
               </li>
               <li>
-                Connect the returned worker ID, set CODE_REVIEW / 60 seconds /
+                Connect the returned worker ID, set CODE_REVIEW / 600 seconds /
                 one task, and accept sharing terms.
               </li>
               <li>
@@ -945,6 +947,11 @@ export default function Dashboard() {
           <section id="requests">
             <p className="eyebrow">YOUR PERMISSION FIRST</p>
             <h2>Incoming requests</h2>
+            <p className="muted">
+              Approval and node acceptance must happen within 10 minutes of submission.
+              The execution time limit starts when the worker accepts the task
+              and can be up to 10 minutes, subject to owner and group limits.
+            </p>
             {!incoming.filter((t) => t.group_id === gid).length && (
               <p className="empty">
                 Your circle is quiet. New requests appear here.
@@ -1084,8 +1091,8 @@ export default function Dashboard() {
                     name="timeout"
                     type="number"
                     min="10"
-                    max="60"
-                    defaultValue="60"
+                    max={group?.max_task_duration_seconds ?? 600}
+                    defaultValue="600"
                     required
                   />
                 </label>

@@ -51,14 +51,16 @@ spareagent-worker pilot-check
 `pilot-check` performs **no inference** and changes no sharing/LIVE switches. It separates
 automatic blockers from required owner/operator confirmations. Setup does not start the
 Worker or enable LIVE. All subscription-consuming checks remain manually opted in;
-no API keys, purchased/granted Credits or paid fallback. The **real Alice/Bob experiment
-is NOT_RUN** until it is actually run on two devices and funding is manually confirmed.
+no API keys, purchased/granted Credits or paid fallback. The first **real two-device Alice/Bob execution succeeded on 2026-10-19**, with
+explicit owner confirmation of distinct physical devices and subscription-only funding.
+Its code-review content remains **UNVERIFIED** and requires human assessment. The LIVE
+window was closed after the run; later subscription-consuming tasks require a new opt-in.
 
 Read the [first two-person test plan](docs/TWO_PERSON_TEST_PLAN.md),
 [controlled runbook](docs/WEEK6_PILOT_RUNBOOK.md),
 [readiness and status](docs/WEEK6_STATUS.md), [security review](docs/WEEK6_SECURITY_REVIEW.md),
 [metrics definitions](docs/WEEK6_METRICS.md) and
-[unexecuted real pilot record](reports/week6_two_device_pilot.json).
+[real pilot record](reports/week6_two_device_pilot.json).
 The Docker quick start below is for the **operator/developer**, not friends.
 
 ## Policy invariants (enforced in code and tests)

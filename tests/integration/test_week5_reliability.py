@@ -112,3 +112,62 @@ async def test_database_blocks_unverified_live_success(lclient, lctx):
             "UPDATE tasks SET status='SUCCEEDED' WHERE id=:t",
             t=__import__("uuid").UUID(task["id"]),
         )
+
+
+@pytest.mark.parametrize("limiting_scope", ["owner", "group"])
+async def test_daily_last_slot_can_be_accepted_but_not_reused(lclient, lctx, limiting_scope):
+    gid, conn, node, _ = await live_world(
+        lclient, max_tasks_per_day=1 if limiting_scope == "owner" else 2
+    )
+    if limiting_scope == "group":
+        await execute(lctx, "UPDATE experimental_groups SET max_tasks_per_day=1")
+    task = await submit_live(lclient, gid, conn)
+    await approve(lclient, task["id"])
+    lease = (await poll(lclient, node)).json()
+    assert (
+        await fetch_val(
+            lctx, "SELECT count(*) FROM experimental_dispatch_audit WHERE decision='ALLOW'"
+        )
+        == 1
+    )
+    accept = f"/v1/leases/{lease['lease_id']}/accept"
+    for _ in range(2):
+        r = await lclient.post(accept, headers=bearer(node["access_token"]))
+        assert r.status_code == 204, r.text
+    assert (await get_task(lclient, task["id"]))["status"] == "RUNNING"
+    # Protocol-only failure: no Codex call; the placement still consumes the one slot.
+    await lclient.post(
+        f"/v1/leases/{lease['lease_id']}/complete",
+        headers=bearer(node["access_token"]),
+        json={"finalization_key": f"fin-{lease['attempt_id']}", "succeeded": False},
+    )
+    other = await submit_live(lclient, gid, conn)
+    await approve(lclient, other["id"])
+    assert (await poll(lclient, node)).status_code == 204
+    t = await get_task(lclient, other["id"])
+    assert "DAILY_LIMIT" in t["last_decision"]["reasons"]
+    assert await fetch_val(lctx, "SELECT count(*) FROM task_attempts") == 1
+
+
+async def test_accept_rechecks_lowered_daily_limit_without_ignoring_prior_tasks(lclient, lctx):
+    gid, conn, node, _ = await live_world(lclient, max_tasks_per_day=2)
+    first = await submit_live(lclient, gid, conn)
+    await approve(lclient, first["id"])
+    await live.run_on_device(lclient, node, succeeded=False)
+    second = await submit_live(lclient, gid, conn)
+    await approve(lclient, second["id"])
+    lease = (await poll(lclient, node)).json()
+    r = await lclient.put(
+        "/v1/sharing/preferences",
+        headers=headers(ALICE),
+        json={"connection_id": conn, "group_id": gid, "max_tasks_per_day": 1},
+    )
+    assert r.status_code == 200, r.text
+    r = await lclient.post(
+        f"/v1/leases/{lease['lease_id']}/accept", headers=bearer(node["access_token"])
+    )
+    assert r.status_code == 409 and "DAILY_LIMIT" in r.text
+    assert (
+        await fetch_val(lctx, "SELECT count(*) FROM task_attempts WHERE started_at IS NOT NULL")
+        == 1
+    )

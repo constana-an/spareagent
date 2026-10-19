@@ -1,29 +1,102 @@
 {
   "schema_version": 1,
   "kind": "REAL_TWO_DEVICE_PILOT",
-  "result": "NOT_RUN",
-  "reason": "No real Alice-provider/Bob-requester task has been run on two physical devices.",
-  "task_id": null,
-  "attempt_ids": [],
-  "owner_ref": null,
-  "requester_ref": null,
-  "authorization_ref": null,
-  "authorization_correspondence": "Owner-supplied project-specific Support ticket 10766658; operator verification required",
-  "codex_cli_version": null,
-  "auth_method_and_version": null,
-  "device_runtime": null,
-  "two_distinct_devices_confirmed": false,
-  "consent_audit_refs": [],
-  "task_approval_ref": null,
-  "dispatch_audit_refs": [],
-  "duration_ms": null,
-  "observed_input_tokens": null,
-  "observed_output_tokens": null,
-  "verification": null,
+  "result": "REAL_TWO_DEVICE_PILOT_OK",
+  "reason": "Actual Bob-to-owner LIVE execution succeeded; owner explicitly confirmed distinct physical devices and subscription-only funding after this run.",
+  "task_id": "76d12762-a2c0-4565-8685-6dee307c4409",
+  "attempt_ids": [
+    "59c74f5f-4720-4719-9672-be81dfa8a07f"
+  ],
+  "owner_ref": "0118b160-4fb7-4a81-b06e-8515bc24273c",
+  "requester_ref": "1d3ab841-70f2-4b71-a707-d8e2c6ba8c77",
+  "authorization_ref": "ddbd6922-c756-40f7-92eb-61cfb20a0bad",
+  "authorization_correspondence": "Owner-supplied project-specific Support ticket 10766658; operator-verified recorded scope; no independent machine authentication of vendor correspondence",
+  "codex_cli_version": "codex-cli 0.163.0-alpha.10.2",
+  "auth_method_and_version": "CHATGPT; official CLI version confirmed by same-device pre-run pilot-check",
+  "device_runtime": "Owner-controlled macOS arm64; official Codex CLI; isolated read-only runtime",
+  "two_distinct_devices_confirmed": true,
+  "consent_audit_refs": [
+    32,
+    33,
+    34,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    48,
+    53,
+    56,
+    57
+  ],
+  "task_approval_ref": 57,
+  "dispatch_audit_refs": [
+    7,
+    8
+  ],
+  "duration_ms": 13547,
+  "observed_input_tokens": 58633,
+  "observed_output_tokens": 361,
+  "verification": {
+    "status": "UNVERIFIED",
+    "id": "952620cf-d3e4-4f0a-baf7-56bfa4146809",
+    "verifier_id": "verifier-809c25c0",
+    "reason": "REVIEW_REQUIRES_HUMAN_ASSESSMENT"
+  },
   "cancellation_observation": "NOT_RUN",
-  "retry_observation": "NOT_RUN",
-  "owner_pre_run_plus_no_extra_credits_no_reload": "NOT_CONFIRMED_FOR_THIS_PILOT",
-  "owner_post_run_subscription_only_credits_unchanged": "NOT_CONFIRMED_FOR_THIS_PILOT",
-  "live_activation": "MANUAL_ONLY; DEFAULT_OFF",
-  "automated_tests": "Fake CLI and simulated devices cannot satisfy this record"
+  "retry_observation": "Successful task used one attempt; no automatic retry; earlier failed tasks were replaced only by manually submitted and approved requests",
+  "owner_pre_run_plus_no_extra_credits_no_reload": "OWNER_CONFIRMED_SAME_ACCOUNT_DEVICE_AND_CLI_AS_APPLICABLE_OWNER_CHECK; PLUS; ZERO_PURCHASED_OR_GRANTED_CREDITS; AUTO_RELOAD_OFF",
+  "owner_post_run_subscription_only_credits_unchanged": "OWNER_CONFIRMED_FOR_TASK_76d12762: SUBSCRIPTION_USAGE_ONLY; PURCHASED_AND_GRANTED_CREDITS_UNCHANGED; AUTO_RELOAD_OFF",
+  "live_activation": "EXPLICIT_MANUAL_ACTIVATION; CLOSED_AFTER_SINGLE_SUCCESSFUL_REAL_TASK",
+  "automated_tests": "Separate deterministic gate: 520 passed, 90.84% coverage. Fake CLI/simulated-device tests do not satisfy this real execution record.",
+  "recorded_at": "2026-10-19T18:45:14.775040+00:00",
+  "execution_status": "SUCCEEDED",
+  "started_at": "2026-10-19 18:40:55.350882+00:00",
+  "completed_at": "2026-10-19 18:41:08.898137+00:00",
+  "execution_limit_seconds": 600,
+  "waiting_limit_seconds": 600,
+  "implementation_revision": "373663172c7cbd6b49f6c75b41f2727e7ab37847",
+  "confirmation_provenance": {
+    "physical_devices": "Explicit owner/operator chat confirmation after task completion",
+    "funding": "Explicit owner chat confirmation after checking upstream usage; not machine billing verification",
+    "cli": "Same-device pre-run no-inference pilot-check",
+    "execution": "Persisted task, attempt, approval, dispatch, completion and verification records"
+  },
+  "protocol_evidence_sha256": "5ff1d3c96ee14060553b7a554e149abdf60808b73df68b73af0955f56621dd4f",
+  "published_artifacts": [
+    {
+      "id": "717ca9f6-4542-4cc4-bfc9-43dced733e0c",
+      "kind": "SUMMARY",
+      "sha256": "8e2ba4cdd00544a5e4c89502a295306a67e20d4d6b1be9e81a5d4234cdc74695"
+    },
+    {
+      "id": "2d5a5d1c-baeb-48f5-af3a-b2ca8e2d974a",
+      "kind": "LOG",
+      "sha256": "05dda20a10e8878734ce024b9e567f769c4b18156b8131338f76eeeac29f0ac8"
+    },
+    {
+      "id": "a6583563-5e97-4547-93c5-bfcd8abc9b04",
+      "kind": "VERIFICATION_REPORT",
+      "sha256": "684e0c877ee15306db82258edcc48429bafa659707a9b12d8c766e0a8ab7c64c"
+    }
+  ],
+  "closure": {
+    "live_enabled": false,
+    "group_sharing_enabled": false,
+    "local_sharing_paused": true,
+    "worker_stopped": true,
+    "active_attempts": 0,
+    "backend_and_dashboard_retained": true,
+    "final_database_backup_saved_privately": true
+  },
+  "review_limitations": [
+    "Pinned public repository contains only a minimal README, no application code or test suite.",
+    "Model reported its own Git checks were blocked by missing macOS developer tools; no semantic-correctness claim is made.",
+    "Bob result-content review is not independently confirmed by server protocol."
+  ],
+  "real_cancellation_timeout_outage_drills": "NOT_RUN",
+  "manual_confirmation_audit_ref": 59
 }

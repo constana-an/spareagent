@@ -197,7 +197,7 @@ async def run_check(args, client_factory):
             "source": "OWNER_ATTESTATION",
             "action": (
                 "Alice must read the public pinned repository, complete prompt "
-                "and 60-second limit and approve each task."
+                "and configured execution limit (up to 600 seconds) and approve each task."
             ),
         },
     ]

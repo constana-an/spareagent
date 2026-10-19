@@ -435,7 +435,9 @@ class VerificationService:
                 )
                 return "SUCCEEDED"
             await close_attempt(session, attempt, "FAILED", release=False)
-            if attempt.attempt_number < task.max_attempts and not task_deadline_passed(task, now):
+            if attempt.attempt_number < task.max_attempts and not task_deadline_passed(
+                task, now, attempt
+            ):
                 await transition(
                     session,
                     task,

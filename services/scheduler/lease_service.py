@@ -37,8 +37,15 @@ def utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-def task_deadline_passed(task: Task, now: datetime) -> bool:
-    return now >= task.created_at + timedelta(seconds=task.max_duration_seconds)
+def task_deadline_passed(task: Task, now: datetime, attempt: TaskAttempt | None = None) -> bool:
+    """Experimental tasks wait up to 10 minutes, then get their full execution limit."""
+    start, seconds = task.created_at, task.max_duration_seconds
+    if task.resource_scope == "EXPERIMENTAL_SHARED_SUBSCRIPTION":
+        if attempt is not None and attempt.started_at is not None:
+            start = attempt.started_at
+        else:
+            seconds = 600
+    return now >= start + timedelta(seconds=seconds)
 
 
 async def release_worker(session: AsyncSession, worker_id: uuid.UUID) -> None:
@@ -157,12 +164,13 @@ class LeaseService:
                 raise conflict("LEASE_EXPIRED", "Lease has expired")
             if attempt.status != "RESERVED" or task.status != TaskStatus.RESERVED:
                 raise conflict("LEASE_REVOKED", "Lease is no longer valid")
-            if task_deadline_passed(task, now):
+            if task_deadline_passed(task, now, attempt):
                 raise conflict("LEASE_EXPIRED", "Task deadline has passed")
             if task.execution_profile == "CODEX_LIVE":
                 from db.models import ExperimentalTaskConsent
                 from services.experiments.dispatcher import ONLINE_STATUSES, ExperimentalDispatcher
                 from services.subscriptions.policy import ExperimentalSharingPolicy, Mode
+                from services.subscriptions.usage import SubscriptionUsageMonitor
 
                 consent = (
                     await session.execute(
@@ -171,11 +179,16 @@ class LeaseService:
                         )
                     )
                 ).scalar_one()
-                snap, _, _ = await ExperimentalDispatcher(self.ctx).snapshot(session, task, consent)
+                snap, conn, _ = await ExperimentalDispatcher(self.ctx).snapshot(
+                    session, task, consent
+                )
                 worker = await repo.lock_worker(session, worker_id)
                 snap = replace(
                     snap,
                     active_tasks_on_connection=max(0, snap.active_tasks_on_connection - 1),
+                    tasks_started_last_24h=await SubscriptionUsageMonitor.started_last_24h(
+                        session, conn.id, now, exclude_task_id=task.id
+                    ),
                     node_online=(
                         worker.status in ONLINE_STATUSES
                         and worker.last_heartbeat is not None
@@ -274,7 +287,7 @@ class LeaseService:
             raise conflict("LEASE_REVOKED", "Lease is no longer valid")
 
         await enforce_live_authority(self.ctx, session, task)
-        if task.execution_profile == "CODEX_LIVE" and task_deadline_passed(task, now):
+        if task.execution_profile == "CODEX_LIVE" and task_deadline_passed(task, now, attempt):
             data = replace(data, succeeded=False, timed_out=True)
         attempt.finalization_key = data.finalization_key
         attempt.completed_at = now
@@ -412,7 +425,7 @@ class LeaseService:
         if (
             data.retryable
             and attempt.attempt_number < task.max_attempts
-            and not task_deadline_passed(task, now)
+            and not task_deadline_passed(task, now, attempt)
         ):
             await transition(
                 session,
@@ -476,7 +489,7 @@ class LeaseService:
                 recovered += 1
                 status = TaskStatus(task.status)
                 retry_ok = attempt.attempt_number < task.max_attempts and not task_deadline_passed(
-                    task, now
+                    task, now, attempt
                 )
                 payload = {"reason": "LEASE_EXPIRED", "attempt_number": attempt.attempt_number}
                 if status == TaskStatus.CANCELLING:
