@@ -215,3 +215,15 @@ from worker acceptance. Configure both group and owner limits to 600 and submit 
 task with `max_duration_seconds: 600`; old timed-out tasks are never resurrected.
 Per-task approval, concurrency 1, daily task limits and no automatic retry remain.
 The separate optional owner-only `codex-check --timeout 60` is unchanged.
+
+
+## Automatic worker intake and daily allocation limits
+
+The running worker polls and accepts eligible tasks automatically after the owner's
+individual LIVE approval. It never automatically approves a LIVE request. A reservation
+already consumes one daily allocation; its acceptance recheck excludes that same task
+so the last available allocation can actually start. Other allocations and any tighter
+owner/group limits are still enforced. Failed reservations remain charged in the rolling
+24-hour allocation count. If an unstarted failed reservation used the planned allowance,
+the owner must explicitly authorize any additional allowance; do not erase audits, reset
+counters, resurrect tasks or retry automatically to bypass the limit.

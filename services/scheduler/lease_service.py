@@ -170,6 +170,7 @@ class LeaseService:
                 from db.models import ExperimentalTaskConsent
                 from services.experiments.dispatcher import ONLINE_STATUSES, ExperimentalDispatcher
                 from services.subscriptions.policy import ExperimentalSharingPolicy, Mode
+                from services.subscriptions.usage import SubscriptionUsageMonitor
 
                 consent = (
                     await session.execute(
@@ -178,11 +179,16 @@ class LeaseService:
                         )
                     )
                 ).scalar_one()
-                snap, _, _ = await ExperimentalDispatcher(self.ctx).snapshot(session, task, consent)
+                snap, conn, _ = await ExperimentalDispatcher(self.ctx).snapshot(
+                    session, task, consent
+                )
                 worker = await repo.lock_worker(session, worker_id)
                 snap = replace(
                     snap,
                     active_tasks_on_connection=max(0, snap.active_tasks_on_connection - 1),
+                    tasks_started_last_24h=await SubscriptionUsageMonitor.started_last_24h(
+                        session, conn.id, now, exclude_task_id=task.id
+                    ),
                     node_online=(
                         worker.status in ONLINE_STATUSES
                         and worker.last_heartbeat is not None
