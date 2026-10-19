@@ -2,7 +2,14 @@
 
 Based on merged `main` at `7012489` (Week 5 PR #4), branch
 `feat/week6-real-sharing-pilot`. Recorded 2026-10-18. No public deployment or release published.
-**LIVE stays off by default. The real two-person experiment remains NOT_RUN.**
+**Current update, 2026-10-19:** the first real two-device task succeeded and its
+physical-device/funding conditions were explicitly confirmed by the owner. Execution
+was **SUCCEEDED**; review verification remains **UNVERIFIED**. The LIVE window is now
+closed. See [the evidence record](../reports/week6_two_device_pilot.json).
+
+The initial 2026-10-18 snapshot and earlier deployment/shutdown observations below are
+historical. Private services were later restored for the successful pilot; backend and
+Dashboard remain running, with LIVE/group sharing off and the Worker paused/stopped.
 
 ## Private Mac deployment follow-up
 
@@ -108,3 +115,34 @@ Read [security review](WEEK6_SECURITY_REVIEW.md) and [metric definitions](WEEK6_
 Software cannot query/guarantee upstream funding, prove physical devices from protocol,
 provide exact remaining quota or establish semantic correctness of a review. Report
 exports deliberately leave these fields manual/UNCONFIRMED, including in fake LIVE tests.
+
+
+## First real two-device execution — 2026-10-19
+
+Bob submitted `76d12762-a2c0-4565-8685-6dee307c4409` from his own physical device. The
+owner approved the individual LIVE CODE_REVIEW and the owner's Mac completed attempt
+`59c74f5f-4720-4719-9672-be81dfa8a07f` in 13,547 ms (14:40:55–14:41:08 America/New_York).
+The coordinator finalized SUCCEEDED at 14:41:09 and published SUMMARY, LOG and
+VERIFICATION_REPORT. Pure review remains UNVERIFIED / REVIEW_REQUIRES_HUMAN_ASSESSMENT.
+Device-reported observations were 58,633 input and 361 output tokens; these counts are
+not proof of upstream billing or remaining quota.
+
+After this specific run, the owner explicitly confirmed two distinct physical devices,
+subscription-included usage only, no change to purchased/granted Credits and auto-reload
+off. The [real pilot record](../reports/week6_two_device_pilot.json) combines those manual
+confirmations with real protocol/audit references. The server export itself intentionally
+remains UNCONFIRMED, because it cannot independently certify devices or funding.
+
+Earlier four LIVE requests expired while QUEUED; `221ec68f` later expired before acceptance
+because its own reservation was counted again at the daily-limit recheck. Those failures
+remain in history. Waiting and execution now have independent 600-second limits, and the
+last daily allocation can be accepted without bypassing other allocations or lower limits.
+The owner explicitly added one allocation (cap 1 to 2) to permit the new successful task;
+there was no automatic retry or counter reset. Final implementation regression: 520 passed,
+90.84% coverage. No additional real cancellation, outage or timeout drill was performed.
+
+The model's review is limited: the repository contains only a minimal README and its
+own Git checks reported missing macOS developer tools. No claim of semantic correctness
+or completed Bob content review is made. The single-run LIVE window was closed, local
+sharing paused and Worker stopped; the private Dashboard, results and data remain available,
+and a final private database backup was saved. Later real runs require new explicit opt-in.

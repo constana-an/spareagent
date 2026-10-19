@@ -1,6 +1,8 @@
 # SpareAgent 首次双人测试计划
 
-制定日期：2026-10-19（America/New_York）。状态：**PLANNED / NOT_RUN**。
+制定日期：2026-10-19（America/New_York）。状态更新：**首次双设备执行与资金来源验收通过**；审查结果仍为 **UNVERIFIED**。
+实际任务：`76d12762`，2026-10-19。详见 [真实试验记录](../reports/week6_two_device_pilot.json)。
+以下步骤保留作运行计划；不表示可自动重复执行或已完成可选可靠性演练。
 
 目标：证明 3 号用户可以通过私有 Dashboard，向 2 号用户发起一笔公开仓库只读审查；
 2 号明确批准后，在自己的设备和 ChatGPT Plus 登录下执行，并把结果返回给 3 号。
@@ -144,7 +146,9 @@
 - [ ] 2 号人工确认本次仅使用订阅包含额度，额外 Credits 未变化。
 - [ ] 凭据未共享，脱敏证据齐全，LIVE 和分享已收回，数据妥善保留。
 
-现在仍保持 `reports/week6_two_device_pilot.json` 的 **NOT_RUN**，本计划不修改它。
+2026-10-19，实际双设备任务执行成功，且所有者逐项确认本次设备及资金条件后，
+`reports/week6_two_device_pilot.json` 已更新为 **REAL_TWO_DEVICE_PILOT_OK**。
+代码审查仍为 UNVERIFIED；Bob 的内容审阅不由协议自动证明，可选异常演练仍为 NOT_RUN。
 未执行则保留 NOT_RUN；实际执行但失败或证据不足，应如实记录失败或未确认，保留执行证据，
 不能写成成功，也不能把发生过的真实执行隐藏成未执行。
 
