@@ -1,8 +1,23 @@
 # Week 6 status — pilot readiness and beta hardening
 
 Based on merged `main` at `7012489` (Week 5 PR #4), branch
-`feat/week6-real-sharing-pilot`. Recorded 2026-10-18. No deployment or release published.
+`feat/week6-real-sharing-pilot`. Recorded 2026-10-18. No public deployment or release published.
 **LIVE stays off by default. The real two-person experiment remains NOT_RUN.**
+
+## Private Mac deployment follow-up
+
+Week 6 was merged in PR #5 (`5068ead`). A separate seven-service private Mac stack was
+deployed and checked with verified HTTPS, production invite authentication, restart/data
+persistence and the Verifier's no-inference sandbox probe. Device #1 is the service host;
+#2 and #3 are the two users. Friends install no backend. Tailscale Serve is documented as
+an optional private-network fallback; no SpareAgent Tailscale ingress has been configured.
+
+At the owner's request, all local Docker containers are now stopped. The seven pilot
+containers and three pilot data volumes were retained. Old main-environment volumes
+were retained, but two Week 4 temporary containers automatically deleted their anonymous
+volumes on stop after their AutoRemove setting was missed; those two test databases have
+not been restored. See the [deployment and shutdown record](MAC_PRIVATE_DEPLOYMENT.md).
+No second-device connectivity or real cross-user subscription run is claimed.
 
 ## Readiness gaps found and addressed
 
