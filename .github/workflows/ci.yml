@@ -10,6 +10,24 @@ env:
   NEXT_TELEMETRY_DISABLED: "1"
 
 jobs:
+  worker-package:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python scripts/build_worker_bundle.py
+      - run: python scripts/check_worker_wheel.py output/worker-bundle/spareagent_worker-0.6.0-py3-none-any.whl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: worker-bundle-${{ matrix.os }}
+          path: output/worker-bundle/*
+
   friends-web:
     runs-on: ubuntu-latest
     timeout-minutes: 10

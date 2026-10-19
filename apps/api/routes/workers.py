@@ -140,6 +140,18 @@ async def worker_self(
     return WorkerSelf(**await _remote(ctx).describe(node))
 
 
+@router.get("/workers/me/pilot-readiness", operation_id="getWorkerPilotReadiness")
+async def worker_pilot_readiness(
+    task_id: str | None = Query(default=None),
+    node: NodePrincipal = Depends(get_node_principal),
+    ctx: AppContext = Depends(get_ctx),
+) -> dict:
+    from services.experiments.pilot import node_readiness
+
+    tid = parse_uuid_or_404(task_id, "TASK_NOT_FOUND") if task_id else None
+    return await node_readiness(ctx, node.worker_id, tid)
+
+
 @router.post(
     "/workers/{worker_id}/credentials/rotate",
     operation_id="rotateNodeCredentials",

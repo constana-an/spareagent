@@ -31,6 +31,15 @@ class TransportError(Exception):
 
 def validate_api_url(url: str, allow_insecure_http: bool) -> str:
     parts = urlsplit(url)
+    if (
+        not parts.hostname
+        or parts.username is not None
+        or parts.password is not None
+        or parts.query
+        or parts.fragment
+        or parts.path not in ("", "/")
+    ):
+        raise ValueError("API URL must be an origin without credentials, path, query or fragment")
     if parts.scheme == "https":
         return url.rstrip("/")
     if parts.scheme == "http" and allow_insecure_http:
@@ -76,6 +85,7 @@ class NodeClient:
             transport=transport,
             timeout=timeout,
             follow_redirects=False,
+            trust_env=False,  # no inherited proxy / netrc credentials on node requests
         )
 
     async def aclose(self) -> None:

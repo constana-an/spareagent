@@ -1,5 +1,9 @@
 # Two-person friends beta: Alice's device, Bob's review
 
+For current friends installation and the first actual two-device pilot, use
+[the Week 6 runbook](WEEK6_PILOT_RUNBOOK.md). Friends install only the Worker wheel;
+the checkout/development setup below is historical operator/developer context.
+
 LIVE stays **off** until the operator explicitly activates it. The protocol tests and
 browser preview use simulated devices and never establish a real two-participant result.
 

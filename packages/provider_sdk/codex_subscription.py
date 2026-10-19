@@ -35,6 +35,8 @@ from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from packages.common.observability import redact
+from packages.common.repository_manager import RepositoryError, RepositoryManager
 from packages.provider_sdk.base import PermanentProviderError, ProviderError
 from packages.provider_sdk.types import (
     ArtifactPayload,
@@ -54,8 +56,6 @@ from packages.worker.subscription_auth import (
     SubscriptionAuthError,
     probe_login,
 )
-from services.execution.repository_manager import RepositoryError, RepositoryManager
-from services.observability import redact
 
 PROVIDER_NAME = "codex-subscription"
 ALLOWED_TASK_TYPES = frozenset({"CODE_REVIEW", "WRITE_TESTS", "CODE_FIX"})
@@ -158,6 +158,8 @@ class CodexSubscriptionAdapter:
             return False
         if request.resource_scope != "EXPERIMENTAL_SHARED_SUBSCRIPTION":
             raise OwnerOnlyViolation("Codex subscription execution is owner-only for this scope")
+        if not request.prompt or len(request.prompt) > 12000 or "\x00" in request.prompt:
+            raise SharedWorkRefused("Shared prompt must be 1-12000 characters without NUL bytes")
         if self.shared is None:
             raise SharedWorkRefused("This device has not opted in to shared tasks")
         if not self.shared.sharing_control.allows_shared_work():

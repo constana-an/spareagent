@@ -1,0 +1,23 @@
+{
+  "kind": "BROWSER_QA_SIMULATED_ONLY",
+  "date": "2026-10-18",
+  "LIVE_enabled": false,
+  "api_dev_auth_enabled": false,
+  "database": "Separate disposable Week 6 preview database",
+  "verified": [
+    "Bob signs in, submits SIMULATED pinned public CODE_REVIEW",
+    "Alice signs in, inspects complete prompt, SHA and 60-second limit, explicitly approves",
+    "deterministic simulator completes; UI displays UNVERIFIED and separate execution/verification state",
+    "persisted nine-event task timeline including approval, execution, verification stage and completion",
+    "redacted pilot evidence downloads; protocol evidence does not certify real devices or billing",
+    "standalone Worker macOS setup and no-inference pilot-check instructions visible",
+    "LIVE disabled; LIVE option unavailable; observed metrics separate LIVE and SIMULATED",
+    "unknown token/quota/latency displayed as unknown until measured",
+    "1440px desktop and 390px mobile: no horizontal overflow; mobile sign-out visible",
+    "completed owner task remains in history after full reload; all nine persisted events replay"
+  ],
+  "console": "Only pre-login expected 401 and missing favicon 404; no authenticated application errors observed",
+  "subscription_consumption": "NONE; deterministic simulator only",
+  "real_two_device_pilot": "NOT_RUN",
+  "screenshots": "Local output/playwright/week6-mobile.png and week6-desktop.png (ignored)"
+}

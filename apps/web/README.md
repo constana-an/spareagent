@@ -25,3 +25,12 @@ device enrollment/connect, sharing/limits, validation statements, task approval/
 progress/cancellation, integrity-checked download and participant-scoped audit are supported.
 SIMULATED is the default; LIVE must be enabled manually on the API and authorized per task.
 Plan remaining is always unavailable. UNVERIFIED results are labelled explicitly.
+
+## Week 6 pilot controls
+
+Onboarding now explains standalone Worker installation and no-inference pilot-check.
+History includes owner and requester tasks after completion. Timeline replays persisted
+sequence IDs and deduplicates reconnects; result labels distinguish VERIFIED, UNVERIFIED,
+FAILED and CANCELLED. Group metrics separate LIVE/SIMULATED and preserve unknowns.
+Owner/requester evidence export never certifies physical devices or funding.
+See [the current runbook](../../docs/WEEK6_PILOT_RUNBOOK.md) for manual activation.

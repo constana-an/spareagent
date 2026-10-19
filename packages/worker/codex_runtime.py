@@ -25,8 +25,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+from packages.common.observability import redact
 from packages.worker.subscription_auth import sanitized_env
-from services.observability import redact
 
 log = logging.getLogger("spareagent.worker.codex")
 

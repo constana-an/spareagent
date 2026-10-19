@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import os
+import stat
+import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -44,17 +46,29 @@ def load_state(directory: Path) -> NodeState | None:
     path = directory / STATE_FILE
     if not path.exists():
         return None
+    info = path.lstat()
+    if (
+        not stat.S_ISREG(info.st_mode)
+        or path.is_symlink()
+        or stat.S_IMODE(info.st_mode) & 0o077
+        or info.st_uid != os.getuid()
+    ):
+        raise ValueError("node.json must be an owner-only regular file (chmod 600); no symlinks")
     return NodeState(**json.loads(path.read_text(encoding="utf-8")))
 
 
 def save_state(directory: Path, state: NodeState) -> None:
     path = directory / STATE_FILE
-    tmp = directory / f".{STATE_FILE}.tmp"
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        json.dump(asdict(state), fh, indent=2)
-    os.replace(tmp, path)
-    os.chmod(path, 0o600)
+    fd, name = tempfile.mkstemp(prefix=".node-", dir=directory)
+    tmp = Path(name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(asdict(state), fh, indent=2)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def read_pid(directory: Path) -> int | None:

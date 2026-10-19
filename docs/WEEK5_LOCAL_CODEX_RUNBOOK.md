@@ -1,5 +1,9 @@
 # Owner-only Codex validation on macOS Apple Silicon
 
+For current friends installation and the first actual two-device pilot, use
+[the Week 6 runbook](WEEK6_PILOT_RUNBOOK.md). Friends install only the Worker wheel;
+the checkout/development setup below is historical operator/developer context.
+
 This is an owner-operated check on the owner's Mac. It does not activate cross-user
 sharing, upload authentication, invoke a commercial API or buy Credits. CI never runs it.
 

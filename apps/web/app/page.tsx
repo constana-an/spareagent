@@ -81,6 +81,58 @@ type Audit = {
   execution_mode: string;
   created_at: string;
 };
+type Metrics = {
+  participating_devices: number;
+  online_devices: number;
+  available_owner_devices: number;
+  modes: Record<
+    string,
+    {
+      submitted: number;
+      completed: number;
+      failed: number;
+      cancelled: number;
+      success_rate: number | null;
+      success_rate_denominator: number;
+      total_execution_ms: number | null;
+      observed_input_tokens: number | null;
+      observed_output_tokens: number | null;
+      average_completed_latency_ms: number | null;
+      usage_limit_errors: number;
+      observations: number;
+    }
+  >;
+};
+type TimelineEvent = {
+  seq: number;
+  type: string;
+  created_at?: string;
+  payload: { status?: string; message?: string };
+};
+function resultLabel(t: Task): string {
+  if (t.status === "CANCELLED" || t.status === "CANCELLING") return t.status;
+  if (
+    ["FAILED", "TIMED_OUT"].includes(t.status) ||
+    ["FAILED", "ERROR"].includes(t.verification_status)
+  )
+    return "FAILED";
+  if (t.status === "SUCCEEDED")
+    return t.verification_status === "PASSED" ? "VERIFIED" : "UNVERIFIED";
+  return t.status;
+}
+const eventLabels: Record<string, string> = {
+  "task.created": "Request recorded",
+  "task.queued": "Waiting for approval or capacity",
+  "task.reserved": "Device reserved",
+  "task.started": "Execution started",
+  "task.progress": "Execution update",
+  "task.verifying": "Verification stage",
+  "task.succeeded": "Execution and result handling completed",
+  "task.failed": "Failed",
+  "task.cancelled": "Cancelled",
+  "task.timed_out": "Timed out",
+  "task.retrying": "Retry pending",
+};
 type Artifact = { id: string; kind: string; source: string; sha256: string };
 const terminal = new Set(["SUCCEEDED", "FAILED", "CANCELLED", "TIMED_OUT"]);
 const joinAcks = [
@@ -170,8 +222,9 @@ export default function Dashboard() {
     [incoming, setIncoming] = useState<Task[]>([]),
     [audit, setAudit] = useState<Audit[]>([]),
     [selected, setSelected] = useState<Task | null>(null),
-    [events, setEvents] = useState<string[]>([]),
+    [events, setEvents] = useState<TimelineEvent[]>([]),
     [artifacts, setArtifacts] = useState<Artifact[]>([]);
+  const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [joinChecks, setJoinChecks] = useState<Record<string, boolean>>({}),
     [shareChecks, setShareChecks] = useState<Record<string, boolean>>({});
   const [enrollment, setEnrollment] = useState<{
@@ -203,15 +256,18 @@ export default function Dashboard() {
         (m) => m.user_id === me.user_id && m.status === "ACTIVE",
       )
     ) {
-      const [ns, log] = await Promise.all([
+      const [ns, log, ms] = await Promise.all([
         api<{ items: Node[] }>(`experimental-tasks/nodes?group_id=${gid}`),
         api<Audit[]>(`friends/groups/${gid}/audit`),
+        api<Metrics>(`experiments/groups/${gid}/metrics`),
       ]);
       setNodes(ns.items);
       setAudit(log);
+      setMetrics(ms);
     } else {
       setNodes([]);
       setAudit([]);
+      setMetrics(null);
     }
   }, [me, gid]);
   useEffect(() => {
@@ -248,6 +304,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (!selected) return;
     let closed = false;
+    let finished = false;
     setEvents([]);
     setArtifacts([]);
     const stream = new EventSource(`/api/tasks/${selected.id}/events`);
@@ -260,7 +317,6 @@ export default function Dashboard() {
           `tasks/${selected.id}/artifacts`,
         );
         if (!closed) setArtifacts(a.items);
-        if (terminal.has(t.status)) stream.close();
       } catch (e) {
         if (!closed) setError((e as Error).message);
       }
@@ -268,10 +324,21 @@ export default function Dashboard() {
     const listen = (raw: MessageEvent) => {
       const e = JSON.parse(raw.data);
       setEvents((old) =>
-        [...old, `${e.seq} · ${e.type} · ${JSON.stringify(e.payload)}`].slice(
-          -100,
-        ),
+        [...old.filter((x) => x.seq !== e.seq), e]
+          .sort((a, b) => a.seq - b.seq)
+          .slice(-100),
       );
+      if (
+        [
+          "task.succeeded",
+          "task.failed",
+          "task.cancelled",
+          "task.timed_out",
+        ].includes(e.type)
+      ) {
+        finished = true;
+        stream.close();
+      }
       void update();
     };
     for (const name of [
@@ -286,11 +353,11 @@ export default function Dashboard() {
       "task.timed_out",
       "task.cancelling",
       "task.queued",
-      "task.retry_pending",
+      "task.retrying",
     ])
       stream.addEventListener(name, listen as EventListener);
     stream.onerror = () => {
-      if (!closed)
+      if (!closed && !finished)
         setNotice(
           "Event stream reconnecting; task state is refreshed automatically.",
         );
@@ -324,6 +391,9 @@ export default function Dashboard() {
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
+  const taskHistory = Array.from(
+    new Map([...tasks, ...incoming].map((t) => [t.id, t])).values(),
+  );
   if (loading)
     return (
       <main className="login">
@@ -389,7 +459,7 @@ export default function Dashboard() {
           </div>
           SpareAgent
         </div>
-        <p className="eyebrow">FRIENDS BETA / 05</p>
+        <p className="eyebrow">FRIENDS BETA / 06</p>
         <nav>
           <a href="#overview">Overview</a>
           <a href="#devices">Your devices</a>
@@ -625,8 +695,8 @@ export default function Dashboard() {
                     24h
                   </span>
                   <span>
-                    {u?.observed_input_tokens || 0} input /{" "}
-                    {u?.observed_output_tokens || 0} output tokens observed
+                    {u?.last_observation_at ? u.observed_input_tokens : "Unknown"} input /{" "}
+                    {u?.last_observation_at ? u.observed_output_tokens : "Unknown"} output tokens observed
                   </span>
                   <span>Capacity: {u?.capacity_state || "UNKNOWN"}</span>
                   {u?.reset_hint && <span>{u.reset_hint}</span>}
@@ -663,7 +733,7 @@ export default function Dashboard() {
                         <input
                           name="daily"
                           type="number"
-                          min="0"
+                          min="1"
                           max="50"
                           defaultValue={d.preferences?.max_tasks_per_day ?? 3}
                           required
@@ -675,7 +745,7 @@ export default function Dashboard() {
                           name="duration"
                           type="number"
                           min="10"
-                          max="3600"
+                          max="60"
                           defaultValue={
                             d.preferences?.max_task_duration_seconds ?? 60
                           }
@@ -749,8 +819,50 @@ export default function Dashboard() {
           <details>
             <summary>Connect your own Mac</summary>
             <p>
-              Install and sign in to the official Codex CLI locally. Run the
-              owner validation from the runbook before attesting success.
+              Friends install only the official Codex CLI and the standalone
+              Worker. The operator runs the coordinator. You do not need Docker,
+              PostgreSQL, Redis or backend credentials.
+            </p>
+            <ol className="setup-steps">
+              <li>
+                Get the reviewed macOS setup script, Worker wheel and SHA-256
+                from your operator.
+                <code>
+                  bash setup-worker-macos.sh
+                  ./spareagent_worker-0.6.0-py3-none-any.whl SHA256
+                </code>
+              </li>
+              <li>
+                Run <code>codex login</code> locally with your own ChatGPT Plus
+                account.
+              </li>
+              <li>
+                Create your enrollment token below and register this Mac. This
+                is a SpareAgent token; never paste ChatGPT credentials.
+              </li>
+              <li>
+                Connect the returned worker ID, set CODE_REVIEW / 60 seconds /
+                one task, and accept sharing terms.
+              </li>
+              <li>
+                Run <code>spareagent-worker pilot-check</code>. It uses no
+                inference and lists blocked conditions separately from
+                owner/operator attestations.
+              </li>
+            </ol>
+            <p className="notice">
+              LIVE starts off. Real validation consumes subscription usage only
+              when you manually opt in. Confirm no extra purchased or granted
+              Credits and no auto-reload before every real task.
+            </p>
+            <p>
+              <a
+                href="https://github.com/constana-an/spareagent/blob/main/docs/WEEK6_PILOT_RUNBOOK.md"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Controlled two-device runbook ↗
+              </a>
             </p>
             <button
               className="quiet"
@@ -972,7 +1084,7 @@ export default function Dashboard() {
                     name="timeout"
                     type="number"
                     min="10"
-                    max="3600"
+                    max="60"
                     defaultValue="60"
                     required
                   />
@@ -1008,7 +1120,7 @@ export default function Dashboard() {
         </div>
         <section>
           <div className="section-head">
-            <h2>Your submitted tasks</h2>
+            <h2>Your task history</h2>
             <button
               className="quiet"
               disabled={busy}
@@ -1017,8 +1129,10 @@ export default function Dashboard() {
               Refresh
             </button>
           </div>
-          {!tasks.length && <p className="empty">No tasks submitted yet.</p>}
-          {tasks
+          {!taskHistory.length && (
+            <p className="empty">No participant tasks yet.</p>
+          )}
+          {taskHistory
             .filter((t) => t.group_id === gid)
             .map((t) => (
               <button
@@ -1028,13 +1142,10 @@ export default function Dashboard() {
               >
                 <code>{t.id.slice(0, 8)}</code>
                 <span>
-                  {t.task_type.replaceAll("_", " ")} · {t.execution_mode}
+                  {t.task_type.replaceAll("_", " ")} · {t.execution_mode} ·{" "}
+                  {t.owner_id === me.user_id ? "Your device" : "Your request"}
                 </span>
-                <span className="pill">
-                  {t.verification_status === "UNVERIFIED"
-                    ? "UNVERIFIED"
-                    : t.status}
-                </span>
+                <span className="pill">{resultLabel(t)}</span>
               </button>
             ))}
         </section>
@@ -1044,7 +1155,7 @@ export default function Dashboard() {
               <div>
                 <p className="eyebrow">TASK {selected.id.slice(0, 8)}</p>
                 <h2>
-                  {selected.status} / {selected.verification_status}
+                  {resultLabel(selected)} · {selected.execution_mode}
                 </h2>
               </div>
               <button className="quiet" onClick={() => setSelected(null)}>
@@ -1063,8 +1174,15 @@ export default function Dashboard() {
               </p>
             )}
             <p className="muted">
-              A passed verification establishes only the catalog’s trusted
-              tests. Review correctness still needs human assessment.
+              Execution: {selected.status}. Verification:{" "}
+              {selected.verification_status}.
+            </p>
+            <p className="muted">
+              VERIFIED means the catalog’s trusted checks passed; UNVERIFIED
+              means correctness needs human review. FAILED and CANCELLED results
+              do not publish successful worker artifacts. A passed verification
+              establishes only the catalog’s trusted tests. Review correctness
+              still needs human assessment.
             </p>
             {!terminal.has(selected.status) && (
               <button
@@ -1096,12 +1214,134 @@ export default function Dashboard() {
                 </button>
               ))}
             </div>
-            <details>
-              <summary>Live events · automatic reconnect</summary>
-              <pre>
-                {events.join("\n") || "Connecting to persisted event history…"}
-              </pre>
-            </details>
+            <h3>Task timeline</h3>
+            <ol className="timeline" aria-label="Task timeline">
+              {events.map((e) => (
+                <li key={e.seq}>
+                  <span className="muted">
+                    #{e.seq}{" "}
+                    {e.created_at
+                      ? new Date(e.created_at).toLocaleTimeString()
+                      : ""}
+                  </span>
+                  <strong>{eventLabels[e.type] || e.type}</strong>
+                  <span>
+                    {e.payload.status === "CANCELLING"
+                      ? "Cancellation requested; waiting for device cleanup"
+                      : e.payload.message}
+                  </span>
+                </li>
+              ))}
+            </ol>
+            {!events.length && (
+              <p className="muted">
+                Loading persisted history… Automatic reconnect preserves the
+                cursor.
+              </p>
+            )}
+            <button
+              className="quiet"
+              disabled={busy}
+              onClick={() =>
+                void act(
+                  async () => {
+                    const report = await api(
+                      `experimental-tasks/${selected.id}/pilot-report`,
+                    );
+                    const url = URL.createObjectURL(
+                      new Blob([JSON.stringify(report, null, 2)], {
+                        type: "application/json",
+                      }),
+                    );
+                    const link = document.createElement("a");
+                    link.href = url;
+                    link.download = `pilot-${selected.id}.json`;
+                    link.click();
+                    setTimeout(() => URL.revokeObjectURL(url), 1000);
+                  },
+                  "Protocol evidence exported; physical devices and billing still require manual confirmation",
+                  false,
+                )
+              }
+            >
+              Export redacted pilot evidence
+            </button>
+          </section>
+        )}
+        {metrics && (
+          <section aria-label="Pilot observations">
+            <p className="eyebrow">MEASURED EXPERIMENT</p>
+            <h2>Pilot observations</h2>
+            <p>
+              {metrics.participating_devices} participating owner devices ·{" "}
+              {metrics.online_devices} online ·{" "}
+              {metrics.available_owner_devices} idle and sharing. Availability
+              is a heartbeat snapshot, not a quota or assignment guarantee.
+            </p>
+            {(["LIVE", "SIMULATED"] as const).map((mode) => {
+              const m = metrics.modes[mode];
+              return (
+                <div key={mode}>
+                  <h3>
+                    {mode}{" "}
+                    {mode === "SIMULATED"
+                      ? "· test protocol only"
+                      : "· device-reported observations"}
+                  </h3>
+                  <dl className="pilot-metrics">
+                    <div>
+                      <dt>Submitted / completed / failed / cancelled</dt>
+                      <dd>
+                        {m.submitted} / {m.completed} / {m.failed} /{" "}
+                        {m.cancelled}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Completion rate · terminal tasks</dt>
+                      <dd>
+                        {m.success_rate === null
+                          ? "Not observed"
+                          : `${Math.round(m.success_rate * 100)}% of ${m.success_rate_denominator}`}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Total execution</dt>
+                      <dd>
+                        {m.total_execution_ms === null
+                          ? "Not observed"
+                          : `${(m.total_execution_ms / 1000).toFixed(1)} s`}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Input / output tokens observed</dt>
+                      <dd>
+                        {m.observed_input_tokens ?? "Unknown"} /{" "}
+                        {m.observed_output_tokens ?? "Unknown"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Average completed latency</dt>
+                      <dd>
+                        {m.average_completed_latency_ms === null
+                          ? "Not observed"
+                          : `${(m.average_completed_latency_ms / 1000).toFixed(1)} s`}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Usage-limit errors</dt>
+                      <dd>{m.usage_limit_errors}</dd>
+                    </div>
+                  </dl>
+                </div>
+              );
+            })}
+            <p className="muted">
+              Completion measures execution and handling, not semantic
+              correctness. No exact remaining subscription quota or financial
+              savings are inferred. Protocol counters cannot prove a real
+              two-device experiment. Confirm devices and funding in the
+              controlled runbook.
+            </p>
           </section>
         )}
         <section id="history">
