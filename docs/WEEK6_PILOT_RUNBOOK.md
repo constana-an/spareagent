@@ -149,7 +149,11 @@ exclusion. The Credits check is an owner statement, not a supported balance quer
    ```
 
 7. Alice reads the entire prompt, public repo URL, SHA, requester and timeout in the inbox,
-   then explicitly approves that task. Optionally run `pilot-check --task-id UUID`.
+   then explicitly approves that task. Approval and worker acceptance must both happen
+   within **10 minutes of submission**. Execution has its own **60-second limit starting
+   at worker acceptance**; approval does not reset the waiting deadline. Expired tasks
+   stay expired: inspect the cause and manually submit a new task only if both people
+   choose to continue. Never automatically retry or approve a replacement. Optionally run `pilot-check --task-id UUID`.
    Stop if anything differs. Watch task timeline and worker lifecycle.
 8. Bob reads the platform verification report. A review should be **UNVERIFIED**, even
    if execution is SUCCEEDED. Human review remains necessary. VERIFIED is reserved for

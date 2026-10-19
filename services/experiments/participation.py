@@ -927,6 +927,11 @@ class ExperimentalParticipationService:
                 raise conflict("ALREADY_DECIDED", f"Task was already {consent.status}")
             if is_terminal(TaskStatus(task.status)):
                 raise conflict("TASK_FINISHED", f"Task is already {task.status}")
+            if approve and lease_service.task_deadline_passed(task, utcnow()):
+                raise conflict(
+                    "APPROVAL_WINDOW_EXPIRED",
+                    "The 10-minute approval and acceptance window expired",
+                )
             consent.status = "APPROVED" if approve else "REJECTED"
             consent.consent_source = "OWNER_APPROVAL"
             consent.decided_at = utcnow()

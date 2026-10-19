@@ -945,6 +945,10 @@ export default function Dashboard() {
           <section id="requests">
             <p className="eyebrow">YOUR PERMISSION FIRST</p>
             <h2>Incoming requests</h2>
+            <p className="muted">
+              Approval and node acceptance must happen within 10 minutes of submission.
+              The execution time limit starts when the worker accepts the task.
+            </p>
             {!incoming.filter((t) => t.group_id === gid).length && (
               <p className="empty">
                 Your circle is quiet. New requests appear here.

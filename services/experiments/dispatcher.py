@@ -247,8 +247,10 @@ class ExperimentalDispatcher:
                 task,
                 TaskStatus.TIMED_OUT,
                 payload={
-                    "reason": "MAX_DURATION_EXCEEDED",
-                    "result_summary": "Timed out before an opted-in node accepted it",
+                    "reason": "APPROVAL_WAIT_EXCEEDED",
+                    "result_summary": (
+                        "Timed out waiting for owner approval or node acceptance (10 minutes)"
+                    ),
                 },
             )
             return None

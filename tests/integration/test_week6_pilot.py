@@ -219,10 +219,11 @@ async def test_live_duplicate_completion_is_atomic_across_api_restart(lclient, l
 
 async def test_late_live_success_after_deadline_is_timeout_not_artifacts(lclient, lctx):
     task, lease, _, node, _ = await reserved(lclient)
+    await execute(lctx, "UPDATE tasks SET max_duration_seconds=60")
     await lclient.post(
         f"/v1/leases/{lease['lease_id']}/accept", headers=bearer(node["access_token"])
     )
-    await execute(lctx, "UPDATE tasks SET created_at=now()-interval '2 hours'")
+    await execute(lctx, "UPDATE task_attempts SET started_at=now()-interval '61 seconds'")
     r = await lclient.post(
         f"/v1/leases/{lease['lease_id']}/complete",
         headers=bearer(node["access_token"]),
@@ -250,3 +251,46 @@ async def test_new_authorization_cannot_silently_replace_running_task_authority(
     )
     assert r.json()["cancel_requested"] is True
     assert await fetch_val(lctx, "SELECT count(*) FROM artifacts") == 0
+
+
+async def test_live_wait_over_60_seconds_preserves_full_execution_window(lclient, lctx):
+    gid, conn, node, _ = await live.live_world(lclient)
+    task = await live.submit_live(lclient, gid, conn, max_duration_seconds=60)
+    await execute(lctx, "UPDATE tasks SET created_at=now()-interval '9 minutes'")
+    # Waiting does not consume execution time, and polling cannot bypass approval.
+    assert (await live.poll(lclient, node)).status_code == 204
+    assert (await live.get_task(lclient, task["id"]))["status"] == "QUEUED"
+    assert await fetch_val(lctx, "SELECT count(*) FROM task_attempts") == 0
+    await live.approve(lclient, task["id"])
+    _, done = await live.run_on_device(lclient, node)
+    assert done["task_status"] == "VERIFYING"
+    await from_settings(lctx).run_once()
+    assert (await live.get_task(lclient, task["id"]))["status"] == "SUCCEEDED"
+
+
+async def test_live_wait_expiry_cannot_be_approved_or_dispatched(lclient, lctx):
+    gid, conn, node, _ = await live.live_world(lclient)
+    task = await live.submit_live(lclient, gid, conn, max_duration_seconds=60)
+    await execute(lctx, "UPDATE tasks SET created_at=now()-interval '10 minutes'")
+    # Reject late approval even before a dispatcher has observed the deadline.
+    r = await lclient.post(
+        f"/v1/experimental-tasks/{task['id']}/approve", headers=headers(live.ALICE)
+    )
+    assert r.status_code == 409 and "APPROVAL_WINDOW_EXPIRED" in r.text
+    assert (await live.poll(lclient, node)).status_code == 204
+    assert (await live.get_task(lclient, task["id"]))["status"] == "TIMED_OUT"
+    assert await fetch_val(lctx, "SELECT count(*) FROM task_attempts") == 0
+    assert await fetch_val(lctx, "SELECT status FROM experimental_task_consents") == "PENDING"
+
+
+async def test_approval_does_not_reset_acceptance_deadline(lclient, lctx):
+    _, lease, _, node, _ = await reserved(lclient)
+    await execute(lctx, "UPDATE tasks SET created_at=now()-interval '10 minutes'")
+    r = await lclient.post(
+        f"/v1/leases/{lease['lease_id']}/accept", headers=bearer(node["access_token"])
+    )
+    assert r.status_code == 409 and "Task deadline has passed" in r.text
+    assert (
+        await fetch_val(lctx, "SELECT count(*) FROM task_attempts WHERE started_at IS NOT NULL")
+        == 0
+    )
