@@ -18,7 +18,7 @@ private HTTPS reachable from both devices, trusted certificate/CA, invite-only b
 sessions, production dev-auth disabled, strong node-token pepper, backups and private
 artifact storage. Use the Week 5 coordinator setup/runbook; do not install it on friends'
 Macs. Run `scripts/friends_setup.py` to provision a **new two-member group** with
-CODE_REVIEW only, concurrency 1, 3 tasks/rolling day, timeout 60. Its operator account
+CODE_REVIEW only, concurrency 1, 3 tasks/rolling day, timeout 600. Its operator account
 is administrative and is not a participant. Deliver each expiring login privately.
 
 ### Operator builds the small install bundle
@@ -83,7 +83,7 @@ venv and pip-install the same reviewed wheel; pilot isolation must pass on that 
    pilot readiness. The local node key stays in owner-only `node.json`; no backend
    credentials are needed. Do not copy node.json to another device.
 4. Connect the worker ID in the dashboard; choose the two-person group, CODE_REVIEW,
-   60 seconds, concurrency 1, daily limit 3 and per-task owner approval. Explicitly
+   600 seconds, concurrency 1, daily limit 3 and per-task owner approval. Explicitly
    accept all seven sharing statements. Enable sharing only by Alice's choice.
 5. Run `spareagent-worker pilot-check` again. It does not poll, accept a task or attest
    success. `--task-id UUID` additionally checks the specific task on this device's
@@ -138,7 +138,7 @@ exclusion. The Credits check is an owner statement, not a supported balance quer
    Restart affected coordinator processes consistently. Run pilot-check again on Alice's
    Mac and review all remaining manual conditions. This document is not automatic
    authorization to run a real task during implementation or CI.
-6. Bob selects Alice and explicitly chooses LIVE. Submit **one** CODE_REVIEW, 60 seconds,
+6. Bob selects Alice and explicitly chooses LIVE. Submit **one** CODE_REVIEW, 600 seconds,
    no retries/account switching. Use:
 
    ```text
@@ -150,7 +150,7 @@ exclusion. The Credits check is an owner statement, not a supported balance quer
 
 7. Alice reads the entire prompt, public repo URL, SHA, requester and timeout in the inbox,
    then explicitly approves that task. Approval and worker acceptance must both happen
-   within **10 minutes of submission**. Execution has its own **60-second limit starting
+   within **10 minutes of submission**. Execution has its own **600-second limit starting
    at worker acceptance**; approval does not reset the waiting deadline. Expired tasks
    stay expired: inspect the cause and manually submit a new task only if both people
    choose to continue. Never automatically retry or approve a replacement. Optionally run `pilot-check --task-id UUID`.
@@ -203,3 +203,15 @@ Re-run pilot-check after any Worker, Codex or OS upgrade. To remove: revoke shar
 access in the dashboard, stop the worker, delete the dedicated Worker venv and local
 Worker state deliberately. Leave Codex login management to its owner and official CLI;
 never have the coordinator delete or copy upstream credentials.
+
+
+## Timeout follow-up (2026-10-19)
+
+The first four failed LIVE requests all expired in QUEUED before worker acceptance;
+there were no execution attempts or subscription calls. Their old 60-second waiting
+window caused those failures. Waiting is now 10 minutes from submission. By the owner's
+separate explicit request, the pilot also allows up to 600 seconds of actual execution
+from worker acceptance. Configure both group and owner limits to 600 and submit a new
+task with `max_duration_seconds: 600`; old timed-out tasks are never resurrected.
+Per-task approval, concurrency 1, daily task limits and no automatic retry remain.
+The separate optional owner-only `codex-check --timeout 60` is unchanged.

@@ -32,7 +32,7 @@ funding confirmation. Those components were reused. Actual first-pilot gaps were
 2. No consolidated no-inference readiness report existed. `pilot-check` now checks local
    CLI/help/login, actual harmless OS isolation, private local identity/concurrency/pause,
    secure API and node-scoped policy readiness. The server reuses the existing policy,
-   checks exactly two participants/current terms/60 seconds/CODE_REVIEW/single concurrency,
+   checks exactly two participants/current terms/up to 600 seconds/CODE_REVIEW/single concurrency,
    and separates owner-reported subscription fields and manual physical-device/funding
    attestations. `--task-id` checks the selected connection's individual approval.
 3. Authority could expire during execution or independent verification. New progress,
@@ -100,7 +100,7 @@ Follow [the Week 6 runbook](WEEK6_PILOT_RUNBOOK.md). Operator must supply review
 bytes/checksum, private HTTPS coordinator/CA, valid invitations and actually reviewed
 project-specific authorization. Alice must install/login on her own Mac, establish her
 own check/consent/zero-extra-Credits/no-reload conditions and approve each task. Confirm
-Bob's second physical device. Only then manually enable LIVE for the single 60-second
+Bob's second physical device. Only then manually enable LIVE for the single up-to-600-second
 public pinned CODE_REVIEW, verify results and manually confirm funding afterward, then
 switch LIVE off again. Keep the two-person pilot record **NOT_RUN** until this happens.
 

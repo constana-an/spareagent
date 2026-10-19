@@ -27,7 +27,7 @@
 ## 本次范围与用量上限
 
 - 第一部分为无模型检查；未通过时不得进入真实任务。
-- 第二部分仅规划 **1 笔跨用户 CODE_REVIEW，执行上限 60 秒，并发 1，无自动重试**。
+- 第二部分仅规划 **1 笔跨用户 CODE_REVIEW，执行上限 600 秒，并发 1，无自动重试**。
 - 若 2 号缺少适用于本人、当前设备及配置的成功 owner check，需先单独明确选择一次
   `codex-check`，并人工核对其用量。这是额外一次可能消耗额度的检查，不包含在默认任务内。
 - 不复用别人的检查结果，不把 `--skip-inference`、fake CLI 或模拟任务当作真实验证。
@@ -59,7 +59,7 @@
    Python 3.12+、Git 为运行前提；2 号、3 号均不安装后端、数据库或 Docker。
 2. 1 号创建正式的两人组，分别给 2 号、3 号发送各自的一次性邀请；过期后重新签发，
    不发管理员登录码。两人分别登录并自行阅读、接受条款，不代勾选。
-3. 组限制为两位参与者、CODE_REVIEW、并发 1、每日 3 笔、任务 60 秒；本次任务预算仍仅 1 笔。
+3. 组限制为两位参与者、CODE_REVIEW、并发 1、每日 3 笔、任务 600 秒；本次任务预算仍仅 1 笔。
 4. 1 号本人审阅项目已有的供应方对应资料，确认技术路线、非商业范围、参与者上限及有效期，
    然后按原运行手册记录和核验授权。仅有 ticket 编号不表示核验通过，不能自动延长授权。
 5. 2 号通过自己的 Dashboard 生成一次性节点登记 token，在自己的 Mac 登记 Worker；
@@ -96,7 +96,7 @@
    task_type: CODE_REVIEW
    repository_url: https://github.com/octocat/Hello-World
    commit_sha: 7fd1a60b01f91b314f59955a4e4d4e80d8edf11d
-   max_duration_seconds: 60
+   max_duration_seconds: 600
    prompt: Review the pinned public repository read-only. Summarize its contents and
            any concrete issues. Do not change files, read private paths, or use network tools.
    ```
@@ -104,7 +104,7 @@
 3. 先不批准，观察约 10 秒：任务应保持等待批准，不开始执行；若已经运行，立即停止并记录缺陷。
 4. 2 号核对请求人、设备、完整提示词、仓库、SHA 及超时均与计划一致，再本人批准这一笔任务。
    提交后 **10 分钟内须完成批准并由 Worker 接单**；批准不会重置等待期限。
-   实际执行仍为 **接单起最多 60 秒**。已超时任务不恢复，不自动重试或批准新任务。
+   实际执行仍为 **接单起最多 600 秒**。已超时任务不恢复，不自动重试或批准新任务。
    需要时使用 `pilot-check --task-id TASK_ID` 核对，报告不代替人工批准。
 5. 两人观察任务时间线和 2 号本机 Worker，记录 task/attempt ID、批准、开始和结束时间。
    出错、限流或认证失败不自动重试，也不换账号继续跑。

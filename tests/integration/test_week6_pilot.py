@@ -18,14 +18,16 @@ lclient = live.lclient
 pytestmark = pytest.mark.db
 
 
-async def test_readiness_scoped_read_only_and_reports_live_off(lclient, lctx):
+@pytest.mark.parametrize("duration", [60, 600])
+async def test_readiness_scoped_read_only_and_reports_live_off(lclient, lctx, duration):
     gid, conn, node, _ = await live.live_world(
-        lclient, max_task_duration_seconds=60, allowed_task_types=["CODE_REVIEW"]
+        lclient, max_task_duration_seconds=duration, allowed_task_types=["CODE_REVIEW"]
     )
     await execute(
         lctx,
-        "UPDATE experimental_groups SET max_members=2,max_task_duration_seconds=60,"
+        "UPDATE experimental_groups SET max_members=2,max_task_duration_seconds=:duration,"
         "allowed_task_types='[\"CODE_REVIEW\"]'::jsonb",
+        duration=duration,
     )
     await lclient.post(
         f"/v1/workers/{node['worker_id']}/heartbeat", headers=bearer(node["access_token"])
@@ -217,13 +219,18 @@ async def test_live_duplicate_completion_is_atomic_across_api_restart(lclient, l
     assert await fetch_val(lctx, "SELECT count(*) FROM artifacts") == 1
 
 
-async def test_late_live_success_after_deadline_is_timeout_not_artifacts(lclient, lctx):
+@pytest.mark.parametrize("duration", [60, 600])
+async def test_late_live_success_after_deadline_is_timeout_not_artifacts(lclient, lctx, duration):
     task, lease, _, node, _ = await reserved(lclient)
-    await execute(lctx, "UPDATE tasks SET max_duration_seconds=60")
+    await execute(lctx, "UPDATE tasks SET max_duration_seconds=:duration", duration=duration)
     await lclient.post(
         f"/v1/leases/{lease['lease_id']}/accept", headers=bearer(node["access_token"])
     )
-    await execute(lctx, "UPDATE task_attempts SET started_at=now()-interval '61 seconds'")
+    await execute(
+        lctx,
+        "UPDATE task_attempts SET started_at=now()-make_interval(secs => :seconds)",
+        seconds=duration + 1,
+    )
     r = await lclient.post(
         f"/v1/leases/{lease['lease_id']}/complete",
         headers=bearer(node["access_token"]),
@@ -294,3 +301,82 @@ async def test_approval_does_not_reset_acceptance_deadline(lclient, lctx):
         await fetch_val(lctx, "SELECT count(*) FROM task_attempts WHERE started_at IS NOT NULL")
         == 0
     )
+
+
+async def test_ten_minute_live_execution_preserves_wait_and_publication_limits(lclient, lctx):
+    gid, conn, node, _ = await live.live_world(
+        lclient, max_task_duration_seconds=600, allowed_task_types=["CODE_REVIEW"]
+    )
+    await execute(
+        lctx,
+        "UPDATE experimental_groups SET max_members=2,max_task_duration_seconds=600,"
+        "allowed_task_types='[\"CODE_REVIEW\"]'::jsonb",
+    )
+    task = await live.submit_live(lclient, gid, conn, max_duration_seconds=600)
+    await live.approve(lclient, task["id"])
+    await lclient.post(
+        f"/v1/workers/{node['worker_id']}/heartbeat", headers=bearer(node["access_token"])
+    )
+    checks = (
+        await lclient.get(
+            "/v1/workers/me/pilot-readiness",
+            params={"task_id": task["id"]},
+            headers=bearer(node["access_token"]),
+        )
+    ).json()["checks"]
+    assert not [x for x in checks if x["status"] != "PASS"]
+    lease = (await live.poll(lclient, node)).json()
+    assert lease["task"]["max_duration_seconds"] == 600
+    assert (
+        await lclient.post(
+            f"/v1/leases/{lease['lease_id']}/accept", headers=bearer(node["access_token"])
+        )
+    ).status_code == 204
+    # Model runtime may exceed one minute, even after the submission window has ended.
+    await execute(lctx, "UPDATE tasks SET created_at=now()-interval '15 minutes'")
+    await execute(lctx, "UPDATE task_attempts SET started_at=now()-interval '5 minutes'")
+    r = await lclient.post(
+        f"/v1/leases/{lease['lease_id']}/complete",
+        headers=bearer(node["access_token"]),
+        json={
+            "finalization_key": f"fin-{lease['attempt_id']}",
+            "succeeded": True,
+            "artifacts": [
+                {
+                    "kind": "SUMMARY",
+                    "name": "summary.txt",
+                    "media_type": "text/plain",
+                    "content_base64": "TG9va3MgZ29vZC4=",
+                }
+            ],
+        },
+    )
+    assert r.json()["task_status"] == "VERIFYING"
+    await from_settings(lctx).run_once()
+    assert (await live.get_task(lclient, task["id"]))["status"] == "SUCCEEDED"
+    assert (
+        await fetch_val(
+            lctx,
+            "SELECT count(*) FROM subscription_usage_observations WHERE event='TASK_COMPLETED'",
+        )
+        == 1
+    )
+
+
+async def test_pilot_readiness_rejects_execution_limit_above_ten_minutes(lclient, lctx):
+    _, _, node, _ = await live.live_world(
+        lclient, max_task_duration_seconds=601, allowed_task_types=["CODE_REVIEW"]
+    )
+    await execute(
+        lctx,
+        "UPDATE experimental_groups SET max_members=2,max_task_duration_seconds=601,"
+        "allowed_task_types='[\"CODE_REVIEW\"]'::jsonb",
+    )
+    checks = (
+        await lclient.get(
+            "/v1/workers/me/pilot-readiness",
+            headers=bearer(node["access_token"]),
+        )
+    ).json()["checks"]
+    blocked = {c["id"] for c in checks if c["status"] == "BLOCKED"}
+    assert {"pilot_limits", "group_pilot_limits"} <= blocked
