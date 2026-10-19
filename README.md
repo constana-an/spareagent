@@ -54,7 +54,8 @@ Worker or enable LIVE. All subscription-consuming checks remain manually opted i
 no API keys, purchased/granted Credits or paid fallback. The **real Alice/Bob experiment
 is NOT_RUN** until it is actually run on two devices and funding is manually confirmed.
 
-Read the [controlled runbook](docs/WEEK6_PILOT_RUNBOOK.md),
+Read the [first two-person test plan](docs/TWO_PERSON_TEST_PLAN.md),
+[controlled runbook](docs/WEEK6_PILOT_RUNBOOK.md),
 [readiness and status](docs/WEEK6_STATUS.md), [security review](docs/WEEK6_SECURITY_REVIEW.md),
 [metrics definitions](docs/WEEK6_METRICS.md) and
 [unexecuted real pilot record](reports/week6_two_device_pilot.json).
