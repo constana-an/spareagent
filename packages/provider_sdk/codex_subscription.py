@@ -34,6 +34,7 @@ import tempfile
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from packages.common.deliverables import DOCUMENT_KINDS
 from packages.common.observability import redact
@@ -133,6 +134,7 @@ class CodexSubscriptionAdapter:
         workspace_factory: WorkspaceFactory | None = None,
         keep_workspace: bool = False,
         shared: SharedWorkConsent | None = None,
+        tools: Callable[[str], Any] | None = None,
     ) -> None:
         if not owner_ref:
             raise ValueError("owner_ref is required")
@@ -140,6 +142,8 @@ class CodexSubscriptionAdapter:
             raise ValueError("shared work requires the no-purchased-credits attestation")
         self.owner_ref = owner_ref
         self.shared = shared
+        # tool name -> packages.worker.tools.ToolAccess (or None when not installed)
+        self.tools = tools
         self.runtime = runtime or CodexRuntime()
         self._workspace = workspace_factory or _temp_workspace
         self._keep_workspace = keep_workspace or workspace_factory is not None
@@ -298,12 +302,15 @@ class CodexSubscriptionAdapter:
     ) -> AsyncIterator[ProgressEvent | ExecutionResult]:
         """Translation / analysis in a fresh workspace (packages/worker/recipes.py)."""
         ws = recipes.Workspace.create()
+        access = None
         try:
             try:
                 if request.task_type == "TRANSLATE_DOCUMENT":
                     prompt, expected = recipes.prepare_translation(request, ws)
                 else:
-                    prompt, expected = recipes.prepare_analysis(request, ws), 0
+                    access = self.tools("python-data") if self.tools else None
+                    prompt = recipes.prepare_analysis(request, ws, data_tools=access is not None)
+                    expected = 0
             except recipes.RecipeError as exc:
                 raise PermanentProviderError(f"{exc.code}: {exc}") from exc
             yield ProgressEvent(f"Prepared {len(request.inputs)} attachment(s)", 10)
@@ -315,6 +322,8 @@ class CodexSubscriptionAdapter:
                 ws.root,
                 timeout_seconds=request.max_duration_seconds,
                 sandbox="workspace-write",
+                read_roots=access.read_roots if access else (),
+                path_dirs=access.path_dirs if access else (),
             ):
                 if isinstance(item, CodexRunResult):
                     run = item

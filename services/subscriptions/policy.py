@@ -35,6 +35,9 @@ AUTHORIZED_ROUTE = "CODEX_CLI_EXEC"
 CODEX_EXECUTOR = "codex-subscription"
 
 
+LEGACY_NODE_TOOLS = frozenset({"code", "git"})  # mirrors services.tasks.kinds
+
+
 class Mode(StrEnum):
     SIMULATED = "SIMULATED"
     LIVE = "LIVE"
@@ -74,6 +77,8 @@ class Reason(StrEnum):
     RATE_LIMITED = "RATE_LIMITED"
     TASK_KIND_DISABLED = "TASK_KIND_DISABLED"
     TASK_KIND_NOT_OPEN = "TASK_KIND_NOT_OPEN"
+    NODE_LACKS_CAPABILITY = "NODE_LACKS_CAPABILITY"
+    TOOL_NOT_ALLOWED = "TOOL_NOT_ALLOWED"
 
 
 # Reasons that can clear without anyone changing the task (wait, keep QUEUED). Everything
@@ -89,6 +94,8 @@ TRANSIENT_REASONS = frozenset(
         Reason.GROUP_SHARING_DISABLED,
         Reason.SUBSCRIPTION_AUTH_INVALID,
         Reason.NODE_NOT_CODEX_CAPABLE,  # the owner's device may restart with the executor
+        Reason.NODE_LACKS_CAPABILITY,  # e.g. the owner installs the data tools
+        Reason.TOOL_NOT_ALLOWED,  # the owner may allow the tool again
     }
 )
 
@@ -153,6 +160,11 @@ class DispatchSnapshot:
     node_executor: str | None = None
     # 0011: the task kind's opening status (only OPEN kinds run LIVE)
     kind_status: str = "OPEN"
+    # 0013: tools the kind needs, tools the device declared (None: a pre-0013 node that
+    # declares none and is treated as code-capable) and tools the owner allows.
+    required_tools: frozenset[str] = frozenset()
+    node_tools: frozenset[str] | None = None
+    owner_allowed_tools: frozenset[str] = frozenset({"code", "doc", "git", "python-data"})
 
 
 @dataclass(frozen=True)
@@ -252,6 +264,12 @@ class ExperimentalSharingPolicy:
             r.append(Reason.TASK_KIND_DISABLED)
         elif mode == Mode.LIVE and s.kind_status != "OPEN":
             r.append(Reason.TASK_KIND_NOT_OPEN)
+        if mode == Mode.LIVE:
+            available = s.node_tools if s.node_tools is not None else LEGACY_NODE_TOOLS
+            if s.required_tools - available:
+                r.append(Reason.NODE_LACKS_CAPABILITY)
+            if s.required_tools - s.owner_allowed_tools:
+                r.append(Reason.TOOL_NOT_ALLOWED)
         allowed_types = s.group_allowed_task_types & s.owner_allowed_task_types
         # The authorization's task types bound subscription use, i.e. LIVE runs; a
         # SIMULATED run consumes no subscription and is bounded by group/owner settings.

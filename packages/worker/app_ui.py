@@ -52,6 +52,9 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:13px}
 .steps li{margin:3px 0;color:var(--muted)}.steps li.now{color:var(--ink);font-weight:600}
 .steps li.done{color:var(--accent)}
 .hidden{display:none}
+h3.sub{font-size:14px;margin:16px 0 6px}
+.checks label{display:flex;align-items:center;gap:6px;font-size:14px;color:var(--ink);margin:4px 0;flex-wrap:wrap}
+.checks small{margin-left:4px}.checks button.s{padding:3px 10px;font-size:13px}
 </style>
 </head>
 <body>
@@ -98,7 +101,12 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:13px}
     <label><span data-t="max_members"></span><input id="max_members" type="number" min="2"></label>
     <label><span data-t="max_tasks"></span><input id="max_tasks" type="number" min="1" max="50"></label>
     <label><span data-t="max_minutes"></span><input id="max_minutes" type="number" min="1" max="60"></label>
+    <label><span data-t="concurrency"></span><input id="concurrency" type="number" min="1" max="3"></label>
   </div>
+  <h3 class="sub" data-t="kinds_title"></h3>
+  <div id="kinds" class="checks"></div>
+  <h3 class="sub" data-t="tools_title"></h3>
+  <div id="tools" class="checks"></div>
   <label style="margin-top:10px"><input id="auto" type="checkbox"><span data-t="auto_approve"></span></label>
   <div class="row" style="margin-top:10px;align-items:center">
     <button class="s p" id="save" type="button" data-t="save"></button>
@@ -140,7 +148,7 @@ zh: {
  consent_intro:"点击「上线」即表示你本人确认以下全部内容（随时可以点一下下线）：",
  ack_1:"这是私人、非商业的实验，没有任何付费、转售或报酬。",
  ack_2:"我的 ChatGPT 账号只在这台电脑的官方 Codex CLI 里登录，密码和登录凭据不会交给 SpareAgent 或任何人。",
- ack_3:"小组成员提交的任务会在设置的上限内自动批准，并使用我自己的订阅额度在这台电脑上运行（代码审查，只读沙箱）。",
+ ack_3:"小组成员提交的任务会在设置的上限内自动批准，并使用我自己的订阅额度在这台电脑上运行（只限我允许的任务种类和工具，在隔离的临时目录中、不联网）。",
  ack_4:"我的账号没有额外购买或赠送的 Credits，并已关闭自动充值；分享只消耗订阅自带额度。",
  ack_5:"上线时会用我的额度运行一次很短的自检提示。",
  ack_6:"我可以随时调整人数和任务上限、移除成员、关闭自动批准或下线。",
@@ -175,6 +183,13 @@ zh: {
  tt_WRITING:"写作与润色", tt_SUMMARIZE:"总结", tt_DOCUMENT_QA:"文档问答",
  m_LIVE:"真实执行", m_SIMULATED:"模拟",
  save_failed:"未保存：", saving:"正在保存…",
+ concurrency:"同时运行的任务数（1–3）", r_concurrency:"同时运行的任务数需在 1–3 之间。", r_kinds:"至少选择一种任务。",
+ kinds_title:"允许的任务种类", tools_title:"本机工具（任务只能使用你允许且已安装的工具）",
+ ks_OPEN:"已开放", ks_LIVE_ACCEPTED:"验收通过，待开放", ks_SIMULATED_OK:"模拟通过", ks_DEVELOPING:"开发中，仅模拟", ks_DISABLED:"已停用",
+ needs:"需要：", missing_tool:"（本机缺少）",
+ tool_git:"Git（代码任务）", tool_doc:"文档处理（内置）", tool_code:"Codex 执行（内置）", "tool_python-data":"数据处理（pandas、matplotlib、openpyxl）",
+ installed:"已安装", not_installed:"未安装", installing:"正在安装…", install_failed:"安装失败：",
+ install_btn:(n)=>`安装（约 ${n} MB）`, remove_btn:"删除", git_hint:"上线时会提示安装 Apple 命令行工具", allow:"允许",
  r_members:(a,b)=>`小组人数需在 ${a}–${b} 之间。`, r_tasks:"每 24 小时任务数需在 1–50 之间。",
  r_minutes:"单个任务时长需在 1–60 分钟之间。", r_integer:"请填写整数。",
  sc_code:(c)=>`（错误代码 ${c}）`,
@@ -206,7 +221,7 @@ en: {
  consent_intro:"By clicking “Go online” you personally confirm all of the following (one more click goes offline any time):",
  ack_1:"This is a private, non-commercial experiment with no payment, resale or compensation.",
  ack_2:"My ChatGPT account is signed in only in the official Codex CLI on this computer; my credentials are never given to SpareAgent or anyone.",
- ack_3:"Tasks from my group's members are approved automatically within my limits and run on this computer with my own plan usage (code review, read-only sandbox).",
+ ack_3:"Tasks from my group's members are approved automatically within my limits and run on this computer with my own plan usage (only the kinds and tools I allow, in an isolated temporary folder without network).",
  ack_4:"My account holds no additional purchased or granted Credits and auto-reload is off; sharing only uses included plan usage.",
  ack_5:"Going online runs one very short self-check prompt on my plan.",
  ack_6:"I can change member and task limits, remove members, switch off automatic approval or go offline at any time.",
@@ -241,6 +256,13 @@ en: {
  tt_WRITING:"Writing", tt_SUMMARIZE:"Summary", tt_DOCUMENT_QA:"Document Q&A",
  m_LIVE:"Live", m_SIMULATED:"Simulated",
  save_failed:"Not saved: ", saving:"Saving…",
+ concurrency:"Tasks at the same time (1–3)", r_concurrency:"Tasks at the same time must be 1–3.", r_kinds:"Choose at least one kind.",
+ kinds_title:"Allowed task kinds", tools_title:"Tools on this device (tasks use only tools you allow and have installed)",
+ ks_OPEN:"Open", ks_LIVE_ACCEPTED:"Accepted, not yet open", ks_SIMULATED_OK:"Simulation passed", ks_DEVELOPING:"In development, simulation only", ks_DISABLED:"Disabled",
+ needs:"Needs: ", missing_tool:" (missing here)",
+ tool_git:"Git (code tasks)", tool_doc:"Documents (built in)", tool_code:"Codex executor (built in)", "tool_python-data":"Data tools (pandas, matplotlib, openpyxl)",
+ installed:"Installed", not_installed:"Not installed", installing:"Installing…", install_failed:"Install failed: ",
+ install_btn:(n)=>`Install (~${n} MB)`, remove_btn:"Remove", git_hint:"Going online offers the Apple command line tools", allow:"Allow",
  r_members:(a,b)=>`Members must be between ${a} and ${b}.`, r_tasks:"Tasks per 24 hours must be between 1 and 50.",
  r_minutes:"Minutes per task must be between 1 and 60.", r_integer:"Enter whole numbers.",
  sc_code:(c)=>` (error code ${c})`
@@ -312,7 +334,9 @@ function render(){
       $("max_members").min=Math.max(2,srv.members.length);
       $("max_tasks").value=g.max_tasks_per_day; $("max_minutes").value=Math.round(g.max_task_duration_seconds/60);
       $("auto").checked=srv.sharing?srv.sharing.auto_approve_members:true;
-    }
+      $("concurrency").value=(srv.sharing&&srv.sharing.max_concurrent_tasks)||1;
+      renderKinds(srv); renderTools(srv);
+    } else { renderToolStates() }
     $("usage").textContent=(flash||t("usage",srv.tasks_started_last_24h,g.max_tasks_per_day))+t("cap",g.member_cap);
     const mb=$("member_rows"); mb.innerHTML="";
     srv.members.forEach(m=>{const tr=document.createElement("tr");
@@ -333,6 +357,49 @@ function render(){
   if(S.server_error)notes.push(t("e_server_unreachable")+S.server_error);
   if(!S.bundle_ok)notes.push(t("e_bundle_missing"));
   show($("notice"),notes.length>0); $("notice").textContent=notes.join(" ");
+}
+const TOOL_ORDER=["git","python-data","doc","code"];
+function hasTool(srv,x){return x==="code"||x==="doc"||(S.tools&&(x==="git"?S.tools.git:S.tools[x]&&S.tools[x].state==="READY"))}
+function renderKinds(srv){
+  const box=$("kinds"); box.innerHTML="";
+  const allowed=new Set((srv.sharing&&srv.sharing.allowed_task_types)||(srv.kinds||[]).map(k=>k.kind));
+  (srv.kinds||[]).filter(k=>k.offered&&k.status!=="DISABLED").forEach(k=>{
+    const l=document.createElement("label"); const c=document.createElement("input");
+    c.type="checkbox"; c.dataset.kind=k.kind; c.checked=allowed.has(k.kind);
+    c.addEventListener("change",()=>editing=true);
+    const name=document.createElement("span"); name.textContent=lang==="zh"?k.name_zh:k.name_en;
+    const st=document.createElement("small"); st.textContent=t("ks_"+k.status);
+    const need=k.required_tools.filter(x=>x!=="code"&&x!=="doc");
+    l.append(c,name,st);
+    if(need.length){const n=document.createElement("small");
+      n.textContent=t("needs")+need.map(x=>t("tool_"+x).split("（")[0].split(" (")[0]+(hasTool(srv,x)?"":t("missing_tool"))).join("、");l.append(n)}
+    box.append(l)});
+}
+function renderTools(srv){
+  const box=$("tools"); box.innerHTML="";
+  const allowed=new Set((srv.sharing&&srv.sharing.allowed_tools)||TOOL_ORDER);
+  TOOL_ORDER.forEach(tool=>{
+    const l=document.createElement("label"); const c=document.createElement("input");
+    c.type="checkbox"; c.dataset.tool=tool; c.checked=allowed.has(tool); c.title=t("allow");
+    c.addEventListener("change",()=>editing=true);
+    const name=document.createElement("span"); name.textContent=t("tool_"+tool);
+    const st=document.createElement("small"); st.id="tool_state_"+tool;
+    l.append(c,name,st);
+    if(tool==="python-data"){const b=document.createElement("button");b.className="s";b.type="button";b.id="tool_btn";l.append(b)}
+    box.append(l)});
+  renderToolStates();
+}
+function renderToolStates(){
+  if(!S||!S.tools)return;
+  const g=$("tool_state_git"); if(g)g.textContent=S.tools.git?t("installed"):t("not_installed")+" · "+t("git_hint");
+  const d=S.tools["python-data"], st=$("tool_state_python-data"), b=$("tool_btn");
+  if(!st||!b)return;
+  const label={READY:t("installed"),MISSING:t("not_installed"),INSTALLING:t("installing")+" "+(d.detail||""),
+    FAILED:t("install_failed")+(d.detail||""),UNAVAILABLE:t("not_installed")}[d.state]||d.state;
+  st.textContent=label;
+  b.classList.toggle("hidden",d.state==="UNAVAILABLE"||d.state==="INSTALLING");
+  b.textContent=d.state==="READY"?t("remove_btn"):t("install_btn",d.size_mb||40);
+  b.onclick=()=>act(d.state==="READY"?"remove-tool":"install-tool",{tool:"python-data"});
 }
 async function act(route, body){
   let ok=true;
@@ -356,12 +423,19 @@ function checkLimits(v){
   if(v.max_members<lo||v.max_members>hi)return t("r_members",lo,hi);
   if(v.max_tasks_per_day<1||v.max_tasks_per_day>50)return t("r_tasks");
   if(v.max_task_minutes<1||v.max_task_minutes>60)return t("r_minutes");
+  if(!Number.isInteger(v.max_concurrent_tasks)||v.max_concurrent_tasks<1||v.max_concurrent_tasks>3)return t("r_concurrency");
+  if(v.allowed_task_types&&!v.allowed_task_types.length)return t("r_kinds");
   return "";
 }
 function setFlash(text,ms){flash=text;render();if(ms)setTimeout(()=>{flash="";render()},ms)}
 $("save").onclick=async()=>{
   const v={max_members:Number($("max_members").value),max_tasks_per_day:Number($("max_tasks").value),
-    max_task_minutes:Number($("max_minutes").value),auto_approve_members:$("auto").checked};
+    max_task_minutes:Number($("max_minutes").value),auto_approve_members:$("auto").checked,
+    max_concurrent_tasks:Number($("concurrency").value)};
+  const kinds=[...document.querySelectorAll("#kinds input[data-kind]")];
+  if(kinds.length)v.allowed_task_types=kinds.filter(c=>c.checked).map(c=>c.dataset.kind);
+  const tools=[...document.querySelectorAll("#tools input[data-tool]")];
+  if(tools.length)v.allowed_tools=tools.filter(c=>c.checked).map(c=>c.dataset.tool);
   const bad=checkLimits(v);
   if(bad){setFlash(t("save_failed")+bad+" · ",6000);return}  // keep the user's edits on screen
   $("save").disabled=true;setFlash(t("saving")+" · ");
@@ -371,7 +445,7 @@ $("save").onclick=async()=>{
   else{setFlash(t("save_failed").replace(/[：:\s]+$/,"")+" · ",8000)}  // reason is in the error box
 };
 $("dashboard").onclick=async()=>{try{const r=await call("dashboard");window.open(r.url,"_blank","noopener")}catch(e){localErr={code:e.code,detail:e.message};render()}};
-["max_members","max_tasks","max_minutes","auto","device","plan"].forEach(id=>{$(id).addEventListener("focus",()=>editing=true);$(id).addEventListener("input",()=>editing=true)});
+["max_members","max_tasks","max_minutes","concurrency","auto","device","plan"].forEach(id=>{$(id).addEventListener("focus",()=>editing=true);$(id).addEventListener("input",()=>editing=true)});
 applyStatic(); poll(); setInterval(poll,1500);
 </script>
 </body>

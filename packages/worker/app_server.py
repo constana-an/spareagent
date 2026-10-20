@@ -72,6 +72,10 @@ class AppServer:
             await c.rotate_invite()
         elif route == "remove-member":
             await c.remove_member(str(body.get("user_id", "")))
+        elif route == "install-tool":
+            c.start_tool_install(str(body.get("tool", "")))
+        elif route == "remove-tool":
+            c.remove_tool(str(body.get("tool", "")))
         elif route == "dashboard":
             return {"url": await c.dashboard_link()}
         else:

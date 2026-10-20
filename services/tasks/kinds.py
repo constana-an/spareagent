@@ -34,6 +34,11 @@ UPLOAD_TYPES: dict[str, tuple[str, tuple[bytes, ...] | None]] = {
 }
 TEXT_EXTENSIONS = frozenset({"txt", "md", "csv", "json"})
 
+# Tools a device can declare (from its own probes) and an owner can allow (design §5).
+TOOLS = ("code", "doc", "git", "python-data")
+# Nodes registered before step C declare no tools; they have always run code kinds.
+LEGACY_NODE_TOOLS = frozenset({"code", "git"})
+
 LANGUAGE = re.compile(r"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$")
 
 

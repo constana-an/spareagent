@@ -49,10 +49,22 @@ from services.subscriptions.policy import (
     Mode,
 )
 from services.subscriptions.usage import SubscriptionUsageMonitor
+from services.tasks import kinds as kind_catalog
 from services.tasks import repository as repo
 from services.tasks.state_machine import TaskStatus, transition
 
 log = logging.getLogger(__name__)
+
+
+def declared_tools(capabilities: dict | None) -> frozenset[str] | None:
+    """Tools a node declared in its heartbeat: {"tools": {"git": true, ...}} or a list."""
+    tools = (capabilities or {}).get("tools")
+    if isinstance(tools, dict):
+        return frozenset(k for k, v in tools.items() if v is True and isinstance(k, str))
+    if isinstance(tools, list):
+        return frozenset(t for t in tools if isinstance(t, str))
+    return None
+
 
 SCAN_LIMIT = 20
 LIVE_PROFILE = "CODEX_LIVE"
@@ -173,6 +185,9 @@ class ExperimentalDispatcher:
             no_purchased_credits=conn.no_purchased_credits_at is not None,
             node_executor=(worker.capabilities or {}).get("executor"),
             kind_status=(await session.get(TaskKind, task.task_type)).status,
+            required_tools=frozenset(kind_catalog.get(task.task_type).capabilities),
+            node_tools=declared_tools(worker.capabilities),
+            owner_allowed_tools=frozenset(prefs.allowed_tools if prefs else ()),
         )
         return snap, conn, auth.id if auth else None
 

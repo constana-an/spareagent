@@ -27,5 +27,218 @@
         "integrity": "sha512-Ioj7h+B1ME9ZU1PH1ATfvFV5DiototEpFFaSSbg3kfDifB9djhl5fcJ++g5mpcL/+uVbcnReei+RiSXEx8o+kw=="
       }
     }
+  },
+  "tools": {
+    "python-data": {
+      "id": "pandas3.0.6-matplotlib3.11.2-openpyxl3.1.5",
+      "packages": [
+        "pandas",
+        "matplotlib",
+        "openpyxl"
+      ],
+      "smoke_test": "import pandas, matplotlib, openpyxl; matplotlib.use('Agg')",
+      "assets": {
+        "arm64": [
+          {
+            "name": "contourpy",
+            "version": "1.4.0",
+            "url": "https://files.pythonhosted.org/packages/dd/f5/c5bf67522d49a2222f3154fe46879451d26f0e35ece41770758a64ea78cb/contourpy-1.4.0-cp312-cp312-macosx_11_0_arm64.whl",
+            "sha256": "c76f3a5318164db7d9401132fc1b5364b784c613c93fa506e3b5e6d1bf353ec8",
+            "size": 284921
+          },
+          {
+            "name": "cycler",
+            "version": "0.12.1",
+            "url": "https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl",
+            "sha256": "85cef7cff222d8644161529808465972e51340599459b8ac3ccbac5a854e0d30",
+            "size": 8321
+          },
+          {
+            "name": "et_xmlfile",
+            "version": "2.0.0",
+            "url": "https://files.pythonhosted.org/packages/c1/8b/5fe2cc11fee489817272089c4203e679c63b570a5aaeb18d852ae3cbba6a/et_xmlfile-2.0.0-py3-none-any.whl",
+            "sha256": "7a91720bc756843502c3b7504c77b8fe44217c85c537d85037f0f536151b2caa",
+            "size": 18059
+          },
+          {
+            "name": "fonttools",
+            "version": "4.67.0",
+            "url": "https://files.pythonhosted.org/packages/5b/50/f674402869f11a89868c4755ae86cd2fcfd67ca6193c6f5d1b479b1267b9/fonttools-4.67.0-cp312-cp312-macosx_10_13_universal2.whl",
+            "sha256": "fcb9743140419410161acfe7ec205fb0a8a703acfccb85b586becb5a97c047c9",
+            "size": 3108316
+          },
+          {
+            "name": "kiwisolver",
+            "version": "1.5.1",
+            "url": "https://files.pythonhosted.org/packages/84/e5/bdb34e21523e01dceda064d63713f3bdec91388af24fba1eca7ea5e85864/kiwisolver-1.5.1-cp312-cp312-macosx_11_0_arm64.whl",
+            "sha256": "1798e83840c3f627246104c4d8a9639c60fa068adf9ce92b61791781fa8a68c1",
+            "size": 64660
+          },
+          {
+            "name": "matplotlib",
+            "version": "3.11.2",
+            "url": "https://files.pythonhosted.org/packages/a6/c4/7f5f3601ee69baf072c0c7d3ce60c03e0618621c5a56c34a62a460e29d11/matplotlib-3.11.2-cp312-cp312-macosx_11_0_arm64.whl",
+            "sha256": "ef31985c4dedb5f1424e1aec6849a47dd37689cb7fa3c20b1b82187f26806261",
+            "size": 9305583
+          },
+          {
+            "name": "numpy",
+            "version": "2.5.4",
+            "url": "https://files.pythonhosted.org/packages/ff/a9/bac826765e971d8e16e2064e9ac7525fd69b40ac17c905033a7f5442023f/numpy-2.5.4-cp312-cp312-macosx_11_0_arm64.whl",
+            "sha256": "b11e8fda06a7d69f15ebf542660b74466c2e51094800c1fb794f47ad4faeef17",
+            "size": 12015718
+          },
+          {
+            "name": "openpyxl",
+            "version": "3.1.5",
+            "url": "https://files.pythonhosted.org/packages/c0/da/977ded879c29cbd04de313843e76868e6e13408a94ed6b987245dc7c8506/openpyxl-3.1.5-py2.py3-none-any.whl",
+            "sha256": "5282c12b107bffeef825f4617dc029afaf41d0ea60823bbb665ef3079dc79de2",
+            "size": 250910
+          },
+          {
+            "name": "packaging",
+            "version": "26.3",
+            "url": "https://files.pythonhosted.org/packages/63/34/ba1c580383c9eada3711951fef0795c80b829a078d72188184bcab9dd527/packaging-26.3-py3-none-any.whl",
+            "sha256": "d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c",
+            "size": 129956
+          },
+          {
+            "name": "pandas",
+            "version": "3.0.6",
+            "url": "https://files.pythonhosted.org/packages/18/8f/48907c7c707b61a8e5018c32e1a3f70623209bfb59020a2f6196159d3aa7/pandas-3.0.6-cp312-cp312-macosx_11_0_arm64.whl",
+            "sha256": "9dab635a549e58a053c7b0fa054dc0bd7be22f0ed9a720f4a85d5fb993276172",
+            "size": 10051279
+          },
+          {
+            "name": "pillow",
+            "version": "13.0.0",
+            "url": "https://files.pythonhosted.org/packages/39/4b/f2ed53d83aa44ac19599ac0a54897f867fafb95f406980d1e24083f8cbe3/pillow-13.0.0-cp312-cp312-macosx_11_0_arm64.whl",
+            "sha256": "fc481f742ccda20e9ed760b8f978dff50f2a4e9bc253ac167fb0a05b0783ef52",
+            "size": 4852329
+          },
+          {
+            "name": "pyparsing",
+            "version": "3.3.3",
+            "url": "https://files.pythonhosted.org/packages/38/bb/d215ee7c73b61497b28a5503f9f53523f294fcc936762b7caf90e0c1c2b5/pyparsing-3.3.3-py3-none-any.whl",
+            "sha256": "ece8c00a69cf01b45d0b1dedabb469c90d8caf996d4fda40f147627a122849a4",
+            "size": 126420
+          },
+          {
+            "name": "python-dateutil",
+            "version": "2.9.0.post0",
+            "url": "https://files.pythonhosted.org/packages/ec/57/56b9bcc3c9c6a792fcbaf139543cee77261f3651ca9da0c93f5c1221264b/python_dateutil-2.9.0.post0-py2.py3-none-any.whl",
+            "sha256": "a8b2bc7bffae282281c8140a97d3aa9c14da0b136dfe83f850eea9a5f7470427",
+            "size": 229892
+          },
+          {
+            "name": "six",
+            "version": "1.17.0",
+            "url": "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl",
+            "sha256": "4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274",
+            "size": 11050
+          }
+        ],
+        "x86_64": [
+          {
+            "name": "contourpy",
+            "version": "1.4.0",
+            "url": "https://files.pythonhosted.org/packages/97/ba/01bde9753bdbba04a6da9d2bff3881f021bc708f654655e95fae26d3b3a3/contourpy-1.4.0-cp312-cp312-macosx_10_13_x86_64.whl",
+            "sha256": "186ba929df36d61b6127da2e89cd1357e4cb79aca647381ab1a6feb0b152877b",
+            "size": 297302
+          },
+          {
+            "name": "cycler",
+            "version": "0.12.1",
+            "url": "https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl",
+            "sha256": "85cef7cff222d8644161529808465972e51340599459b8ac3ccbac5a854e0d30",
+            "size": 8321
+          },
+          {
+            "name": "et_xmlfile",
+            "version": "2.0.0",
+            "url": "https://files.pythonhosted.org/packages/c1/8b/5fe2cc11fee489817272089c4203e679c63b570a5aaeb18d852ae3cbba6a/et_xmlfile-2.0.0-py3-none-any.whl",
+            "sha256": "7a91720bc756843502c3b7504c77b8fe44217c85c537d85037f0f536151b2caa",
+            "size": 18059
+          },
+          {
+            "name": "fonttools",
+            "version": "4.67.0",
+            "url": "https://files.pythonhosted.org/packages/e3/c8/5963603c5f9bbc28bde3a29dd7cdbe0bfcbee414b0f7eccec04ae477e1b6/fonttools-4.67.0-cp312-cp312-macosx_10_13_x86_64.whl",
+            "sha256": "ad813967410ba6d24a52850df59b164ee17883f17b96a91b4b0ac6e9d7b5a118",
+            "size": 2598450
+          },
+          {
+            "name": "kiwisolver",
+            "version": "1.5.1",
+            "url": "https://files.pythonhosted.org/packages/71/74/c21f339956f6f691b2ed7e31d5f3ae767304df6c460192739fc830853051/kiwisolver-1.5.1-cp312-cp312-macosx_10_13_x86_64.whl",
+            "sha256": "0ebdef3eae5336568147c39a55be6a2036ffde53faa9ca2d978989ae7c2da12c",
+            "size": 66487
+          },
+          {
+            "name": "matplotlib",
+            "version": "3.11.2",
+            "url": "https://files.pythonhosted.org/packages/cb/ce/1bfcc4873b121597791ad74032943b123218c0613af0b97e8dd05e916fb1/matplotlib-3.11.2-cp312-cp312-macosx_10_13_x86_64.whl",
+            "sha256": "ef752769cd962f39ea0b6ffc82d1ea43a0012c5a6157c7a075212fa509cfcff2",
+            "size": 9476466
+          },
+          {
+            "name": "numpy",
+            "version": "2.5.4",
+            "url": "https://files.pythonhosted.org/packages/d0/97/ba2074e92b7befea137e77ea8471e768bbd87c339b7e8c9f5a931949f977/numpy-2.5.4-cp312-cp312-macosx_10_13_x86_64.whl",
+            "sha256": "c6342f54c67093cae5c0227eb0eb772fdb79f2a2c37a6eb278b9909ee06aa356",
+            "size": 17001609
+          },
+          {
+            "name": "openpyxl",
+            "version": "3.1.5",
+            "url": "https://files.pythonhosted.org/packages/c0/da/977ded879c29cbd04de313843e76868e6e13408a94ed6b987245dc7c8506/openpyxl-3.1.5-py2.py3-none-any.whl",
+            "sha256": "5282c12b107bffeef825f4617dc029afaf41d0ea60823bbb665ef3079dc79de2",
+            "size": 250910
+          },
+          {
+            "name": "packaging",
+            "version": "26.3",
+            "url": "https://files.pythonhosted.org/packages/63/34/ba1c580383c9eada3711951fef0795c80b829a078d72188184bcab9dd527/packaging-26.3-py3-none-any.whl",
+            "sha256": "d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c",
+            "size": 129956
+          },
+          {
+            "name": "pandas",
+            "version": "3.0.6",
+            "url": "https://files.pythonhosted.org/packages/77/4c/597d588c055d4373cff19cbbc32d4dd046c7be8fadee957585b5ba9e5b24/pandas-3.0.6-cp312-cp312-macosx_10_13_x86_64.whl",
+            "sha256": "7dac2d65e9087e8e7b5a45fe15c4920911a221df061ab629943ce016489145c7",
+            "size": 10397411
+          },
+          {
+            "name": "pillow",
+            "version": "13.0.0",
+            "url": "https://files.pythonhosted.org/packages/7a/b8/58d79332229482eb0d27c82973850808c19d37e5bdc14443d3417bd373f5/pillow-13.0.0-cp312-cp312-macosx_10_13_x86_64.whl",
+            "sha256": "67c8d44ad89fa7eb88de5d6ef6199b1e03dd24974f85a67639fc8badb801fe79",
+            "size": 5568643
+          },
+          {
+            "name": "pyparsing",
+            "version": "3.3.3",
+            "url": "https://files.pythonhosted.org/packages/38/bb/d215ee7c73b61497b28a5503f9f53523f294fcc936762b7caf90e0c1c2b5/pyparsing-3.3.3-py3-none-any.whl",
+            "sha256": "ece8c00a69cf01b45d0b1dedabb469c90d8caf996d4fda40f147627a122849a4",
+            "size": 126420
+          },
+          {
+            "name": "python-dateutil",
+            "version": "2.9.0.post0",
+            "url": "https://files.pythonhosted.org/packages/ec/57/56b9bcc3c9c6a792fcbaf139543cee77261f3651ca9da0c93f5c1221264b/python_dateutil-2.9.0.post0-py2.py3-none-any.whl",
+            "sha256": "a8b2bc7bffae282281c8140a97d3aa9c14da0b136dfe83f850eea9a5f7470427",
+            "size": 229892
+          },
+          {
+            "name": "six",
+            "version": "1.17.0",
+            "url": "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl",
+            "sha256": "4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274",
+            "size": 11050
+          }
+        ]
+      }
+    }
   }
 }

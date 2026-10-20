@@ -232,3 +232,48 @@ def test_dns_rebinding_host_is_refused(server):
     assert (
         request(server, "/api/state", key=server.key, host=f"evil.example:{server.port}")[0] == 403
     )
+
+
+async def test_capability_settings_and_tool_state_reach_the_page(tmp_path):
+    sent = []
+
+    class Client(FakeClient):
+        async def sharing_settings(self, body):
+            sent.append(body)
+            return {"group": {}, "sharing": {"state": "ENABLED"}}
+
+    c = Controller(
+        tmp_path,
+        BUNDLE,
+        codex=FakeCodex(),
+        client_factory=lambda state: Client([]),
+        agent_factory=lambda stop: stop.wait(),
+        git_check=lambda: True,
+    )
+    await c.go_online({"device_label": "Alice Mac", "subscription_type": "PLUS"})
+    await c.update_settings(
+        {
+            "max_concurrent_tasks": "2",
+            "allowed_task_types": ["TRANSLATE_DOCUMENT"],
+            "allowed_tools": ["doc", "git"],
+        }
+    )
+    assert sent[-1] == {
+        "max_concurrent_tasks": 2,
+        "allowed_task_types": ["TRANSLATE_DOCUMENT"],
+        "allowed_tools": ["doc", "git"],
+    }
+    with pytest.raises(AppError):
+        await c.update_settings({"allowed_tools": "doc"})
+    snap = c.snapshot()
+    assert snap["tools"]["git"] is True
+    assert snap["tools"]["python-data"]["state"] == "UNAVAILABLE"  # no pins in this bundle
+    caps = c.capabilities()
+    assert caps["tools"] == {"code": True, "doc": True, "git": True, "python-data": False}
+    assert c.tool_access("python-data") is None
+    c.start_tool_install("python-data")
+    await asyncio.sleep(0.05)
+    assert c.snapshot()["tools"]["python-data"]["state"] == "UNAVAILABLE"
+    with pytest.raises(AppError):
+        c.start_tool_install("shell")
+    await c.shutdown()

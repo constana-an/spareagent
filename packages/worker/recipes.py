@@ -155,7 +155,7 @@ def finish_translation(request: ExecutionRequest, ws: Workspace, expected: int):
 
 
 # ------------------------------------------------------------------ spreadsheet analysis
-def prepare_analysis(request: ExecutionRequest, ws: Workspace) -> str:
+def prepare_analysis(request: ExecutionRequest, ws: Workspace, *, data_tools: bool = False) -> str:
     if not request.inputs:
         raise RecipeError("INPUT_INVALID", "Analysis needs at least one table")
     listing = []
@@ -181,9 +181,15 @@ def prepare_analysis(request: ExecutionRequest, ws: Workspace) -> str:
         "calculations so the numbers can be checked.\n"
         "- Optional charts as ./out/chart-1.png, chart-2.png ... (or .svg).\n"
         "- Optional cleaned data as ./out/cleaned.csv (or .xlsx).\n"
-        "Use only local tools in this directory (for example python3 if present). pandas or "
-        "matplotlib may be missing: fall back to the standard library and write SVG charts "
-        "by hand. Never install packages or use the network.\n\n" + _request_block(request.prompt)
+        + (
+            "`python3` on PATH has pandas, matplotlib (use the Agg backend) and openpyxl; "
+            "use it for the calculations and PNG charts. "
+            if data_tools
+            else "pandas or matplotlib may be missing: use the standard library and write "
+            "SVG charts by hand. "
+        )
+        + "Never install packages or use the network.\n\n"
+        + _request_block(request.prompt)
     )
 
 

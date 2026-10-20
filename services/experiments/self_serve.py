@@ -42,6 +42,7 @@ from db.models import (
 )
 from services.context import AppContext
 from services.errors import DomainError, conflict, forbidden, not_found
+from services.experiments.dispatcher import declared_tools
 from services.experiments.participation import (
     JOIN_ACKNOWLEDGEMENTS,
     SHARING_ACKNOWLEDGEMENTS,
@@ -52,15 +53,18 @@ from services.experiments.participation import (
 )
 from services.subscriptions.policy import PERSONAL_SUBSCRIPTION
 from services.subscriptions.usage import SubscriptionUsageMonitor
-from services.tasks.kinds import experimental_kinds
+from services.tasks.kinds import CATALOG, TOOLS, experimental_kinds
 from services.tasks.service import Principal
+from services.tasks.uploads import TaskKindService
 
 INVITE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O/1/I confusion
 INVITE_LENGTH = 12  # 60 bits
 SELF_SERVE_DOMAIN = "self-serve.spareagent.local"
 ENROLLMENT_TTL_SECONDS = 900
+OWNER_MAX_CONCURRENCY = 3
+CAPABILITY_SETTINGS = ("max_concurrent_tasks", "allowed_task_types", "allowed_tools")
 DEFAULT_LIMITS = {
-    "max_concurrent_tasks": 1,
+    "max_concurrent_tasks": OWNER_MAX_CONCURRENCY,  # the owner's own setting starts at 1
     "max_tasks_per_day": 5,
     "max_task_duration_seconds": 600,
 }
@@ -292,15 +296,25 @@ class SelfServeSharingService:
                 "no_auto_reload": body["no_auto_reload"],
             },
         )
+        async with self.ctx.sessionmaker() as session:
+            kept = await session.get(SubscriptionSharingPreference, conn.id)
+        # Going online again keeps the owner's own concurrency and kind choices.
         await svc.set_preferences(
             principal,
             conn.id,
             group.id,
             {
-                "max_concurrent_tasks": 1,
+                "max_concurrent_tasks": min(
+                    kept.max_concurrent_tasks if kept else 1, group.max_concurrent_tasks
+                ),
                 "max_tasks_per_day": group.max_tasks_per_day,
                 "max_task_duration_seconds": group.max_task_duration_seconds,
-                "allowed_task_types": group.allowed_task_types,
+                "allowed_task_types": sorted(
+                    set(kept.allowed_task_types) & set(group.allowed_task_types)
+                    if kept
+                    else group.allowed_task_types
+                )
+                or group.allowed_task_types,
             },
         )
         await svc.enable(principal, conn.id, body["acknowledgements"], body["terms_version"])
@@ -360,6 +374,7 @@ class SelfServeSharingService:
                     setattr(group, key, body[key])
                     if prefs is not None:
                         setattr(prefs, key, body[key])
+            await self._apply_capability_settings(session, worker_id, group, prefs, body)
             if prefs is not None and body.get("auto_approve_members") is not None:
                 prefs.auto_approve_members = body["auto_approve_members"]
             if prefs is not None:
@@ -373,6 +388,35 @@ class SelfServeSharingService:
                 **{k: v for k, v in body.items() if v is not None},
             )
         return await self.status(worker_id)
+
+    @staticmethod
+    async def _apply_capability_settings(session, worker_id, group, prefs, body) -> None:
+        """Concurrency, kinds and tools (design §5). The owner owns this group, so its
+        group-level caps follow the owner's own limits."""
+        # Groups created before step C only listed CODE_REVIEW.
+        group.allowed_task_types = sorted(
+            set(group.allowed_task_types) | set(SELF_SERVE_TASK_TYPES)
+        )
+        group.max_concurrent_tasks = max(group.max_concurrent_tasks, OWNER_MAX_CONCURRENCY)
+        if prefs is None:
+            if any(body.get(k) is not None for k in CAPABILITY_SETTINGS):
+                raise conflict("PREFERENCES_REQUIRED", "Go online once before changing these")
+            return
+        if body.get("max_concurrent_tasks") is not None:
+            n = body["max_concurrent_tasks"]
+            prefs.max_concurrent_tasks = n
+            worker = await session.get(WorkerNode, worker_id, with_for_update=True)
+            worker.max_concurrency = n
+        if body.get("allowed_task_types") is not None:
+            kinds = set(body["allowed_task_types"])
+            if not kinds or not kinds <= set(group.allowed_task_types):
+                raise DomainError(422, "TASK_TYPE_NOT_ALLOWED", "Choose at least one offered kind")
+            prefs.allowed_task_types = sorted(kinds)
+        if body.get("allowed_tools") is not None:
+            tools = set(body["allowed_tools"])
+            if not tools <= set(TOOLS):
+                raise DomainError(422, "TOOL_UNKNOWN", f"Tools must be among {list(TOOLS)}")
+            prefs.allowed_tools = sorted(tools)
 
     async def rotate_invite_code(self, worker_id: uuid.UUID) -> dict[str, Any]:
         self._require_enabled()
@@ -451,6 +495,8 @@ class SelfServeSharingService:
             auth = await current_authorization(session, group.id)
             conn = await self._connection(session, worker_id)
             prefs = await session.get(SubscriptionSharingPreference, conn.id) if conn else None
+            worker = await session.get(WorkerNode, worker_id)
+            kind_status = await TaskKindService.statuses(session)
             started = (
                 await SubscriptionUsageMonitor.started_last_24h(session, conn.id, now)
                 if conn
@@ -482,6 +528,7 @@ class SelfServeSharingService:
                 "member_cap": self.member_cap(auth),
                 "max_tasks_per_day": group.max_tasks_per_day,
                 "max_task_duration_seconds": group.max_task_duration_seconds,
+                "max_concurrent_tasks": group.max_concurrent_tasks,
                 "has_invite_code": group.invite_code_digest is not None,
                 "invite_code_rotated_at": group.invite_code_rotated_at,
             },
@@ -500,7 +547,23 @@ class SelfServeSharingService:
                 "connection_id": prefs.connection_id,
                 "state": prefs.sharing_state,
                 "auto_approve_members": prefs.auto_approve_members,
+                "max_concurrent_tasks": prefs.max_concurrent_tasks,
+                "allowed_task_types": prefs.allowed_task_types,
+                "allowed_tools": prefs.allowed_tools,
             },
+            "device_tools": sorted(declared_tools(worker.capabilities if worker else None) or ()),
+            "kinds": [
+                {
+                    "kind": k.kind,
+                    "name_zh": k.name_zh,
+                    "name_en": k.name_en,
+                    "status": kind_status.get(k.kind, "DEVELOPING"),
+                    "required_tools": list(k.capabilities),
+                    "offered": k.kind in group.allowed_task_types,
+                }
+                for k in CATALOG.values()
+                if k.experimental
+            ],
             "live_ready": not live_blockers,
             "live_blockers": live_blockers,
             "tasks_started_last_24h": started,

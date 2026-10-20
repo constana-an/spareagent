@@ -14,6 +14,7 @@ import contextlib
 import logging
 import random
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -48,6 +49,8 @@ class AgentConfig:
     shutdown_grace_seconds: float = 20.0
     completion_retries: int = 8
     capabilities: dict[str, Any] = field(default_factory=dict)
+    # Re-evaluated on every heartbeat (tools can be installed while online).
+    capabilities_provider: Callable[[], dict[str, Any]] | None = None
 
 
 class Backoff:
@@ -124,7 +127,12 @@ class WorkerAgent:
     async def _heartbeat_loop(self, stop: asyncio.Event) -> None:
         while not stop.is_set():
             try:
-                await self.client.heartbeat("ONLINE", self.config.capabilities or None)
+                caps = (
+                    self.config.capabilities_provider()
+                    if self.config.capabilities_provider
+                    else self.config.capabilities
+                )
+                await self.client.heartbeat("ONLINE", caps or None)
             except WorkerApiError as exc:
                 if exc.status == 401 and exc.code in FATAL_AUTH_CODES:
                     self.fatal = exc

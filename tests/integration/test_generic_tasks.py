@@ -21,9 +21,22 @@ DOCX = b"PK\x03\x04" + b"word/document.xml" + b"\x00" * 64
 XLSX = b"PK\x03\x04" + b"xl/workbook.xml" + b"\x00" * 64
 
 
+ALL_TOOLS = {"code": True, "doc": True, "git": True, "python-data": True}
+
+
 async def group_with_member(oc, octx):
+    """An online step-C device (declares every tool) with one member, Bob."""
     node = await one_click.signup_device(oc)
     status = await one_click.go_online(oc, node)
+    resp = await oc.post(
+        f"/v1/workers/{node['worker_id']}/heartbeat",
+        json={
+            "state": "ONLINE",
+            "capabilities": {"executor": "codex-subscription", "tools": ALL_TOOLS},
+        },
+        headers=bearer(node["access_token"]),
+    )
+    assert resp.status_code == 204, resp.text
     bob, _ = await one_click.join(octx, status["invite_code"])
     return node, status, bob
 

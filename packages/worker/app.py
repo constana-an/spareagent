@@ -27,6 +27,7 @@ import platform
 import shutil
 import socket
 import tempfile
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -40,6 +41,7 @@ from packages.worker.runtime import (
     request_git_install,
 )
 from packages.worker.state import NodeState, load_state, save_state
+from packages.worker.tools import DATA_TOOL, DataToolEnv, probe_capabilities
 
 log = logging.getLogger(__name__)
 
@@ -59,6 +61,8 @@ SHARING_ACKNOWLEDGEMENTS = (
 LOGIN_TIMEOUT_SECONDS = 900
 INSTALL_TIMEOUT_SECONDS = 900
 SHUTDOWN_GRACE_SECONDS = 60.0
+MAX_PARALLEL = 3
+GIT_PROBE_SECONDS = 60.0
 
 
 class AppError(Exception):
@@ -251,6 +255,9 @@ class Controller:
             os.environ.get("SPAREAGENT_CODEX_BIN", "codex"), managed=managed
         )
         self._git_check = git_check
+        self._git_cache: tuple[float, bool] | None = None
+        self.data_env = DataToolEnv(directory / "runtime", runtime_pins)
+        self._tool_job: asyncio.Task | None = None
         self._client_factory = client_factory or self._default_client
         self._agent_factory = agent_factory or self._default_agent
         self.snap = Snapshot()
@@ -319,6 +326,14 @@ class Controller:
             "dashboard_url": dashboard,
             "server": s.server,
             "server_error": s.server_error,
+            "tools": {
+                "git": self.git_ok(),
+                DATA_TOOL: {
+                    "state": self.data_env.state,
+                    "detail": self.data_env.detail,
+                    "size_mb": round(self.data_env.size_bytes() / 1e6),
+                },
+            },
         }
 
     async def refresh(self) -> None:
@@ -513,21 +528,20 @@ class Controller:
         control = LocalSharingControl(self.directory)
         adapter = CodexSubscriptionAdapter(
             owner_ref="local-owner",
-            runtime=CodexRuntime(CodexRuntimeConfig(codex_bin=self.codex.codex_bin)),
+            runtime=CodexRuntime(
+                CodexRuntimeConfig(codex_bin=self.codex.codex_bin, max_parallel=MAX_PARALLEL)
+            ),
             shared=SharedWorkConsent(control, no_purchased_credits_attested=True),
+            tools=self.tool_access,
         )
+        # The server assigns at most the owner's concurrency setting (1-3); the device keeps
+        # enough slots for the maximum so a changed setting needs no restart.
         agent = WorkerAgent(
             client,
             AgentConfig(
-                concurrency=1,
+                concurrency=MAX_PARALLEL,
                 shutdown_grace_seconds=SHUTDOWN_GRACE_SECONDS,
-                capabilities={
-                    "code": True,
-                    "chat": False,
-                    "provider": "mock",
-                    "languages": ["python"],
-                    "executor": "codex-subscription",
-                },
+                capabilities_provider=self.capabilities,
             ),
             adapter=MockProviderAdapter(),
             sharing_control=control,
@@ -541,6 +555,38 @@ class Controller:
                 save_state(self.directory, state)
             await client.aclose()
         return agent.fatal is None
+
+    # ---------------------------------------------------------------- device tools
+    def git_ok(self) -> bool:
+        now = time.monotonic()
+        if self._git_cache is None or now - self._git_cache[0] > GIT_PROBE_SECONDS:
+            self._git_cache = (now, bool(self._git_check()))
+        return self._git_cache[1]
+
+    def capabilities(self) -> dict[str, Any]:
+        return probe_capabilities(self.data_env, self.git_ok)
+
+    def tool_access(self, name: str):
+        return self.data_env.access() if name == DATA_TOOL else None
+
+    def start_tool_install(self, name: str) -> None:
+        if name != DATA_TOOL:
+            raise AppError("invalid_input", name)
+        if self._tool_job is None or self._tool_job.done():
+            self._tool_job = asyncio.create_task(self._install_data_tools())
+
+    async def _install_data_tools(self) -> None:
+        try:
+            await self.data_env.install()
+        except Exception:  # noqa: BLE001 - state/detail carry the reason to the page
+            log.exception("data tools install failed")
+
+    def remove_tool(self, name: str) -> None:
+        if name != DATA_TOOL or (self._tool_job and not self._tool_job.done()):
+            raise AppError("invalid_input", name)
+        if self.data_env.home and self.data_env.home.exists():
+            shutil.rmtree(self.data_env.home)
+        self.data_env.state = "MISSING" if self.data_env.spec else "UNAVAILABLE"
 
     async def _run_agent(self, stop: asyncio.Event) -> None:
         try:
@@ -598,6 +644,13 @@ class Controller:
             clean["max_task_duration_seconds"] = int(body["max_task_minutes"]) * 60
         if body.get("auto_approve_members") is not None:
             clean["auto_approve_members"] = bool(body["auto_approve_members"])
+        if body.get("max_concurrent_tasks") is not None:
+            clean["max_concurrent_tasks"] = int(body["max_concurrent_tasks"])
+        for key in ("allowed_task_types", "allowed_tools"):
+            if body.get(key) is not None:
+                if not isinstance(body[key], list):
+                    raise AppError("invalid_input", key)
+                clean[key] = [str(x) for x in body[key]]
         await self._owner_call("sharing_settings", clean)
         # Only remember the choice locally once the server has accepted it.
         if "auto_approve_members" in clean:

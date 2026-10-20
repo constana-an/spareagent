@@ -8,7 +8,9 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, StrictBool, StrictInt, StrictStr
 
-from apps.api.schemas.experiments import Strict
+from apps.api.schemas.experiments import Strict, TaskType
+
+Tool = Literal["code", "doc", "git", "python-data"]  # services.tasks.kinds.TOOLS
 
 Acks = dict[str, StrictBool]
 
@@ -47,6 +49,10 @@ class SettingsIn(Strict):
     max_tasks_per_day: Annotated[StrictInt, Field(ge=1, le=50)] | None = None
     max_task_duration_seconds: Annotated[StrictInt, Field(ge=60, le=3600)] | None = None
     auto_approve_members: StrictBool | None = None
+    # 0013: the owner's device capabilities (design §5)
+    max_concurrent_tasks: Annotated[StrictInt, Field(ge=1, le=3)] | None = None
+    allowed_task_types: Annotated[list[TaskType], Field(min_length=1, max_length=10)] | None = None
+    allowed_tools: Annotated[list[Tool], Field(max_length=10)] | None = None
 
 
 class GroupSummary(BaseModel):
@@ -58,6 +64,7 @@ class GroupSummary(BaseModel):
     member_cap: int
     max_tasks_per_day: int
     max_task_duration_seconds: int
+    max_concurrent_tasks: int = 1
     has_invite_code: bool
     invite_code_rotated_at: datetime | None
 
@@ -73,6 +80,18 @@ class SharingSummary(BaseModel):
     connection_id: uuid.UUID
     state: str
     auto_approve_members: bool
+    max_concurrent_tasks: int = 1
+    allowed_task_types: list[str] = Field(default_factory=list)
+    allowed_tools: list[str] = Field(default_factory=list)
+
+
+class KindSummary(BaseModel):
+    kind: str
+    name_zh: str
+    name_en: str
+    status: str
+    required_tools: list[str]
+    offered: bool
 
 
 class TaskSummary(BaseModel):
@@ -90,6 +109,8 @@ class SharingStatusOut(BaseModel):
     group: GroupSummary
     members: list[MemberSummary]
     sharing: SharingSummary | None
+    device_tools: list[str] = Field(default_factory=list)
+    kinds: list[KindSummary] = Field(default_factory=list)
     live_ready: bool
     live_blockers: list[str]
     tasks_started_last_24h: int
