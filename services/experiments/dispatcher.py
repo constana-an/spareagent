@@ -35,6 +35,7 @@ from db.models import (
     SubscriptionSharingPreference,
     Task,
     TaskAttempt,
+    TaskKind,
 )
 from services.context import AppContext
 from services.experiments.participation import STANDING_APPROVAL, current_authorization
@@ -171,6 +172,7 @@ class ExperimentalDispatcher:
             owner_check_passed=conn.owner_check_passed_at is not None,
             no_purchased_credits=conn.no_purchased_credits_at is not None,
             node_executor=(worker.capabilities or {}).get("executor"),
+            kind_status=(await session.get(TaskKind, task.task_type)).status,
         )
         return snap, conn, auth.id if auth else None
 

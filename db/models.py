@@ -76,8 +76,8 @@ class Task(Base):
     idempotency_key: Mapped[str] = mapped_column(Text, nullable=False)
     request_digest: Mapped[str] = mapped_column(CHAR(64), nullable=False)
     task_type: Mapped[str] = mapped_column(Text, nullable=False)
-    repository_url: Mapped[str] = mapped_column(Text, nullable=False)
-    commit_sha: Mapped[str] = mapped_column(CHAR(40), nullable=False)
+    repository_url: Mapped[str | None] = mapped_column(Text)  # 0011: code kinds only
+    commit_sha: Mapped[str | None] = mapped_column(CHAR(40))
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     resource_scope: Mapped[str] = mapped_column(
         Text, nullable=False, server_default=text("'PUBLIC_MARKETPLACE'")
@@ -91,6 +91,10 @@ class Task(Base):
     execution_profile: Mapped[str] = mapped_column(  # 0005
         Text, nullable=False, server_default=text("'MOCK'")
     )
+    spec: Mapped[dict[str, Any]] = mapped_column(  # 0011
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    kind_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
 
 
 class TaskAttempt(Base):
@@ -466,6 +470,33 @@ class FriendsSession(Base):
     expires_at: Mapped[datetime] = mapped_column(TZ, nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(TZ)
     created_at: Mapped[datetime] = _created()
+
+
+class TaskKind(Base):  # 0011
+    __tablename__ = "task_kinds"
+    kind: Mapped[str] = mapped_column(Text, primary_key=True)
+    category: Mapped[str] = mapped_column(Text, nullable=False)
+    needs_repository: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'DEVELOPING'"))
+    acceptance_report: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = _created()
+    updated_by: Mapped[uuid.UUID | None] = _fk("users.id", nullable=True)
+
+
+class TaskUpload(Base):  # 0011
+    __tablename__ = "task_uploads"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), **UUID_PK)
+    owner_id: Mapped[uuid.UUID] = _fk("users.id")
+    storage_key: Mapped[str] = mapped_column(Text, nullable=False)
+    sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    filename: Mapped[str] = mapped_column(Text, nullable=False)
+    extension: Mapped[str] = mapped_column(Text, nullable=False)
+    media_type: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = _created()
+    expires_at: Mapped[datetime] = mapped_column(TZ, nullable=False)
+    task_id: Mapped[uuid.UUID | None] = _fk("tasks.id", nullable=True)
+    position: Mapped[int | None] = mapped_column(Integer)
 
 
 ALL_TABLES = [m.__table__ for m in Base.__subclasses__()]

@@ -13,6 +13,7 @@ import re
 import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
+from pathlib import Path
 
 import asyncpg
 import httpx
@@ -49,8 +50,18 @@ TABLES = (
     "experimental_group_members, experimental_groups, "
     "verification_results, node_credentials, enrollment_tokens, audit_logs, usage_records, "
     "gateway_requests, artifacts, execution_events, task_attempts, tasks, worker_nodes, "
-    "resources, users"
+    "resources, users, task_uploads, task_kinds"
 )
+
+
+def _task_kind_seed() -> str:
+    """The catalogue rows exactly as migration 0011 seeds them (restored after TRUNCATE)."""
+    sql = (Path(__file__).resolve().parents[1] / "db/migrations/0011_generic_tasks.sql").read_text()
+    start = sql.index("INSERT INTO task_kinds")
+    return sql[start : sql.index(";", start)]
+
+
+TASK_KIND_SEED = _task_kind_seed()
 
 VALID_TASK = {
     "task_type": "WRITE_TESTS",
@@ -108,6 +119,7 @@ def settings(tmp_path) -> Settings:
 async def seed_fixtures(ctx: AppContext) -> None:
     async with ctx.engine.begin() as conn:
         await conn.execute(text(f"TRUNCATE {TABLES} RESTART IDENTITY CASCADE"))
+        await conn.execute(text(TASK_KIND_SEED))
         await conn.execute(
             text(
                 "INSERT INTO users(id,email,role) VALUES "

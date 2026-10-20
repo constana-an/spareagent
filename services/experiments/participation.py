@@ -40,9 +40,12 @@ from services.errors import DomainError, conflict, forbidden, not_found
 from services.scheduler import lease_service
 from services.subscriptions.policy import EXPERIMENTAL_SCOPE
 from services.subscriptions.usage import SubscriptionUsageMonitor
+from services.tasks import kinds as kind_catalog
 from services.tasks import repository as repo
+from services.tasks.kinds import Kind
 from services.tasks.service import Principal
 from services.tasks.state_machine import TaskStatus, append_event, is_terminal, transition
+from services.tasks.uploads import TaskKindService, UploadService
 
 # What a member accepts on joining the group.
 JOIN_ACKNOWLEDGEMENTS = (
@@ -60,7 +63,7 @@ SHARING_ACKNOWLEDGEMENTS = (
     "owner_controls_local_credentials",
     "owner_may_add_restrictions",
 )
-TASK_TYPES = ("CODE_REVIEW", "WRITE_TESTS", "CODE_FIX")
+TASK_TYPES = tuple(kind_catalog.experimental_kinds())
 # Consent source of tasks approved by the owner's standing (one-click) approval.
 STANDING_APPROVAL = "OWNER_STANDING_APPROVAL"
 LIMIT_FIELDS = ("max_concurrent_tasks", "max_tasks_per_day", "max_task_duration_seconds")
@@ -796,8 +799,9 @@ class ExperimentalParticipationService:
                 raise not_found("NODE_NOT_AVAILABLE", "No opted-in node with that id")
             if group.status != "ACTIVE":
                 raise conflict("GROUP_DISABLED", "Group is disabled")
+            kind, spec = await _check_kind(session, body)
             allowed = set(group.allowed_task_types) & set(prefs.allowed_task_types)
-            if body["task_type"] not in allowed:
+            if kind.kind not in allowed:
                 raise DomainError(422, "TASK_TYPE_NOT_ALLOWED", "Task type not allowed")
             if body["max_duration_seconds"] > min(
                 group.max_task_duration_seconds, prefs.max_task_duration_seconds
@@ -813,10 +817,11 @@ class ExperimentalParticipationService:
                         consumer_id=principal.user_id,
                         idempotency_key=idempotency_key,
                         request_digest=digest,
-                        task_type=body["task_type"],
+                        task_type=kind.kind,
                         repository_url=body["repository_url"],
                         commit_sha=body["commit_sha"],
-                        prompt=body["prompt"],
+                        prompt=body["requirement"],
+                        spec=spec,
                         resource_scope=EXPERIMENTAL_SCOPE,
                         status=TaskStatus.CREATED.value,
                         max_budget_cents=1,  # no money is involved; the column requires >= 1
@@ -845,6 +850,7 @@ class ExperimentalParticipationService:
                 return await self._view(session, existing), False
             task = await repo.lock_task(session, new_id)
             assert task is not None  # noqa: S101 - inserted in this transaction
+            await UploadService.claim(session, task, principal.user_id, body["attachments"], kind)
             advance = (
                 not live
                 and not prefs.require_owner_approval
@@ -983,6 +989,27 @@ class ExperimentalParticipationService:
             view = await self._view(session, task)
         await self.ctx.publisher.wake(f"task:{task_id}")
         return view
+
+
+async def _check_kind(session: AsyncSession, body: dict[str, Any]) -> tuple[Kind, dict]:
+    """Validate the request against its kind (design §1-§2) and return the task spec."""
+    try:
+        kind = kind_catalog.get(body["kind"])
+        params = kind_catalog.validate_params(kind, body["parameters"])
+        deliverable = kind_catalog.resolve_deliverable(kind, body["deliverable"])
+    except kind_catalog.KindError as exc:
+        raise DomainError(422, exc.code, str(exc)) from None
+    has_repo = body["repository_url"] is not None
+    if kind.needs_repository and not has_repo:
+        raise DomainError(422, "REPOSITORY_REQUIRED", "This kind works on a repository")
+    if has_repo and not kind.needs_repository:
+        raise DomainError(422, "REPOSITORY_NOT_ACCEPTED", "This kind takes no repository")
+    status = (await TaskKindService.statuses(session)).get(kind.kind, "DEVELOPING")
+    if status == "DISABLED":
+        raise conflict("TASK_KIND_DISABLED", "This kind of task is switched off")
+    if body.get("execution_mode") == "LIVE" and status != "OPEN":
+        raise conflict("TASK_KIND_NOT_OPEN", "This kind of task is not open for live execution")
+    return kind, {"deliverable": deliverable, "parameters": params}
 
 
 async def current_authorization(

@@ -57,8 +57,10 @@ type Task = {
   task_type: string;
   execution_mode: string;
   prompt: string;
-  repository_url: string;
-  commit_sha: string;
+  // 0011: null for kinds that take no repository (e.g. TRANSLATE_DOCUMENT)
+  repository_url: string | null;
+  commit_sha: string | null;
+  attachments?: { id: string; filename: string; size_bytes: number }[];
   max_duration_seconds: number;
   approval_status: string;
   approval_source: string | null;
@@ -1041,10 +1043,20 @@ export default function Dashboard() {
                   </div>
                   <p>{x.prompt}</p>
                   <p className="muted break">
-                    {x.repository_url}
-                    <br />
-                    <code>{x.commit_sha}</code>
-                    <br />
+                    {x.repository_url ? (
+                      <>
+                        {x.repository_url}
+                        <br />
+                        <code>{x.commit_sha}</code>
+                        <br />
+                      </>
+                    ) : null}
+                    {(x.attachments ?? []).map((a) => (
+                      <span key={a.id}>
+                        {a.filename}
+                        <br />
+                      </span>
+                    ))}
                     {t("hard_timeout_n", { n: x.max_duration_seconds })}
                   </p>
                   <div className="actions">

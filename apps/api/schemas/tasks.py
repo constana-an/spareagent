@@ -16,6 +16,35 @@ _SHA = re.compile(r"^[a-fA-F0-9]{40}$")
 IDEMPOTENCY_KEY = re.compile(r"^[A-Za-z0-9._:\-]{8,128}$")
 
 
+def validate_repository_url(value: str) -> str:
+    parts = urlsplit(value)
+    if (
+        not _REPO_URL.fullmatch(value)
+        or parts.username
+        or parts.password
+        or parts.port
+        or parts.query
+        or parts.fragment
+        or ".." in parts.path
+    ):
+        raise ValueError("must be a public https://github.com/<owner>/<repo> URL")
+    return value
+
+
+def validate_commit_sha(value: str) -> str:
+    if not _SHA.fullmatch(value):
+        raise ValueError("must be a full 40-character hexadecimal commit SHA")
+    return value.lower()
+
+
+def validate_prompt(value: str) -> str:
+    if not value.strip():
+        raise ValueError("must not be blank")
+    if "\x00" in value:
+        raise ValueError("must not contain NUL characters")
+    return value
+
+
 class TaskCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -29,34 +58,17 @@ class TaskCreate(BaseModel):
     @field_validator("repository_url")
     @classmethod
     def _repo(cls, value: str) -> str:
-        parts = urlsplit(value)
-        if (
-            not _REPO_URL.fullmatch(value)
-            or parts.username
-            or parts.password
-            or parts.port
-            or parts.query
-            or parts.fragment
-            or ".." in parts.path
-        ):
-            raise ValueError("must be a public https://github.com/<owner>/<repo> URL")
-        return value
+        return validate_repository_url(value)
 
     @field_validator("commit_sha")
     @classmethod
     def _sha(cls, value: str) -> str:
-        if not _SHA.fullmatch(value):
-            raise ValueError("must be a full 40-character hexadecimal commit SHA")
-        return value.lower()
+        return validate_commit_sha(value)
 
     @field_validator("prompt")
     @classmethod
     def _prompt(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("must not be blank")
-        if "\x00" in value:
-            raise ValueError("must not contain NUL characters")
-        return value
+        return validate_prompt(value)
 
 
 class TaskOut(BaseModel):

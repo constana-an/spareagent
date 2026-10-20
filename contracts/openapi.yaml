@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SpareAgent MVP API
-  version: 1.6.0
+  version: 1.7.0
   description: 'W1: Tasks, Events, Models, Chat nonstream, health. W2: remote worker enrollment, node credentials and lease protocol.'
 servers:
   - url: http://localhost:8000
@@ -268,6 +268,22 @@ paths:
         '204': {description: no work within the wait window}
         '401': {$ref: '#/components/responses/ApiError'}
         '403': {$ref: '#/components/responses/ApiError'}
+  /v1/leases/{lease_id}/inputs/{input_id}:
+    get:
+      operationId: getLeaseInput
+      description: '0011. An attachment of the leased task; only the node holding the active lease.'
+      security: [{nodeAuth: []}]
+      parameters:
+        - {$ref: '#/components/parameters/LeaseId'}
+        - {in: path, name: input_id, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: file bytes (header X-Content-SHA256)
+          content:
+            application/octet-stream: {}
+        '401': {$ref: '#/components/responses/ApiError'}
+        '404': {$ref: '#/components/responses/ApiError'}
+        '409': {$ref: '#/components/responses/ApiError'}
   /v1/leases/{lease_id}/accept:
     post:
       operationId: acceptLease
@@ -914,6 +930,65 @@ paths:
           $ref: '#/components/responses/ApiError'
         '422':
           $ref: '#/components/responses/ApiError'
+  /v1/task-kinds:
+    get:
+      operationId: listTaskKinds
+      description: '0011. Task kinds offered to experimental groups with their opening status. Only OPEN kinds run LIVE.'
+      responses:
+        '200':
+          description: kinds
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TaskKindList'}
+        '401': {$ref: '#/components/responses/ApiError'}
+  /v1/task-kinds/{kind}/status:
+    put:
+      operationId: setTaskKindStatus
+      description: '0011. Operator only, audited. LIVE_ACCEPTED/OPEN need an acceptance report reference.'
+      parameters:
+        - {in: path, name: kind, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [status]
+              properties:
+                status: {type: string, enum: [DEVELOPING, SIMULATED_OK, LIVE_ACCEPTED, OPEN, DISABLED]}
+                acceptance_report: {anyOf: [{type: string, minLength: 1, maxLength: 500}, {type: 'null'}]}
+      responses:
+        '200':
+          description: kind
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TaskKind'}
+        '401': {$ref: '#/components/responses/ApiError'}
+        '403': {$ref: '#/components/responses/ApiError'}
+        '404': {$ref: '#/components/responses/ApiError'}
+        '422': {$ref: '#/components/responses/ApiError'}
+  /v1/experimental-uploads:
+    post:
+      operationId: uploadTaskAttachment
+      description: '0011. Raw file body (max 20 MB) with a percent-encoded X-Filename header. Allowed types are checked by extension and content. Unused uploads expire after 24 hours.'
+      parameters:
+        - {in: header, name: X-Filename, required: true, description: 'UTF-8 file name, percent-encoded', schema: {type: string, maxLength: 600}}
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: {type: string}
+      responses:
+        '201':
+          description: upload
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Upload'}
+        '401': {$ref: '#/components/responses/ApiError'}
+        '403': {$ref: '#/components/responses/ApiError'}
+        '413': {$ref: '#/components/responses/ApiError'}
+        '422': {$ref: '#/components/responses/ApiError'}
   /v1/experimental-tasks:
     post:
       operationId: createExperimentalTask
@@ -1575,15 +1650,30 @@ components:
         authorization_ref: {anyOf: [{type: string, format: uuid}, {type: 'null'}], description: 'W4: authorization record an experimental lease relies on'}
         task:
           type: object
-          required: [task_id, task_type, repository_url, commit_sha, prompt, max_duration_seconds, max_budget_cents]
+          required: [task_id, task_type, kind, repository_url, commit_sha, prompt, max_duration_seconds, max_budget_cents]
           properties:
             task_id: {type: string, format: uuid}
             task_type: {type: string}
-            repository_url: {type: string}
-            commit_sha: {type: string}
+            kind: {type: string, description: '0011: task kind (same value as task_type)'}
+            repository_url: {type: [string, 'null'], description: 'null for kinds without a repository'}
+            commit_sha: {type: [string, 'null']}
             prompt: {type: string, description: 'secret-redacted before leaving the API'}
             max_duration_seconds: {type: integer}
             max_budget_cents: {type: integer}
+            deliverable: {anyOf: [{type: object, additionalProperties: {type: string}}, {type: 'null'}]}
+            parameters: {type: object, additionalProperties: {type: string}}
+            inputs:
+              type: array
+              description: 'attachments; fetch each with GET /v1/leases/{lease_id}/inputs/{input_id}'
+              items:
+                type: object
+                required: [input_id, filename, size_bytes, sha256, media_type]
+                properties:
+                  input_id: {type: string, format: uuid}
+                  filename: {type: string}
+                  size_bytes: {type: integer}
+                  sha256: {type: string}
+                  media_type: {type: string}
     LeaseState:
       type: object
       required: [leased_until, cancel_requested]
@@ -2358,49 +2448,79 @@ components:
       - items
     ExperimentalTaskCreate:
       type: object
-      properties:
-        group_id:
-          type: string
-          format: uuid
-        connection_id:
-          type: string
-          format: uuid
-        task_type:
-          type: string
-          enum:
-          - CODE_REVIEW
-          - WRITE_TESTS
-          - CODE_FIX
-        repository_url:
-          type: string
-          format: uri
-          pattern: ^https://github\.com/
-        commit_sha:
-          type: string
-          pattern: ^[a-fA-F0-9]{40}$
-        prompt:
-          type: string
-          minLength: 1
-          maxLength: 12000
-        max_duration_seconds:
-          type: integer
-          minimum: 10
-          maximum: 3600
-        execution_mode:
-          type: string
-          enum:
-          - SIMULATED
-          - LIVE
-          default: SIMULATED
-      required:
-      - group_id
-      - connection_id
-      - task_type
-      - repository_url
-      - commit_sha
-      - prompt
-      - max_duration_seconds
+      description: '0011 generic task. Exactly one of kind/task_type and of requirement/prompt; repository (or legacy repository_url + commit_sha) only for kinds that need one.'
       additionalProperties: false
+      required: [group_id, connection_id, max_duration_seconds]
+      properties:
+        group_id: {type: string, format: uuid}
+        connection_id: {type: string, format: uuid}
+        kind: {anyOf: [{type: string, enum: [CODE_REVIEW, CODE_FIX, WRITE_TESTS, CODE_CHANGE, TRANSLATE_DOCUMENT, ANALYZE_SPREADSHEET]}, {type: 'null'}]}
+        task_type: {anyOf: [{type: string, enum: [CODE_REVIEW, CODE_FIX, WRITE_TESTS, CODE_CHANGE, TRANSLATE_DOCUMENT, ANALYZE_SPREADSHEET]}, {type: 'null'}], description: legacy alias of kind}
+        requirement: {anyOf: [{type: string, minLength: 1, maxLength: 12000}, {type: 'null'}]}
+        prompt: {anyOf: [{type: string, minLength: 1, maxLength: 12000}, {type: 'null'}], description: legacy alias of requirement}
+        repository:
+          anyOf:
+            - type: object
+              additionalProperties: false
+              required: [url, commit_sha]
+              properties:
+                url: {type: string, pattern: '^https://github\.com/'}
+                commit_sha: {type: string, pattern: '^[a-fA-F0-9]{40}$'}
+            - {type: 'null'}
+        repository_url: {anyOf: [{type: string, pattern: '^https://github\.com/'}, {type: 'null'}]}
+        commit_sha: {anyOf: [{type: string, pattern: '^[a-fA-F0-9]{40}$'}, {type: 'null'}]}
+        attachments: {type: array, maxItems: 5, items: {type: string, format: uuid}}
+        parameters: {type: object, maxProperties: 10, additionalProperties: {type: string, maxLength: 100}}
+        deliverable:
+          anyOf:
+            - type: object
+              additionalProperties: false
+              properties:
+                format: {anyOf: [{type: string, pattern: '^[a-z0-9]{1,8}$'}, {type: 'null'}]}
+            - {type: 'null'}
+        max_duration_seconds: {type: integer, minimum: 10, maximum: 3600}
+        execution_mode: {type: string, enum: [SIMULATED, LIVE], default: SIMULATED}
+    Attachment:
+      type: object
+      required: [id, filename, size_bytes, media_type, sha256]
+      properties:
+        id: {type: string, format: uuid}
+        filename: {type: string}
+        size_bytes: {type: integer}
+        media_type: {type: string}
+        sha256: {type: string}
+    Upload:
+      allOf:
+        - $ref: '#/components/schemas/Attachment'
+        - type: object
+          required: [expires_at]
+          properties:
+            expires_at: {type: string, format: date-time}
+    TaskKind:
+      type: object
+      required: [kind, category, name_zh, name_en, description_zh, status, needs_repository, min_attachments, max_attachments, extensions, parameters, required_parameters, deliverable_format, deliverable_formats, capabilities, live_available]
+      properties:
+        kind: {type: string}
+        category: {type: string, enum: [WRITING, INFORMATION, RESEARCH, DATA, CODE, FILE_TOOLS]}
+        name_zh: {type: string}
+        name_en: {type: string}
+        description_zh: {type: string}
+        status: {type: string, enum: [DEVELOPING, SIMULATED_OK, LIVE_ACCEPTED, OPEN, DISABLED]}
+        needs_repository: {type: boolean}
+        min_attachments: {type: integer}
+        max_attachments: {type: integer}
+        extensions: {type: array, items: {type: string}}
+        parameters: {type: array, items: {type: string}}
+        required_parameters: {type: array, items: {type: string}}
+        deliverable_format: {type: string}
+        deliverable_formats: {type: array, items: {type: string}}
+        capabilities: {type: array, items: {type: string}}
+        live_available: {type: boolean}
+    TaskKindList:
+      type: object
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/TaskKind'}}
     ExperimentalTask:
       properties:
         id:
@@ -2413,6 +2533,9 @@ components:
         task_type:
           type: string
           title: Task Type
+        kind:
+          type: string
+          title: Kind
         resource_scope:
           type: string
           title: Resource Scope
@@ -2440,14 +2563,28 @@ components:
           format: uuid
           title: Owner Id
         repository_url:
-          type: string
+          type: [string, 'null']
           title: Repository Url
         commit_sha:
-          type: string
+          type: [string, 'null']
           title: Commit Sha
         prompt:
           type: string
           title: Prompt
+        requirement:
+          type: string
+          title: Requirement
+        attachments:
+          type: array
+          items: {$ref: '#/components/schemas/Attachment'}
+        parameters:
+          type: object
+          additionalProperties: {type: string}
+        deliverable:
+          anyOf:
+          - type: object
+            additionalProperties: {type: string}
+          - type: 'null'
         max_duration_seconds:
           type: integer
           title: Max Duration Seconds
@@ -2481,6 +2618,7 @@ components:
       - id
       - status
       - task_type
+      - kind
       - resource_scope
       - group_id
       - connection_id
@@ -2489,6 +2627,7 @@ components:
       - repository_url
       - commit_sha
       - prompt
+      - requirement
       - max_duration_seconds
       - approval_status
       - approval_source

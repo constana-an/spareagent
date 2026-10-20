@@ -47,7 +47,7 @@ def execution_request(task: Task, attempt_id: uuid.UUID, attempt_number: int) ->
         resource_scope=task.resource_scope,  # type: ignore[arg-type]
         prompt=task.prompt,
         repository_url=task.repository_url,
-        commit_sha=task.commit_sha.strip(),
+        commit_sha=task.commit_sha.strip() if task.commit_sha else None,
         max_duration_seconds=task.max_duration_seconds,
         max_budget_cents=task.max_budget_cents,
         attempt_number=attempt_number,

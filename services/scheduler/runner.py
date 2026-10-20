@@ -62,7 +62,15 @@ async def tick(ctx: AppContext) -> dict[str, int]:
     expired = await LeaseService(ctx).recover_expired()
     promoted = await Dispatcher(ctx).promote_retries()
     fixed = await reconcile_capacity(ctx)
-    return {"expired": expired, "promoted": promoted, "capacity_fixed": fixed}
+    from services.tasks.uploads import UploadService
+
+    purged = await UploadService(ctx).purge_expired()
+    return {
+        "expired": expired,
+        "promoted": promoted,
+        "capacity_fixed": fixed,
+        "uploads_purged": purged,
+    }
 
 
 async def main() -> None:

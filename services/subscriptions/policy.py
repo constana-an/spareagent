@@ -72,6 +72,8 @@ class Reason(StrEnum):
     SCOPE_MISMATCH = "SCOPE_MISMATCH"
     PAID_CREDITS_FORBIDDEN = "PAID_CREDITS_FORBIDDEN"
     RATE_LIMITED = "RATE_LIMITED"
+    TASK_KIND_DISABLED = "TASK_KIND_DISABLED"
+    TASK_KIND_NOT_OPEN = "TASK_KIND_NOT_OPEN"
 
 
 # Reasons that can clear without anyone changing the task (wait, keep QUEUED). Everything
@@ -149,6 +151,8 @@ class DispatchSnapshot:
     owner_check_passed: bool = False
     no_purchased_credits: bool = False
     node_executor: str | None = None
+    # 0011: the task kind's opening status (only OPEN kinds run LIVE)
+    kind_status: str = "OPEN"
 
 
 @dataclass(frozen=True)
@@ -244,8 +248,18 @@ class ExperimentalSharingPolicy:
         if not s.node_online:
             r.append(Reason.PROVIDER_OFFLINE)
 
+        if s.kind_status == "DISABLED":
+            r.append(Reason.TASK_KIND_DISABLED)
+        elif mode == Mode.LIVE and s.kind_status != "OPEN":
+            r.append(Reason.TASK_KIND_NOT_OPEN)
         allowed_types = s.group_allowed_task_types & s.owner_allowed_task_types
-        if s.authorization is not None and s.authorization.scope_task_types is not None:
+        # The authorization's task types bound subscription use, i.e. LIVE runs; a
+        # SIMULATED run consumes no subscription and is bounded by group/owner settings.
+        if (
+            mode == Mode.LIVE
+            and s.authorization is not None
+            and s.authorization.scope_task_types is not None
+        ):
             allowed_types &= s.authorization.scope_task_types
         if s.task_type not in allowed_types:
             r.append(Reason.TASK_TYPE_NOT_ALLOWED)

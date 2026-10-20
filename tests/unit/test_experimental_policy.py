@@ -175,11 +175,21 @@ def test_each_condition_is_required(overrides, reason, transient):
     assert d.transient is transient
 
 
-def test_authorization_scope_can_narrow_task_types():
-    d = ExperimentalSharingPolicy.evaluate(
-        snap(authorization=auth(scope_task_types=frozenset({"WRITE_TESTS"})))
-    )
-    assert Reason.TASK_TYPE_NOT_ALLOWED in d.reasons
+def test_authorization_scope_narrows_task_types_for_live_only():
+    narrowed = snap(authorization=auth(scope_task_types=frozenset({"WRITE_TESTS"})))
+    live = ExperimentalSharingPolicy.evaluate(narrowed, mode=Mode.LIVE)
+    assert Reason.TASK_TYPE_NOT_ALLOWED in live.reasons
+    # A SIMULATED run uses no subscription; group and owner settings bound it (D-75).
+    assert Reason.TASK_TYPE_NOT_ALLOWED not in ExperimentalSharingPolicy.evaluate(narrowed).reasons
+
+
+def test_kind_status_gates_dispatch():
+    developing = snap(kind_status="DEVELOPING")
+    assert ExperimentalSharingPolicy.evaluate(developing).allowed
+    live = ExperimentalSharingPolicy.evaluate(developing, mode=Mode.LIVE)
+    assert Reason.TASK_KIND_NOT_OPEN in live.reasons and not live.transient
+    off = ExperimentalSharingPolicy.evaluate(snap(kind_status="DISABLED"))
+    assert off.reasons == (Reason.TASK_KIND_DISABLED,) and not off.transient
 
 
 def test_expired_rate_limit_cooldown_no_longer_blocks():

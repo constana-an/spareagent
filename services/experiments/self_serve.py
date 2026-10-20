@@ -52,6 +52,7 @@ from services.experiments.participation import (
 )
 from services.subscriptions.policy import PERSONAL_SUBSCRIPTION
 from services.subscriptions.usage import SubscriptionUsageMonitor
+from services.tasks.kinds import experimental_kinds
 from services.tasks.service import Principal
 
 INVITE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O/1/I confusion
@@ -63,7 +64,9 @@ DEFAULT_LIMITS = {
     "max_tasks_per_day": 5,
     "max_task_duration_seconds": 600,
 }
-SELF_SERVE_TASK_TYPES = ["CODE_REVIEW"]
+# Every catalogue kind; which ones actually run is decided per kind (task_kinds.status,
+# LIVE only when OPEN) and by the authorization's task_types for LIVE.
+SELF_SERVE_TASK_TYPES = experimental_kinds()
 OPEN_MEMBER_STATUSES = ("INVITED", "ACTIVE")
 
 
