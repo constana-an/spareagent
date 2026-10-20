@@ -7,6 +7,7 @@
     spareagent-worker stop
     spareagent-worker codex-check [--prompt "..."] [--codex-bin codex]
     spareagent-worker sharing {pause,resume,status}
+    spareagent-worker app      [--bundle bundle.json] [--port 0] [--no-browser]
 
 State (node id + node key, mode 0600) lives in $SPAREAGENT_WORKER_HOME (default
 ~/.spareagent-worker). The worker needs no database or Redis credentials.
@@ -261,6 +262,28 @@ async def cmd_codex_check(args: argparse.Namespace) -> int:
     Verifies the official Codex CLI is logged in with ChatGPT (not an API key), runs one
     owner-only read-only prompt with API-billing variables stripped, and prints a report.
     Nothing is sent to SpareAgent; credentials are never read."""
+    report, code = await owner_check(
+        codex_bin=args.codex_bin,
+        model=args.model,
+        prompt=args.prompt,
+        timeout_seconds=args.timeout,
+        skip_inference=args.skip_inference,
+        attest_no_purchased_credits=args.attest_no_purchased_credits,
+    )
+    _print(report)
+    return code
+
+
+async def owner_check(
+    *,
+    codex_bin: str,
+    model: str | None,
+    prompt: str,
+    timeout_seconds: int,
+    skip_inference: bool,
+    attest_no_purchased_credits: bool,
+) -> tuple[dict, int]:
+    """The codex-check report and exit code (shared with the one-click app)."""
     from packages.provider_sdk.codex_subscription import CodexSubscriptionAdapter
     from packages.provider_sdk.types import ExecutionRequest, ExecutionResult
     from packages.worker.codex_runtime import CodexRuntime, CodexRuntimeConfig
@@ -269,7 +292,7 @@ async def cmd_codex_check(args: argparse.Namespace) -> int:
     owner = "local-owner"
     adapter = CodexSubscriptionAdapter(
         owner_ref=owner,
-        runtime=CodexRuntime(CodexRuntimeConfig(codex_bin=args.codex_bin, model=args.model)),
+        runtime=CodexRuntime(CodexRuntimeConfig(codex_bin=codex_bin, model=model)),
     )
     auth = await adapter.check_auth()
     report: dict = {
@@ -282,27 +305,24 @@ async def cmd_codex_check(args: argparse.Namespace) -> int:
     }
     if not auth.eligible:
         report["result"] = "FAILED_CLOSED"
-        _print(report)
-        return 1
-    if args.skip_inference:
+        return report, 1
+    if skip_inference:
         report["result"] = "AUTH_OK_INFERENCE_SKIPPED"
-        _print(report)
-        return 0
-    if not args.attest_no_purchased_credits:
+        return report, 0
+    if not attest_no_purchased_credits:
         report["result"] = "CREDITS_ATTESTATION_REQUIRED"
         report["note"] = "Confirm no additional credits (purchased or granted), auto-reload off."
-        _print(report)
-        return 2
+        return report, 2
     report["credits_restriction"] = "OWNER_ATTESTED_NOT_MACHINE_VERIFIED"
     request = ExecutionRequest(
         task_id="codex-check",
         attempt_id=f"codex-check-{int(time.time())}",
         user_id=owner,
         resource_scope="OWNER_ONLY",
-        prompt=args.prompt,
+        prompt=prompt,
         repository_url=None,
         commit_sha=None,
-        max_duration_seconds=args.timeout,
+        max_duration_seconds=timeout_seconds,
         max_budget_cents=1,
         task_type="CODE_REVIEW",
     )
@@ -314,8 +334,7 @@ async def cmd_codex_check(args: argparse.Namespace) -> int:
     except Exception as exc:  # noqa: BLE001 - report every failure mode, fail closed
         report["result"] = "FAILED"
         report["error"] = type(exc).__name__
-        _print(report)
-        return 1
+        return report, 1
     assert result is not None  # noqa: S101
     report["inference"] = {
         "completed": True,
@@ -331,8 +350,7 @@ async def cmd_codex_check(args: argparse.Namespace) -> int:
         "Confirms a ChatGPT-login Codex run with no API key in the child environment. "
         "Codex does not expose plan-quota consumption; confirm in ChatGPT usage settings."
     )
-    _print(report)
-    return 0
+    return report, 0
 
 
 def cmd_sharing(args: argparse.Namespace) -> int:
@@ -428,6 +446,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     sharing = sub.add_parser("sharing", help="local kill switch for experimental sharing")
     sharing.add_argument("action", choices=("pause", "resume", "status"))
+
+    app = sub.add_parser("app", help="one-click sharing control panel (local web page)")
+    app.add_argument("--bundle", default=None, help="operator bundle.json (kept privately)")
+    app.add_argument("--port", type=int, default=0)
+    app.add_argument("--no-browser", action="store_true")
     return parser
 
 
@@ -455,6 +478,12 @@ def main(argv: list[str] | None = None) -> int:
         return code
     if args.command == "sharing":
         return cmd_sharing(args)
+    if args.command == "app":
+        from packages.worker.app_server import run_app
+
+        return asyncio.run(
+            run_app(args.state_dir, args.bundle, port=args.port, open_browser=not args.no_browser)
+        )
     return cmd_stop(args)
 
 

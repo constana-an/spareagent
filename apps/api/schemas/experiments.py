@@ -193,6 +193,7 @@ class PreferencesOut(BaseModel):
     require_owner_approval: bool
     advance_consent_requester_ids: list[str]
     allow_paid_credits: bool
+    auto_approve_members: bool = False
     paused_at: datetime | None
     revoked_at: datetime | None
 

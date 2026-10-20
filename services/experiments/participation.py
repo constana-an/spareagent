@@ -61,6 +61,8 @@ SHARING_ACKNOWLEDGEMENTS = (
     "owner_may_add_restrictions",
 )
 TASK_TYPES = ("CODE_REVIEW", "WRITE_TESTS", "CODE_FIX")
+# Consent source of tasks approved by the owner's standing (one-click) approval.
+STANDING_APPROVAL = "OWNER_STANDING_APPROVAL"
 LIMIT_FIELDS = ("max_concurrent_tasks", "max_tasks_per_day", "max_task_duration_seconds")
 
 
@@ -705,8 +707,11 @@ class ExperimentalParticipationService:
                     "allowed_task_types": p.allowed_task_types,
                     "max_task_duration_seconds": p.max_task_duration_seconds,
                     "requires_approval": not (
-                        not p.require_owner_approval
-                        and str(principal.user_id) in p.advance_consent_requester_ids
+                        p.auto_approve_members
+                        or (
+                            not p.require_owner_approval
+                            and str(principal.user_id) in p.advance_consent_requester_ids
+                        )
                     ),
                 }
                 for c, p, w in rows
@@ -832,15 +837,22 @@ class ExperimentalParticipationService:
                 and not prefs.require_owner_approval
                 and str(principal.user_id) in prefs.advance_consent_requester_ids
             )
+            # One-click sharing: the owner's standing approval covers every active member
+            # of the group (membership was checked above), LIVE included.
+            source = (
+                STANDING_APPROVAL
+                if prefs.auto_approve_members
+                else ("ADVANCE_CONSENT" if advance else None)
+            )
             consent = ExperimentalTaskConsent(
                 task_id=task.id,
                 group_id=group.id,
                 requester_id=principal.user_id,
                 connection_id=conn.id,
                 owner_id=conn.owner_id,
-                status="APPROVED" if advance else "PENDING",
-                consent_source="ADVANCE_CONSENT" if advance else None,
-                decided_at=utcnow() if advance else None,
+                status="APPROVED" if source else "PENDING",
+                consent_source=source,
+                decided_at=utcnow() if source else None,
             )
             session.add(consent)
             await append_event(
@@ -921,7 +933,10 @@ class ExperimentalParticipationService:
             # Only the owner whose subscription would run the task can decide.
             if task is None or consent is None or consent.owner_id != principal.user_id:
                 raise not_found("TASK_NOT_FOUND", "Task not found")
-            if consent.status != "PENDING":
+            # A standing approval stays overridable: the owner may still reject the task, or
+            # confirm it individually (e.g. after switching automatic approval off).
+            standing = consent.status == "APPROVED" and consent.consent_source == STANDING_APPROVAL
+            if consent.status != "PENDING" and not standing:
                 if consent.status == ("APPROVED" if approve else "REJECTED"):
                     return await self._view(session, task)  # idempotent
                 raise conflict("ALREADY_DECIDED", f"Task was already {consent.status}")

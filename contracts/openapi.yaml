@@ -1182,6 +1182,179 @@ paths:
               schema: {type: object, additionalProperties: true}
         '401': {$ref: '#/components/responses/ApiError'}
         '404': {$ref: '#/components/responses/ApiError'}
+  /v1/self-serve/signup:
+    post:
+      x-spareagent-extension: one-click sharing
+      operationId: selfServeSignup
+      summary: Create a provider account, its own invite-code group and a one-time device enrollment
+      description: >-
+        Requires the operator's signup code from the worker bundle and the sharing
+        acknowledgements. The group copies the operator-verified template authorization.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: true}
+      responses:
+        '201':
+          description: Provider, group and single-use enrollment token created
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        '401': {$ref: '#/components/responses/ApiError'}
+        '404': {$ref: '#/components/responses/ApiError'}
+        '409': {$ref: '#/components/responses/ApiError'}
+        '422': {$ref: '#/components/responses/ApiError'}
+  /v1/workers/me/sharing:
+    get:
+      x-spareagent-extension: one-click sharing
+      operationId: getOneClickSharing
+      summary: The owner's group, members, limits, sharing state and recent tasks for this node
+      security: [{nodeAuth: []}]
+      responses:
+        '200':
+          description: One-click sharing status
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OneClickSharingStatus'}
+        '401': {$ref: '#/components/responses/ApiError'}
+        '403': {$ref: '#/components/responses/ApiError'}
+        '404': {$ref: '#/components/responses/ApiError'}
+  /v1/workers/me/sharing/online:
+    post:
+      x-spareagent-extension: one-click sharing
+      operationId: goOnlineOneClick
+      summary: Connect, attest, accept terms, enable sharing with standing member approval
+      security: [{nodeAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: true}
+      responses:
+        '200':
+          description: Sharing enabled; a new invite code is returned once when first issued
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OneClickSharingStatus'}
+        '401': {$ref: '#/components/responses/ApiError'}
+        '403': {$ref: '#/components/responses/ApiError'}
+        '404': {$ref: '#/components/responses/ApiError'}
+        '409': {$ref: '#/components/responses/ApiError'}
+        '422': {$ref: '#/components/responses/ApiError'}
+  /v1/workers/me/sharing/offline:
+    post:
+      x-spareagent-extension: one-click sharing
+      operationId: goOfflineOneClick
+      summary: Pause sharing; queued tasks wait and running tasks finish
+      security: [{nodeAuth: []}]
+      responses:
+        '200':
+          description: Sharing paused
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OneClickSharingStatus'}
+        '401': {$ref: '#/components/responses/ApiError'}
+        '403': {$ref: '#/components/responses/ApiError'}
+        '404': {$ref: '#/components/responses/ApiError'}
+  /v1/workers/me/sharing/settings:
+    put:
+      x-spareagent-extension: one-click sharing
+      operationId: putOneClickSettings
+      summary: Adjust member and task limits and automatic approval at any time
+      security: [{nodeAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: true}
+      responses:
+        '200':
+          description: Settings saved
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OneClickSharingStatus'}
+        '401': {$ref: '#/components/responses/ApiError'}
+        '403': {$ref: '#/components/responses/ApiError'}
+        '404': {$ref: '#/components/responses/ApiError'}
+        '422': {$ref: '#/components/responses/ApiError'}
+  /v1/workers/me/sharing/invite-code:
+    post:
+      x-spareagent-extension: one-click sharing
+      operationId: rotateOneClickInviteCode
+      summary: Issue a new group invite code; the previous code stops working
+      security: [{nodeAuth: []}]
+      responses:
+        '200':
+          description: New invite code (returned once)
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OneClickSharingStatus'}
+        '401': {$ref: '#/components/responses/ApiError'}
+        '403': {$ref: '#/components/responses/ApiError'}
+        '404': {$ref: '#/components/responses/ApiError'}
+        '409': {$ref: '#/components/responses/ApiError'}
+  /v1/workers/me/sharing/members/{user_id}:
+    delete:
+      x-spareagent-extension: one-click sharing
+      operationId: removeOneClickMember
+      summary: Remove a member, cancel their unfinished tasks and rotate the invite code
+      security: [{nodeAuth: []}]
+      parameters:
+        - in: path
+          name: user_id
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Member removed
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OneClickSharingStatus'}
+        '401': {$ref: '#/components/responses/ApiError'}
+        '403': {$ref: '#/components/responses/ApiError'}
+        '404': {$ref: '#/components/responses/ApiError'}
+        '422': {$ref: '#/components/responses/ApiError'}
+  /v1/workers/me/sharing/dashboard-login:
+    post:
+      x-spareagent-extension: one-click sharing
+      operationId: createOneClickDashboardLogin
+      summary: One-time, five-minute dashboard sign-in code for this device's owner
+      security: [{nodeAuth: []}]
+      responses:
+        '200':
+          description: Sign-in code
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        '401': {$ref: '#/components/responses/ApiError'}
+        '403': {$ref: '#/components/responses/ApiError'}
+        '404': {$ref: '#/components/responses/ApiError'}
+  /v1/friends/join-code:
+    post:
+      x-spareagent-extension: one-click sharing
+      tags:
+      - friends
+      operationId: joinWithInviteCode
+      summary: Join a one-click sharing group with its invite code and sign in
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: true}
+      responses:
+        '200':
+          description: Joined and signed in
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendsIdentity'
+        '403': {$ref: '#/components/responses/ApiError'}
+        '404': {$ref: '#/components/responses/ApiError'}
+        '409': {$ref: '#/components/responses/ApiError'}
+        '422': {$ref: '#/components/responses/ApiError'}
   /v1/experiments/groups/{group_id}/metrics:
     get:
       operationId: getPilotMetrics
@@ -1910,6 +2083,9 @@ components:
         allow_paid_credits:
           type: boolean
           const: false
+        auto_approve_members:
+          type: boolean
+          description: One-click standing approval for the group's active members
         paused_at:
           anyOf:
           - type: string
@@ -2350,6 +2526,48 @@ components:
         token_id: {type: string, format: uuid}
         token: {type: string}
         expires_at: {type: string, format: date-time}
+    OneClickSharingStatus:
+      type: object
+      required: [group, members, sharing, live_ready, live_blockers, tasks_started_last_24h, tasks, dashboard_url]
+      properties:
+        group:
+          type: object
+          required: [id, name, status, sharing_enabled, max_members, member_cap, max_tasks_per_day, max_task_duration_seconds, has_invite_code]
+          properties:
+            id: {type: string, format: uuid}
+            name: {type: string}
+            status: {type: string}
+            sharing_enabled: {type: boolean}
+            max_members: {type: integer}
+            member_cap: {type: integer}
+            max_tasks_per_day: {type: integer}
+            max_task_duration_seconds: {type: integer}
+            has_invite_code: {type: boolean}
+            invite_code_rotated_at: {type: ['string', 'null'], format: date-time}
+        members:
+          type: array
+          items:
+            type: object
+            required: [user_id, status, is_owner]
+            properties:
+              user_id: {type: string, format: uuid}
+              status: {type: string}
+              joined_at: {type: ['string', 'null'], format: date-time}
+              is_owner: {type: boolean}
+        sharing:
+          type: ['object', 'null']
+          properties:
+            connection_id: {type: string, format: uuid}
+            state: {type: string}
+            auto_approve_members: {type: boolean}
+        live_ready: {type: boolean}
+        live_blockers: {type: array, items: {type: string}}
+        tasks_started_last_24h: {type: integer}
+        tasks:
+          type: array
+          items: {type: object, additionalProperties: true}
+        dashboard_url: {type: string}
+        invite_code: {type: ['string', 'null'], description: Returned only when a new code was just issued}
     FriendsIdentity:
       properties:
         user_id:

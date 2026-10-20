@@ -3,7 +3,7 @@ const uuid = "[0-9a-fA-F-]{36}";
 const routes = [
   ["GET", `^friends/groups/${uuid}/audit$`],
   ["GET", "^friends/me$"],
-  ["POST", "^friends/(login|logout)$"],
+  ["POST", "^friends/(login|logout|join-code)$"],
   ["GET", "^experiments/groups$"],
   ["GET", `^experiments/groups/${uuid}(/audit|/metrics)?$`],
   ["POST", `^experiments/groups/${uuid}/join$`],

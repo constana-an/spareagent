@@ -88,9 +88,21 @@ class Settings(BaseSettings):
     # Off by default; even when on, each dispatch needs a verified, unexpired,
     # route-covered authorization plus the owner's codex-check and credits attestations.
     experiment_live_enabled: bool = False
+    # One-click sharing: anyone holding the operator's signup code (shipped inside the
+    # worker bundle) can create their own provider account and invite-code group. Each new
+    # group copies the operator-verified template authorization, so the operator still
+    # decides which written permission covers self-serve groups and can revoke it.
+    self_serve_enabled: bool = False
+    self_serve_signup_code: SecretStr | None = None
+    self_serve_authorization_id: uuid.UUID | None = None
 
     local_worker_node_ids: str = DEFAULT_LOCAL_WORKER
     mock_chat_resource_id: uuid.UUID = uuid.UUID(DEFAULT_MOCK_CHAT_RESOURCE)
+
+    @field_validator("self_serve_signup_code", "self_serve_authorization_id", mode="before")
+    @classmethod
+    def _blank_is_unset(cls, value):
+        return None if value == "" else value
 
     @field_validator("provider_mode")
     @classmethod
@@ -132,6 +144,14 @@ class Settings(BaseSettings):
                 or (self.app_env != "local" and origin.scheme != "https")
             ):
                 raise ConfigError("FRIENDS_WEB_ORIGIN must be an origin; HTTPS outside local")
+        if self.self_serve_enabled:
+            code = self.self_serve_signup_code
+            if code is None or len(code.get_secret_value()) < 16:
+                raise ConfigError("SELF_SERVE_SIGNUP_CODE must be at least 16 characters")
+            if self.self_serve_authorization_id is None or not self.experiment_enabled:
+                raise ConfigError(
+                    "SELF_SERVE_ENABLED needs EXPERIMENT_ENABLED and SELF_SERVE_AUTHORIZATION_ID"
+                )
         self.code_resource_ids  # noqa: B018 - validate UUIDs eagerly
         # Validate CIDRs eagerly so a typo cannot silently widen or break the trust boundary.
         self.trusted_networks  # noqa: B018
