@@ -831,6 +831,47 @@ async def test_daily_and_duration_limits(xclient, xctx):
     assert t["status"] == "QUEUED" and t["last_decision"]["reasons"] == ["DAILY_LIMIT"]
 
 
+async def test_limits_only_update_keeps_mac_app_settings(xclient, xctx):
+    # The web "configure" form sends only daily and duration limits; whatever the
+    # owner set in the Mac app (concurrency, kinds, approval, consent) must survive.
+    kinds = ["CODE_CHANGE", "CODE_REVIEW", "TRANSLATE_DOCUMENT"]
+    gid = await make_group(xclient, max_concurrent_tasks=3, allowed_task_types=kinds)
+    await invite_join(xclient, gid, ALICE, BOB)
+    await authorize(xclient, gid)
+    await ok(
+        await xclient.post(
+            f"/v1/experiments/groups/{gid}/sharing",
+            json={"enabled": True},
+            headers=headers(ADMIN),
+        )
+    )
+    conn = await connect_and_share(
+        xclient,
+        gid,
+        max_concurrent_tasks=3,
+        allowed_task_types=kinds,
+        require_owner_approval=False,
+        advance_consent_requester_ids=[str(BOB)],
+    )
+    prefs = await ok(
+        await xclient.put(
+            "/v1/sharing/preferences",
+            json={
+                "connection_id": conn,
+                "group_id": gid,
+                "max_tasks_per_day": 2,
+                "max_task_duration_seconds": 120,
+            },
+            headers=headers(ALICE),
+        )
+    )
+    assert prefs["max_tasks_per_day"] == 2 and prefs["max_task_duration_seconds"] == 120
+    assert prefs["max_concurrent_tasks"] == 3
+    assert prefs["allowed_task_types"] == kinds
+    assert prefs["require_owner_approval"] is False
+    assert prefs["advance_consent_requester_ids"] == [str(BOB)]
+
+
 async def test_expired_owner_login_blocks_assignment(xclient, xctx):
     gid, conn = await world(xclient)
     first = await submit(xclient, gid, conn, prompt="Review [sim:auth-expired]")

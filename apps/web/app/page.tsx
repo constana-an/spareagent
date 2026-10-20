@@ -1,6 +1,7 @@
 "use client";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { initialLang, Lang, saveLang, Translate, translator } from "./i18n";
+import { limitsUpdate } from "../lib/preferences.mjs";
 
 type Me = {
   user_id: string;
@@ -891,17 +892,11 @@ export default function Dashboard() {
                       e.preventDefault();
                       const f = new FormData(e.currentTarget);
                       void act(async () => {
-                        await api("sharing/preferences", "PUT", {
-                          connection_id: d.connection.id,
-                          group_id: gid,
-                          max_concurrent_tasks: 1,
-                          max_tasks_per_day: Number(f.get("daily")),
-                          max_task_duration_seconds: Number(f.get("duration")),
-                          require_owner_approval: true,
-                          advance_consent_requester_ids: [],
-                          allowed_task_types: ["CODE_REVIEW"],
-                          allow_paid_credits: false,
-                        });
+                        await api(
+                          "sharing/preferences",
+                          "PUT",
+                          limitsUpdate(d.connection.id, gid, f),
+                        );
                         await api("sharing/enable", "POST", {
                           connection_id: d.connection.id,
                           terms_version: me.terms_version,
