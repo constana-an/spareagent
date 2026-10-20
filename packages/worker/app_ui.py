@@ -132,7 +132,7 @@ zh: {
  starting:"正在上线…", stopping:"正在下线…", retry:"重试上线",
  st_OFFLINE:"已下线：不会接任何任务。", st_ONLINE:"在线：小组成员的任务会自动批准并在这台电脑上运行。",
  st_STARTING:"正在上线，请按提示操作。", st_STOPPING:"正在下线…", st_ERROR:"上线失败：",
- step_codex_install:"检查 / 安装 Codex CLI", step_codex_login:"登录你自己的 ChatGPT（浏览器会自动打开）",
+ step_codex_install:"检查 / 安装 Codex CLI（首次需下载约 100 MB）", step_git_check:"检查 Apple 命令行工具（代码任务需要）", step_codex_login:"登录你自己的 ChatGPT（浏览器会自动打开）",
  step_signup:"注册这台设备并创建你的小组", step_owner_check:"本机自检（用你自己的额度跑一句很短的提示）",
  step_server_online:"开启分享与自动批准", step_worker_start:"启动接单程序",
  step_server_offline:"暂停分享", step_worker_stop:"停止接单程序",
@@ -161,7 +161,8 @@ zh: {
  footer:"关闭这个页面不会下线；关闭运行它的终端窗口或按 Ctrl-C 会自动下线。",
  e_bundle_missing:"缺少运营者提供的连接配置（bundle.json）。请用运营者给你的安装包重新安装。",
  e_codex_missing:"没有找到 Codex CLI，也没有 npm 或 Homebrew 可以自动安装。请先安装 Node.js（nodejs.org）后重试。",
- e_codex_install_failed:"自动安装 Codex CLI 失败。", e_codex_login_failed:"Codex 登录没有完成。",
+ e_codex_install_failed:"自动安装 Codex CLI 失败，请检查网络后点「重试上线」。",
+ e_git_missing:"需要安装 Apple 命令行工具：请在弹出的窗口点「安装」，完成后（约 5–15 分钟）点「重试上线」。", e_codex_login_failed:"Codex 登录没有完成。",
  e_codex_login_required:"需要用你自己的 ChatGPT 账号登录 Codex（不要用 API Key）。",
  e_owner_check_failed:"本机自检没有通过。请确认 Codex 能正常使用后重试。",
  e_server_rejected:"服务器拒绝了请求：", e_server_unreachable:"连不上服务器，请检查网络：",
@@ -197,7 +198,7 @@ en: {
  starting:"Going online…", stopping:"Going offline…", retry:"Retry",
  st_OFFLINE:"Offline: no tasks will run.", st_ONLINE:"Online: your group's tasks are auto-approved and run on this computer.",
  st_STARTING:"Going online — follow any prompts.", st_STOPPING:"Going offline…", st_ERROR:"Could not go online: ",
- step_codex_install:"Check / install the Codex CLI", step_codex_login:"Sign in with your own ChatGPT (a browser opens)",
+ step_codex_install:"Check / install the Codex CLI (first time: ~100 MB download)", step_git_check:"Check Apple command line tools (needed for code tasks)", step_codex_login:"Sign in with your own ChatGPT (a browser opens)",
  step_signup:"Register this device and create your group", step_owner_check:"Self-check (one tiny prompt on your own plan)",
  step_server_online:"Enable sharing and automatic approval", step_worker_start:"Start the worker",
  step_server_offline:"Pause sharing", step_worker_stop:"Stop the worker",
@@ -226,7 +227,8 @@ en: {
  footer:"Closing this page does not go offline; closing the Terminal window that runs it, or Ctrl-C, does.",
  e_bundle_missing:"The operator's connection file (bundle.json) is missing. Reinstall from the operator's package.",
  e_codex_missing:"Codex CLI not found and neither npm nor Homebrew is available to install it. Install Node.js (nodejs.org) and retry.",
- e_codex_install_failed:"Installing the Codex CLI failed.", e_codex_login_failed:"Codex sign-in did not finish.",
+ e_codex_install_failed:"Installing the Codex CLI failed; check the network and retry.",
+ e_git_missing:"Apple's command line tools are needed: click Install in the dialog, then Retry when it finishes (about 5–15 minutes).", e_codex_login_failed:"Codex sign-in did not finish.",
  e_codex_login_required:"Sign in to Codex with your own ChatGPT account (not an API key).",
  e_owner_check_failed:"The self-check failed. Make sure Codex works, then retry.",
  e_server_rejected:"The server rejected the request: ", e_server_unreachable:"Cannot reach the server; check the network: ",
@@ -243,7 +245,7 @@ en: {
  r_minutes:"Minutes per task must be between 1 and 60.", r_integer:"Enter whole numbers.",
  sc_code:(c)=>` (error code ${c})`
 }};
-const ONLINE_STEPS=["codex_install","codex_login","signup","owner_check","server_online","worker_start"];
+const ONLINE_STEPS=["codex_install","git_check","codex_login","signup","owner_check","server_online","worker_start"];
 const OFFLINE_STEPS=["server_offline","worker_stop"];
 const KEY=new URLSearchParams(location.hash.slice(1)).get("k")||"";
 let lang=(()=>{try{return localStorage.getItem("sa_lang")}catch(e){return null}})()||"zh";

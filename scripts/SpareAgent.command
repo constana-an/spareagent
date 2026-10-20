@@ -1,7 +1,9 @@
 #!/bin/bash
 # SpareAgent 一键提供算力 / one-click sharing. Double-click in Finder (first time: right-click
-# → Open). Installs the worker from the wheel next to this file after checking its SHA-256,
-# then opens the control page. Closing this window takes the device offline.
+# → Open). Needs no Homebrew, Python or Node: on first launch it downloads the pinned official
+# Python build listed in runtime.json, checks its SHA-256, installs the worker from the wheels
+# next to this file (checked against SHA256SUMS), then opens the control page. Closing this
+# window takes the device offline.
 set -euo pipefail
 umask 077
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -13,43 +15,55 @@ export PATH
 
 pause() { read -r -p "按回车关闭 / Press Enter to close " _ || true; }
 fail() { printf '\n%s\n' "$*" >&2; pause; exit 1; }
+pin() { plutil -extract "$1" raw -o - runtime.json 2>/dev/null; }
 
-wheel="$(ls spareagent_worker-*-py3-none-any.whl 2>/dev/null | head -1)"
-[[ -n "$wheel" && -f SHA256SUMS && -f bundle.json ]] ||
-  fail "安装包不完整（需要 wheel、SHA256SUMS、bundle.json）。Incomplete package."
-expected="$(awk -v w="$wheel" '$2 == w {print $1}' SHA256SUMS)"
-actual="$(shasum -a 256 "$wheel" | cut -d ' ' -f 1)"
-[[ -n "$expected" && "$actual" == "$expected" ]] ||
+[[ -f SHA256SUMS && -f bundle.json && -f runtime.json ]] ||
+  fail "安装包不完整（需要 SHA256SUMS、bundle.json、runtime.json）。Incomplete package."
+# Every file listed in SHA256SUMS (worker wheel, dependency wheels, runtime.json) must match.
+shasum -a 256 -c SHA256SUMS --status 2>/dev/null ||
   fail "安装包校验失败，请向运营者重新获取。Checksum mismatch: ask the operator again."
 
-root="${SPAREAGENT_WORKER_INSTALL_DIR:-$HOME/.local/share/spareagent-worker}"
-if [[ "$(cat "$root/.wheel-sha256" 2>/dev/null || true)" != "$actual" ]]; then
+case "$(uname -m)" in
+  arm64) arch=arm64 ;;
+  x86_64) arch=x86_64 ;;
+  *) fail "不支持这台电脑的处理器。Unsupported CPU: $(uname -m)" ;;
+esac
+py_url="$(pin "python.assets.$arch.url")"
+py_sha="$(pin "python.assets.$arch.sha256")"
+[[ -n "$py_url" && -n "$py_sha" ]] || fail "安装包缺少运行环境信息。runtime.json is incomplete."
+
+base="$HOME/Library/Application Support/SpareAgent"
+pyhome="$base/python-${py_sha:0:16}"
+mkdir -p "$base"
+if [[ ! -x "$pyhome/bin/python3" ]]; then
+  echo "首次运行：正在下载运行环境（约 25 MB）… / First run: downloading the runtime (~25 MB)…"
+  tmp="$(mktemp -d "$base/.python-XXXXXX")"
+  trap 'rm -rf "$tmp"' EXIT
+  curl -fL --proto '=https' --tlsv1.2 --retry 3 --connect-timeout 20 -o "$tmp/python.tar.gz" "$py_url" ||
+    fail "下载运行环境失败，请检查网络后再双击本文件。Download failed: check the network and retry."
+  [[ "$(shasum -a 256 "$tmp/python.tar.gz" | cut -d ' ' -f 1)" == "$py_sha" ]] ||
+    fail "运行环境校验失败，已停止。Runtime checksum mismatch; stopped."
+  tar -xzf "$tmp/python.tar.gz" -C "$tmp"
+  [[ -x "$tmp/python/bin/python3" ]] || fail "运行环境格式不正确。Unexpected runtime layout."
+  rm -rf "$pyhome"
+  mv "$tmp/python" "$pyhome"
+  rm -rf "$tmp"
+  trap - EXIT
+fi
+
+wheel="$(ls spareagent_worker-*-py3-none-any.whl 2>/dev/null | head -1)"
+[[ -n "$wheel" ]] || fail "安装包缺少 Worker。Worker wheel missing."
+stamp="$(shasum -a 256 SHA256SUMS | cut -d ' ' -f 1)-${py_sha:0:16}"
+venv="$base/worker"
+if [[ "$(cat "$venv/.package-sha256" 2>/dev/null || true)" != "$stamp" ]]; then
   echo "正在安装 SpareAgent Worker… / Installing the worker…"
-  py=""
-  for c in python3.13 python3.12 python3; do
-    if command -v "$c" >/dev/null &&
-      "$c" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 12) else 1)' 2>/dev/null; then
-      py="$(command -v "$c")"; break
-    fi
-  done
-  if [[ -z "$py" ]]; then
-    if command -v brew >/dev/null; then
-      echo "正在安装 Python 3.12… / Installing Python 3.12…"
-      brew install python@3.12
-      py="$(brew --prefix)/bin/python3.12"
-    else
-      open "https://www.python.org/downloads/macos/"
-      fail "需要 Python 3.12 或更新版本：请在打开的网页安装后，再双击本文件。Install Python 3.12+, then double-click again."
-    fi
-  fi
-  if ! xcode-select -p >/dev/null 2>&1; then
-    xcode-select --install >/dev/null 2>&1 || true
-    fail "请在弹出的窗口安装 Apple 命令行工具，完成后再双击本文件。Install the Apple command line tools, then double-click again."
-  fi
-  [[ -x "$root/bin/python" ]] || "$py" -m venv "$root"
-  "$root/bin/python" -m pip install --disable-pip-version-check -q --force-reinstall "$wheel"
-  printf '%s' "$actual" > "$root/.wheel-sha256"
+  rm -rf "$venv"
+  "$pyhome/bin/python3" -m venv "$venv"
+  # Offline: only the wheels shipped (and checksummed) in this package.
+  "$venv/bin/python" -m pip install --disable-pip-version-check -q --no-index \
+    --find-links "$here/wheels" --find-links "$here" "$wheel"
+  printf '%s' "$stamp" > "$venv/.package-sha256"
 fi
 
 echo "正在打开控制页面… / Opening the control page…"
-exec "$root/bin/spareagent-worker" app --bundle "$here/bundle.json"
+exec "$venv/bin/spareagent-worker" app --bundle "$here/bundle.json"

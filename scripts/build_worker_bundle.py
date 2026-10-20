@@ -4,6 +4,11 @@ With --api-url (and the one-click options) it also writes `bundle.json` and a
 double-clickable `SpareAgent.command`, and zips everything as `SpareAgent-mac.zip`: a
 newcomer unzips it, double-clicks and presses one button. The zip contains the signup code,
 so share it only privately with people you would let create a sharing group.
+
+The package needs nothing preinstalled on the Mac: it carries the worker's pure-Python
+dependency wheels and `runtime.json` (copied from `scripts/runtime-pins.json`), which pins
+the official Python build the launcher downloads and the Codex CLI build the app downloads,
+each with its checksum. SHA256SUMS covers every shipped file the launcher installs from.
 """
 
 import argparse
@@ -18,6 +23,29 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WHEEL = "spareagent_worker-0.7.0-py3-none-any.whl"
+
+
+def fetch_dependency_wheels(out: Path) -> None:
+    """The worker's dependencies as wheels, so the launcher installs fully offline."""
+    wheels = out / "wheels"
+    shutil.rmtree(wheels, ignore_errors=True)
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "download",
+            "--only-binary=:all:",
+            "--dest",
+            str(wheels),
+            str(out / WHEEL),
+        ],
+        check=True,
+    )
+    (wheels / WHEEL).unlink(missing_ok=True)
+    native = [p.name for p in wheels.glob("*.whl") if not p.name.endswith("-none-any.whl")]
+    if native:
+        raise SystemExit(f"dependency wheels must be pure Python, got {native}")
 
 
 def write_bundle(out: Path, args: argparse.Namespace) -> None:
@@ -37,9 +65,14 @@ def write_bundle(out: Path, args: argparse.Namespace) -> None:
     launcher = out / "SpareAgent.command"
     shutil.copy2(ROOT / "scripts" / "SpareAgent.command", launcher)
     launcher.chmod(0o755)
+    deps = sorted(p.relative_to(out).as_posix() for p in (out / "wheels").glob("*.whl"))
+    checked = [WHEEL, *deps, "runtime.json"]
+    (out / "SHA256SUMS").write_text(
+        "".join(f"{hashlib.sha256((out / n).read_bytes()).hexdigest()}  {n}\n" for n in checked)
+    )
     archive = out / "SpareAgent-mac.zip"
     with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zf:
-        for name in (WHEEL, "SHA256SUMS", "bundle.json", "SpareAgent.command"):
+        for name in (*checked, "SHA256SUMS", "bundle.json", "SpareAgent.command"):
             info = zipfile.ZipInfo(f"SpareAgent/{name}")
             info.external_attr = (0o755 if name.endswith(".command") else 0o644) << 16
             info.compress_type = zipfile.ZIP_DEFLATED
@@ -80,6 +113,8 @@ def main():
     shutil.copy2(ROOT / "scripts" / "setup-worker-macos.sh", out)
     print(f"Bundle: {out}\nWorker SHA-256: {digest}")
     if args.api_url:
+        fetch_dependency_wheels(out)
+        shutil.copy2(ROOT / "scripts" / "runtime-pins.json", out / "runtime.json")
         write_bundle(out, args)
 
 

@@ -3,7 +3,8 @@
 Opens a local page (127.0.0.1 only, random port, per-launch key) with one button. The
 first click, after the owner reads the statements shown next to it, does everything:
 
-1. installs the official Codex CLI if missing (npm or Homebrew) and opens `codex login`
+1. installs the official Codex CLI if missing (the pinned build from the package's
+   `runtime.json`, otherwise npm or Homebrew) and opens `codex login`
    so the owner signs in with their own ChatGPT account (credentials stay with Codex);
 2. signs up with the operator's bundle and registers this device;
 3. runs the owner-only check once (one tiny prompt on the owner's own plan);
@@ -32,6 +33,12 @@ from pathlib import Path
 from typing import Any
 
 from packages.worker.lease_client import NodeClient, TransportError, WorkerApiError
+from packages.worker.runtime import (
+    ManagedCodex,
+    RuntimeSetupError,
+    git_available,
+    request_git_install,
+)
 from packages.worker.state import NodeState, load_state, save_state
 
 log = logging.getLogger(__name__)
@@ -130,11 +137,17 @@ def default_device_label() -> str:
 class CodexTools:
     """The owner's own Codex CLI. SpareAgent never reads its credentials."""
 
-    def __init__(self, codex_bin: str = "codex") -> None:
+    def __init__(self, codex_bin: str = "codex", managed: ManagedCodex | None = None) -> None:
         self.codex_bin = codex_bin
+        self.managed = managed
 
     def installed(self) -> bool:
-        return bool(shutil.which(self.codex_bin))
+        if shutil.which(self.codex_bin):
+            return True
+        if self.codex_bin == "codex" and self.managed is not None and self.managed.installed():
+            self.codex_bin = self.managed.activate()
+            return True
+        return False
 
     async def _run(self, argv: list[str], limit_seconds: float) -> tuple[int, str]:
         proc = await asyncio.create_subprocess_exec(
@@ -158,6 +171,14 @@ class CodexTools:
         if self.codex_bin != "codex":
             # An explicitly configured binary is the owner's choice; never install over it.
             raise AppError("codex_missing", self.codex_bin)
+        if self.managed is not None:
+            try:
+                self.codex_bin = await self.managed.install()
+            except (RuntimeSetupError, OSError) as exc:
+                raise AppError("codex_install_failed", str(exc)) from exc
+            except Exception as exc:  # noqa: BLE001 - network errors from httpx
+                raise AppError("codex_install_failed", type(exc).__name__) from exc
+            return
         npm, brew = shutil.which("npm"), shutil.which("brew")
         if npm:
             argv = [npm, "install", "-g", "@openai/codex"]
@@ -216,10 +237,20 @@ class Controller:
         codex: CodexTools | None = None,
         client_factory=None,
         agent_factory=None,
+        runtime_pins: dict[str, Any] | None = None,
+        git_check=git_available,
     ) -> None:
         self.directory = directory
         self.bundle = bundle
-        self.codex = codex or CodexTools(os.environ.get("SPAREAGENT_CODEX_BIN", "codex"))
+        managed = (
+            ManagedCodex(directory / "runtime", runtime_pins)
+            if runtime_pins and runtime_pins.get("codex")
+            else None
+        )
+        self.codex = codex or CodexTools(
+            os.environ.get("SPAREAGENT_CODEX_BIN", "codex"), managed=managed
+        )
+        self._git_check = git_check
         self._client_factory = client_factory or self._default_client
         self._agent_factory = agent_factory or self._default_agent
         self.snap = Snapshot()
@@ -370,6 +401,12 @@ class Controller:
         self.snap.step = "codex_install"
         if not self.codex.installed():
             await self.codex.install()
+
+        # Code tasks clone repositories; a fresh Mac needs Apple's command line tools.
+        self.snap.step = "git_check"
+        if not self._git_check():
+            request_git_install()
+            raise AppError("git_missing")
 
         self.snap.step = "codex_login"
         if not await self.codex.logged_in():

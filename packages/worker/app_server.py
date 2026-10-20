@@ -24,6 +24,7 @@ from typing import Any
 from packages.worker.app import AppError, Bundle, Controller, find_bundle, write_private
 from packages.worker.app_ui import PAGE
 from packages.worker.lease_client import TransportError, WorkerApiError
+from packages.worker.runtime import RUNTIME_FILE, find_pins, load_pins
 from packages.worker.state import clear_pid, pid_alive, read_pid, state_dir, write_pid
 
 log = logging.getLogger(__name__)
@@ -190,7 +191,10 @@ async def run_app(
     if found and found.resolve() != (directory / "bundle.json").resolve():
         # Keep a private copy so later launches (and updates) need no path.
         write_private(directory / "bundle.json", found.read_text(encoding="utf-8"))
-    controller = Controller(directory, bundle)
+    pins_path = find_pins(directory, found)
+    if pins_path and pins_path.resolve() != (directory / RUNTIME_FILE).resolve():
+        write_private(directory / RUNTIME_FILE, pins_path.read_text(encoding="utf-8"))
+    controller = Controller(directory, bundle, runtime_pins=load_pins(pins_path))
     loop = asyncio.get_running_loop()
     server = AppServer(controller, loop, port)
     write_pid(directory)
