@@ -37,6 +37,7 @@ from db.models import (
     SubscriptionConnection,
     SubscriptionSharingPreference,
     Task,
+    TaskAttempt,
     User,
     WorkerNode,
 )
@@ -54,6 +55,7 @@ from services.experiments.participation import (
 from services.subscriptions.policy import PERSONAL_SUBSCRIPTION
 from services.subscriptions.usage import SubscriptionUsageMonitor
 from services.tasks.kinds import CATALOG, TOOLS, experimental_kinds
+from services.tasks.progress import task_details
 from services.tasks.service import Principal
 from services.tasks.uploads import TaskKindService
 
@@ -390,6 +392,23 @@ class SelfServeSharingService:
         return await self.status(worker_id)
 
     @staticmethod
+    async def _busy_seconds_last_24h(session, worker_id, now) -> float:
+        """Time this device spent executing attempts in the last 24 hours."""
+        since = now - timedelta(hours=24)
+        rows = (
+            await session.execute(
+                select(TaskAttempt.started_at, TaskAttempt.completed_at).where(
+                    TaskAttempt.worker_id == worker_id,
+                    TaskAttempt.started_at.is_not(None),
+                    func.coalesce(TaskAttempt.completed_at, now) > since,
+                )
+            )
+        ).all()
+        return sum(
+            max(0.0, ((end or now) - max(start, since)).total_seconds()) for start, end in rows
+        )
+
+    @staticmethod
     async def _apply_capability_settings(session, worker_id, group, prefs, body) -> None:
         """Concurrency, kinds and tools (design §5). The owner owns this group, so its
         group-level caps follow the owner's own limits."""
@@ -511,6 +530,8 @@ class SelfServeSharingService:
                     .limit(20)
                 )
             ).all()
+            details = await task_details(session, [t for t, _ in tasks])
+            busy_seconds = await self._busy_seconds_last_24h(session, worker_id, now)
         live_blockers = []
         if not self.ctx.settings.experiment_live_enabled:
             live_blockers.append("LIVE_EXECUTION_DISABLED")
@@ -579,9 +600,20 @@ class SelfServeSharingService:
                     "approval_status": c.status,
                     "approval_source": c.consent_source,
                     "created_at": t.created_at,
+                    "started_at": details[t.id]["started_at"],
+                    "progress": details[t.id]["progress"],
+                    "queue_position": details[t.id]["queue_position"],
+                    "failure": details[t.id]["failure"],
+                    "max_duration_seconds": t.max_duration_seconds,
                 }
                 for t, c in tasks
             ],
+            "usage": {
+                "tasks_started_last_24h": started,
+                "execution_minutes_last_24h": round(busy_seconds / 60, 1),
+                "running": sum(1 for t, _ in tasks if t.status in ("RESERVED", "RUNNING")),
+                "queued": sum(1 for t, _ in tasks if t.status == "QUEUED"),
+            },
             "dashboard_url": self.ctx.settings.friends_web_origin,
             "invite_code": None,
         }

@@ -317,6 +317,7 @@ async def complete_lease(
             usage=usage,
             observed_usage=body.observed_usage.model_dump() if body.observed_usage else None,
             reset_hint=body.reset_hint,
+            failure_detail=body.failure_detail,
         ),
     )
     return CompletionOut(task_status=outcome.task_status, replayed=outcome.replayed)

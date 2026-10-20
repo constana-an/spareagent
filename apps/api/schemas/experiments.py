@@ -437,6 +437,11 @@ class ExperimentalTaskOut(BaseModel):
     last_decision: DecisionOut | None
     created_at: datetime
     result_summary: str | None = None
+    # step D (design §6): what the member sees while waiting/running and after a failure
+    progress: dict[str, Any] | None = None
+    queue_position: int | None = None
+    started_at: datetime | None = None
+    failure: dict[str, str | None] | None = None
 
 
 class ExperimentalTaskList(BaseModel):

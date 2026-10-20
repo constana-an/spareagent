@@ -69,6 +69,15 @@ h3.sub{font-size:14px;margin:16px 0 6px}
   <div class="state" id="state" role="status" aria-live="polite"></div>
   <ol class="steps hidden" id="steps"></ol>
   <button class="s hidden" id="cancel" type="button" data-t="cancel"></button>
+  <div class="card hidden" id="offline_choice" role="dialog" aria-labelledby="oc_title">
+    <h2 id="oc_title" data-t="oc_title"></h2>
+    <p class="muted" id="oc_text"></p>
+    <div class="row">
+      <button class="s p" id="oc_finish" type="button" data-t="oc_finish"></button>
+      <button class="s" id="oc_now" type="button" data-t="oc_now"></button>
+      <button class="s" id="oc_cancel" type="button" data-t="cancel"></button>
+    </div>
+  </div>
   <div class="error hidden" id="error" role="alert"></div>
 </section>
 
@@ -112,6 +121,14 @@ h3.sub{font-size:14px;margin:16px 0 6px}
     <button class="s p" id="save" type="button" data-t="save"></button>
     <small id="usage" role="status" aria-live="polite"></small>
   </div>
+</section>
+
+<section class="card hidden" id="running">
+  <h2 data-t="running_title"></h2>
+  <p class="muted" id="usage_line" role="status" aria-live="polite"></p>
+  <table><thead><tr><th data-t="kind"></th><th data-t="elapsed"></th><th data-t="progress"></th></tr></thead>
+  <tbody id="running_rows"></tbody></table>
+  <p class="muted" data-t="pause_note"></p>
 </section>
 
 <section class="card hidden" id="members">
@@ -179,11 +196,20 @@ zh: {
  s_QUEUED:"排队中", s_RESERVED:"已分配", s_RUNNING:"运行中", s_VERIFYING:"校验中", s_SUCCEEDED:"完成",
  s_FAILED:"失败", s_CANCELLED:"已取消", s_CANCELLING:"取消中", s_TIMED_OUT:"超时", s_CREATED:"已创建",
  s_AWAITING_APPROVAL:"等待批准", s_REJECTED:"已拒绝",
- tt_CODE_REVIEW:"代码审查", tt_TRANSLATE:"翻译", tt_DATA_ANALYSIS:"表格分析", tt_CODE_CHANGE:"修改代码",
- tt_WRITING:"写作与润色", tt_SUMMARIZE:"总结", tt_DOCUMENT_QA:"文档问答",
+ tt_CODE_REVIEW:"代码审查", tt_TRANSLATE_DOCUMENT:"翻译文档", tt_ANALYZE_SPREADSHEET:"分析表格", tt_CODE_CHANGE:"修改代码",
+ tt_CODE_FIX:"修复问题", tt_WRITE_TESTS:"补充测试",
  m_LIVE:"真实执行", m_SIMULATED:"模拟",
  save_failed:"未保存：", saving:"正在保存…",
- concurrency:"同时运行的任务数（1–3）", r_concurrency:"同时运行的任务数需在 1–3 之间。", r_kinds:"至少选择一种任务。",
+ concurrency:"同时运行的任务数（1–3）",
+ oc_title:"还有任务正在运行", oc_text:(n)=>`这台电脑上有 ${n} 个任务正在运行。下线后不会再接新任务。`,
+ oc_finish:"运行完再下线", oc_now:"立即停止并交还", step_draining:"等待正在运行的任务完成",
+ running_title:"正在运行", elapsed:"已用时间", progress:"进度", none_running:"现在没有正在运行的任务。",
+ usage_line:(n,m,r,q)=>`过去 24 小时：接了 ${n} 个任务，执行了 ${m} 分钟。现在运行 ${r} 个，排队 ${q} 个。`,
+ pause_note:"暂停或下线后：不再接新任务；正在运行的任务按你选择的方式处理（运行完，或立即停止后交还平台重新安排）；排队中的任务会等你重新上线。",
+ queued_n:(n)=>`排队第 ${n} 位`,
+ fc_INPUT:"输入不合格", fc_TIMEOUT:"超时", fc_WAIT_TIMEOUT:"等待接单超时", fc_OUTPUT_LIMIT:"结果超出大小上限",
+ fc_DEVICE_INTERRUPTED:"设备中断", fc_CHECK_FAILED:"结果未通过检查", fc_AUTHORIZATION:"授权或限额变化",
+ fc_LOGIN:"Codex 登录失效", fc_USAGE_LIMIT:"订阅额度已用完", fc_CANCELLED:"已取消", fc_OTHER:"其他原因", r_concurrency:"同时运行的任务数需在 1–3 之间。", r_kinds:"至少选择一种任务。",
  kinds_title:"允许的任务种类", tools_title:"本机工具（任务只能使用你允许且已安装的工具）",
  ks_OPEN:"已开放", ks_LIVE_ACCEPTED:"验收通过，待开放", ks_SIMULATED_OK:"模拟通过", ks_DEVELOPING:"开发中，仅模拟", ks_DISABLED:"已停用",
  needs:"需要：", missing_tool:"（本机缺少）",
@@ -252,11 +278,20 @@ en: {
  s_QUEUED:"Queued", s_RESERVED:"Assigned", s_RUNNING:"Running", s_VERIFYING:"Verifying", s_SUCCEEDED:"Done",
  s_FAILED:"Failed", s_CANCELLED:"Cancelled", s_CANCELLING:"Cancelling", s_TIMED_OUT:"Timed out", s_CREATED:"Created",
  s_AWAITING_APPROVAL:"Awaiting approval", s_REJECTED:"Rejected",
- tt_CODE_REVIEW:"Code review", tt_TRANSLATE:"Translation", tt_DATA_ANALYSIS:"Spreadsheet analysis", tt_CODE_CHANGE:"Code change",
- tt_WRITING:"Writing", tt_SUMMARIZE:"Summary", tt_DOCUMENT_QA:"Document Q&A",
+ tt_CODE_REVIEW:"Code review", tt_TRANSLATE_DOCUMENT:"Translate a document", tt_ANALYZE_SPREADSHEET:"Analyze spreadsheets", tt_CODE_CHANGE:"Change code",
+ tt_CODE_FIX:"Fix a bug", tt_WRITE_TESTS:"Write tests",
  m_LIVE:"Live", m_SIMULATED:"Simulated",
  save_failed:"Not saved: ", saving:"Saving…",
- concurrency:"Tasks at the same time (1–3)", r_concurrency:"Tasks at the same time must be 1–3.", r_kinds:"Choose at least one kind.",
+ concurrency:"Tasks at the same time (1–3)",
+ oc_title:"Tasks are still running", oc_text:(n)=>`${n} task(s) are running on this computer. Going offline accepts no new tasks.`,
+ oc_finish:"Finish them, then go offline", oc_now:"Stop now and hand back", step_draining:"Waiting for running tasks to finish",
+ running_title:"Running now", elapsed:"Elapsed", progress:"Progress", none_running:"Nothing is running right now.",
+ usage_line:(n,m,r,q)=>`Last 24 hours: ${n} task(s), ${m} minutes of execution. Running ${r}, queued ${q}.`,
+ pause_note:"After pausing or going offline: no new tasks; running tasks finish or stop and go back to the platform, as you choose; queued tasks wait until you are online again.",
+ queued_n:(n)=>`Queued #${n}`,
+ fc_INPUT:"Invalid input", fc_TIMEOUT:"Timed out", fc_WAIT_TIMEOUT:"Not picked up in time", fc_OUTPUT_LIMIT:"Result too large",
+ fc_DEVICE_INTERRUPTED:"Device interrupted", fc_CHECK_FAILED:"Result failed its checks", fc_AUTHORIZATION:"Authorization or limits changed",
+ fc_LOGIN:"Codex sign-in expired", fc_USAGE_LIMIT:"Plan usage limit reached", fc_CANCELLED:"Cancelled", fc_OTHER:"Other reason", r_concurrency:"Tasks at the same time must be 1–3.", r_kinds:"Choose at least one kind.",
  kinds_title:"Allowed task kinds", tools_title:"Tools on this device (tasks use only tools you allow and have installed)",
  ks_OPEN:"Open", ks_LIVE_ACCEPTED:"Accepted, not yet open", ks_SIMULATED_OK:"Simulation passed", ks_DEVELOPING:"In development, simulation only", ks_DISABLED:"Disabled",
  needs:"Needs: ", missing_tool:" (missing here)",
@@ -268,7 +303,7 @@ en: {
  sc_code:(c)=>` (error code ${c})`
 }};
 const ONLINE_STEPS=["codex_install","git_check","codex_login","signup","owner_check","server_online","worker_start"];
-const OFFLINE_STEPS=["server_offline","worker_stop"];
+const OFFLINE_STEPS=["server_offline","draining","worker_stop"];
 const KEY=new URLSearchParams(location.hash.slice(1)).get("k")||"";
 let lang=(()=>{try{return localStorage.getItem("sa_lang")}catch(e){return null}})()||"zh";
 let S=null, editing=false, flash="", localErr=null;
@@ -324,6 +359,7 @@ function render(){
   if(!editing){$("device").value=S.device_label||"";$("plan").value=S.subscription_type||"PLUS"}
   const srv=S.server;
   show($("invite"),!!srv); show($("settings"),!!srv); show($("members"),!!srv); show($("tasks"),!!srv);
+  show($("running"),!!srv);
   if(srv){
     const g=srv.group;
     $("code").textContent=S.invite_code||"— — —";
@@ -346,10 +382,11 @@ function render(){
       if(!m.is_owner){const btn=document.createElement("button");btn.className="s";btn.textContent=t("remove");
         btn.onclick=()=>{if(confirm(t("confirm_remove")))act("remove-member",{user_id:m.user_id})};c.append(btn)}
       tr.append(a,b,c);mb.append(tr)});
+    renderRunning(srv);
     const tb=$("task_rows"); tb.innerHTML="";
     srv.tasks.forEach(x=>{const tr=document.createElement("tr");
       const ap=x.approval_status==="APPROVED"?(x.approval_source==="OWNER_STANDING_APPROVAL"?t("approved_auto"):t("approved_owner")):x.approval_status==="PENDING"?t("pending"):t("rejected");
-      [fmt(x.created_at),label("tt_",x.task_type)+" · "+label("m_",x.execution_mode),label("s_",x.status),ap].forEach(v=>{const td=document.createElement("td");td.textContent=v;tr.append(td)});
+      [fmt(x.created_at),kindLabel(x)+" · "+label("m_",x.execution_mode),statusText(x),ap].forEach(v=>{const td=document.createElement("td");td.textContent=v;tr.append(td)});
       tb.append(tr)});
   }
   const notes=[];
@@ -401,6 +438,31 @@ function renderToolStates(){
   b.textContent=d.state==="READY"?t("remove_btn"):t("install_btn",d.size_mb||40);
   b.onclick=()=>act(d.state==="READY"?"remove-tool":"install-tool",{tool:"python-data"});
 }
+function kindLabel(x){
+  const k=S&&S.server&&(S.server.kinds||[]).find(k=>k.kind===x.task_type);
+  return k?(lang==="zh"?k.name_zh:k.name_en):label("tt_",x.task_type);
+}
+function statusText(x){
+  let s=label("s_",x.status);
+  if(x.status==="QUEUED"&&x.queue_position)s+=" · "+t("queued_n",x.queue_position);
+  if(x.failure&&x.status!=="CANCELLED")s+=" · "+t("fc_"+(x.failure.category||"OTHER"))+(x.failure.code?` (${x.failure.code})`:"");
+  return s;
+}
+function mmss(sec){sec=Math.max(0,Math.round(sec));return Math.floor(sec/60)+":"+String(sec%60).padStart(2,"0")}
+function renderRunning(srv){
+  const u=srv.usage||{tasks_started_last_24h:srv.tasks_started_last_24h||0,execution_minutes_last_24h:0,running:0,queued:0};
+  $("usage_line").textContent=t("usage_line",u.tasks_started_last_24h,u.execution_minutes_last_24h,u.running,u.queued);
+  const rows=$("running_rows"); rows.innerHTML="";
+  const live=(srv.tasks||[]).filter(x=>x.status==="RUNNING"||x.status==="RESERVED"||x.status==="VERIFYING");
+  if(!live.length){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=3;
+    td.textContent=t("none_running");tr.append(td);rows.append(tr);return}
+  live.forEach(x=>{const tr=document.createElement("tr");
+    const el=x.started_at?mmss((Date.now()-Date.parse(x.started_at))/1000)+" / "+mmss(x.max_duration_seconds||0):"—";
+    const pr=x.progress?`${x.progress.percent??"?"}% ${x.progress.message||""}`:label("s_",x.status);
+    [kindLabel(x),el,pr].forEach(v=>{const td=document.createElement("td");td.textContent=v;tr.append(td)});
+    rows.append(tr)});
+}
+function runningCount(){return Math.max(S&&S.running_here||0,S&&S.server&&S.server.usage?S.server.usage.running:0)}
 async function act(route, body){
   let ok=true;
   try{S=await call(route,body)}
@@ -412,7 +474,15 @@ async function act(route, body){
 async function poll(){try{S=await call("state");render()}catch(e){}}
 
 $("lang").onclick=()=>{lang=lang==="zh"?"en":"zh";try{localStorage.setItem("sa_lang",lang)}catch(e){}applyStatic();render()};
-$("big").onclick=()=>act("toggle",{device_label:$("device").value,subscription_type:$("plan").value});
+$("big").onclick=()=>{
+  if(S&&S.phase==="ONLINE"&&runningCount()>0){
+    $("oc_text").textContent=t("oc_text",runningCount()); show($("offline_choice"),true); $("oc_finish").focus(); return}
+  act("toggle",{device_label:$("device").value,subscription_type:$("plan").value});
+};
+function offline(mode){show($("offline_choice"),false);act("toggle",{offline_mode:mode})}
+$("oc_finish").onclick=()=>offline("finish");
+$("oc_now").onclick=()=>offline("now");
+$("oc_cancel").onclick=()=>show($("offline_choice"),false);
 $("cancel").onclick=()=>act("cancel");
 $("rotate").onclick=()=>act("invite");
 $("copy").onclick=async()=>{try{await navigator.clipboard.writeText(S.invite_link);$("copy").textContent=t("copied");

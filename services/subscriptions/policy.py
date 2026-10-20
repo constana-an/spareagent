@@ -160,6 +160,7 @@ class DispatchSnapshot:
     node_executor: str | None = None
     # 0011: the task kind's opening status (only OPEN kinds run LIVE)
     kind_status: str = "OPEN"
+    node_at_capacity: bool = False
     # 0013: tools the kind needs, tools the device declared (None: a pre-0013 node that
     # declares none and is treated as code-capable) and tools the owner allows.
     required_tools: frozenset[str] = frozenset()
@@ -285,7 +286,7 @@ class ExperimentalSharingPolicy:
             s.group_max_task_duration_seconds, s.owner_max_task_duration_seconds
         ):
             r.append(Reason.DURATION_LIMIT)
-        if s.active_tasks_on_connection >= min(
+        if s.node_at_capacity or s.active_tasks_on_connection >= min(
             s.group_max_concurrent_tasks, s.owner_max_concurrent_tasks
         ):
             r.append(Reason.CONCURRENCY_LIMIT)

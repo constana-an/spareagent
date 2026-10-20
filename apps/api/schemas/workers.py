@@ -159,6 +159,7 @@ class LeaseCompletion(BaseModel):
     artifacts: Annotated[list[ArtifactIn], Field(max_length=8)] = []
     observed_usage: ObservedCodexUsage | None = None
     reset_hint: Annotated[StrictStr, Field(max_length=80)] | None = None
+    failure_detail: Annotated[StrictStr, Field(pattern=r"^[A-Z][A-Z_]{1,39}$")] | None = None
 
 
 class CompletionOut(BaseModel):

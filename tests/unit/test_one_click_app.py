@@ -277,3 +277,41 @@ async def test_capability_settings_and_tool_state_reach_the_page(tmp_path):
     with pytest.raises(AppError):
         c.start_tool_install("shell")
     await c.shutdown()
+
+
+@pytest.mark.parametrize(("mode", "grace"), [("finish", 3660.0), ("now", 0.0)])
+async def test_offline_choice_sets_how_long_running_tasks_may_continue(tmp_path, mode, grace):
+    from types import SimpleNamespace
+
+    c, log, _ = make_controller(tmp_path)
+    await c.go_online({"device_label": "Alice Mac", "subscription_type": "PLUS"})
+    agent = SimpleNamespace(config=SimpleNamespace(shutdown_grace_seconds=60.0), active=2)
+    c._agent = agent
+    assert c.snapshot()["running_here"] == 2
+    await c.toggle({"offline_mode": mode})
+    assert agent.config.shutdown_grace_seconds == grace
+    assert c.snap.phase == "OFFLINE" and log[-1] == ("offline",)
+    assert c.snapshot()["running_here"] == 0 and c.snapshot()["offline_mode"] is None
+    with pytest.raises(AppError):
+        await c.go_offline("whenever")
+
+
+async def test_agent_reports_the_device_failure_code():
+    from packages.provider_sdk.base import PermanentProviderError
+    from packages.provider_sdk.types import ExecutionRequest
+    from packages.worker.agent import WorkerAgent
+
+    class Failing:
+        async def execute(self, request):
+            raise PermanentProviderError("check failed", detail_code="WRONG_LANGUAGE")
+            yield  # pragma: no cover - makes this an async generator
+
+        async def cancel(self, attempt_id):
+            pass
+
+    req = ExecutionRequest(
+        "t", "a", "u", "EXPERIMENTAL_SHARED_SUBSCRIPTION", "p", None, None, 30, 1
+    )
+    payload = await WorkerAgent(object())._run_adapter(req, "lease", asyncio.Event(), Failing())
+    assert payload["failure_detail"] == "WRONG_LANGUAGE"
+    assert payload["error_code"] == "PERMANENT_PROVIDER_ERROR" and not payload["succeeded"]

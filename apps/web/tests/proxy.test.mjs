@@ -127,3 +127,53 @@ test("pilot relay allows only read-only metrics and participant evidence; node d
   }
   assert.equal(allowed("GET", "workers/me/pilot-readiness"), false);
 });
+
+test("uploads relay raw bytes with an encoded file name only", async () => {
+  let seen;
+  const bytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0xff]);
+  const r = await relay(
+    new Request("https://friends.example/api/experimental-uploads", {
+      method: "POST",
+      headers: {
+        origin: "https://friends.example",
+        "x-filename": encodeURIComponent("报告.docx"),
+        "content-type": "text/html",
+      },
+      body: bytes,
+    }),
+    "experimental-uploads",
+    env,
+    async (url, init) => {
+      seen = { url: String(url), init };
+      return new Response("{}", { status: 201 });
+    },
+  );
+  assert.equal(r.status, 201);
+  assert.equal(seen.url, "https://api.example/v1/experimental-uploads");
+  assert.deepEqual(Array.from(seen.init.body), Array.from(bytes));
+  assert.equal(seen.init.headers.get("content-type"), "application/octet-stream");
+  assert.equal(seen.init.headers.get("x-filename"), encodeURIComponent("报告.docx"));
+  const bad = await relay(
+    new Request("https://friends.example/api/experimental-uploads", {
+      method: "POST",
+      headers: { origin: "https://friends.example", "x-filename": "a\"b" },
+      body: bytes,
+    }),
+    "experimental-uploads",
+    env,
+    () => assert.fail("must not contact API"),
+  );
+  assert.equal(bad.status, 422);
+  assert.equal(allowed("GET", "task-kinds"), true);
+  assert.equal(allowed("PUT", "task-kinds/TRANSLATE_DOCUMENT/status"), false);
+});
+
+test("JSON bodies stay small; uploads allow 20 MB", async () => {
+  const big = new Request("https://friends.example/api/experimental-tasks", {
+    method: "POST",
+    headers: { origin: "https://friends.example", "content-length": "70000" },
+    body: "x".repeat(70000),
+  });
+  const r = await relay(big, "experimental-tasks", env, () => assert.fail("no"));
+  assert.equal(r.status, 413);
+});

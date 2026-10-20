@@ -100,6 +100,7 @@ class WorkerAgent:
         self.fatal: WorkerApiError | None = None
         self.completed: list[tuple[str, str]] = []  # (attempt_id, task_status)
         self.claimed: list[str] = []
+        self.active = 0  # leases being executed right now (shown while going offline)
 
     # ---------------------------------------------------------------- lifecycle
     async def run(self, stop: asyncio.Event, node_key_expires_at: str | None = None) -> None:
@@ -198,6 +199,13 @@ class WorkerAgent:
 
     # ---------------------------------------------------------------- one lease
     async def execute(self, a: dict[str, Any]) -> str | None:
+        self.active += 1
+        try:
+            return await self._execute(a)
+        finally:
+            self.active -= 1
+
+    async def _execute(self, a: dict[str, Any]) -> str | None:
         lease_id, attempt_id = a["lease_id"], a["attempt_id"]
         task = a["task"]
         scope = a.get("resource_scope") or "PUBLIC_MARKETPLACE"
@@ -325,6 +333,9 @@ class WorkerAgent:
                 "retryable": exc.retryable,
                 "error_code": exc.code,
                 "result_summary": f"Provider error: {exc}"[:2000],
+                **(
+                    {"failure_detail": exc.detail_code} if getattr(exc, "detail_code", None) else {}
+                ),
                 **({"reset_hint": exc.reset_hint} if getattr(exc, "reset_hint", None) else {}),
             }
         except TimeoutError:

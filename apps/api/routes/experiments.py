@@ -58,6 +58,7 @@ from services.experiments.participation import (
 from services.observability import redact
 from services.tasks import kinds as kind_catalog
 from services.tasks import repository as repo
+from services.tasks.progress import task_details
 from services.tasks.service import Principal
 from services.tasks.uploads import TaskKindService, UploadService
 
@@ -92,6 +93,7 @@ async def _task_out(request: Request, view: ExperimentalTaskView) -> Experimenta
     async with get_ctx(request).sessionmaker() as session:
         summaries = await repo.result_summaries(session, [t.id])
         uploads = (await UploadService.for_tasks(session, [t.id]))[t.id]
+        details = (await task_details(session, [t]))[t.id]
         verification = (
             await session.execute(
                 select(VerificationResult.status)
@@ -132,6 +134,10 @@ async def _task_out(request: Request, view: ExperimentalTaskView) -> Experimenta
         ),
         created_at=t.created_at,
         result_summary=summaries.get(t.id),
+        progress=details["progress"],
+        queue_position=details["queue_position"],
+        started_at=details["started_at"],
+        failure=details["failure"],
     )
 
 

@@ -68,7 +68,46 @@ type Task = {
   verification_status: string;
   result_summary: string | null;
   last_decision: null | { reasons: string[] };
+  kind?: string;
+  requirement?: string;
+  parameters?: Record<string, string>;
+  deliverable?: { format: string; filename: string } | null;
+  progress?: { percent: number | null; message: string | null } | null;
+  queue_position?: number | null;
+  failure?: { code: string | null; category: string | null } | null;
 };
+type TaskKind = {
+  kind: string;
+  name_zh: string;
+  name_en: string;
+  description_zh: string;
+  status: string;
+  needs_repository: boolean;
+  min_attachments: number;
+  max_attachments: number;
+  extensions: string[];
+  required_parameters: string[];
+  deliverable_format: string;
+  deliverable_formats: string[];
+  live_available: boolean;
+};
+const MAX_UPLOAD = 20 * 1024 * 1024;
+const LANGUAGES = ["zh-Hans", "en", "ja", "ko", "fr", "de", "es", "ru"];
+async function uploadFile(f: File): Promise<string> {
+  if (f.size > MAX_UPLOAD) throw new Error(`${f.name}: > 20 MB`);
+  const r = await fetch("/api/experimental-uploads", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/octet-stream",
+      "X-Filename": encodeURIComponent(f.name),
+    },
+    body: f,
+  });
+  const out = await r.json().catch(() => null);
+  if (!r.ok) throw new Error(out?.error?.message || `Upload failed (${r.status})`);
+  return out.id as string;
+}
 type Usage = {
   connection_id: string;
   observed_input_tokens: number;
@@ -127,7 +166,13 @@ function resultLabel(t: Task): string {
     return t.verification_status === "PASSED" ? "VERIFIED" : "UNVERIFIED";
   return t.status;
 }
-type Artifact = { id: string; kind: string; source: string; sha256: string };
+type Artifact = {
+  id: string;
+  kind: string;
+  source: string;
+  sha256: string;
+  name?: string | null;
+};
 const terminal = new Set(["SUCCEEDED", "FAILED", "CANCELLED", "TIMED_OUT"]);
 // Must match the server's EXPERIMENT_TERMS_VERSION; the API rejects a mismatch.
 const TERMS_VERSION = "2026-10-experimental-v1";
@@ -238,6 +283,9 @@ export default function Dashboard() {
     [events, setEvents] = useState<TimelineEvent[]>([]),
     [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
+  const [kinds, setKinds] = useState<TaskKind[]>([]),
+    [kindSel, setKindSel] = useState(""),
+    [files, setFiles] = useState<File[]>([]);
   const [joinChecks, setJoinChecks] = useState<Record<string, boolean>>({}),
     [shareChecks, setShareChecks] = useState<Record<string, boolean>>({});
   const [enrollment, setEnrollment] = useState<{
@@ -250,13 +298,15 @@ export default function Dashboard() {
     active = member?.status === "ACTIVE";
   const refresh = useCallback(async () => {
     if (!me) return;
-    const [gs, ds, us, ts, ins] = await Promise.all([
+    const [gs, ds, us, ts, ins, ks] = await Promise.all([
       api<Group[]>("experiments/groups"),
       api<{ items: Device[] }>("subscriptions/status"),
       api<{ items: Usage[] }>("subscriptions/usage"),
       api<{ items: Task[] }>("experimental-tasks"),
       api<{ items: Task[] }>("experimental-tasks?role=owner"),
+      api<{ items: TaskKind[] }>("task-kinds"),
     ]);
+    setKinds(ks.items.filter((k) => k.status !== "DISABLED"));
     setGroups(gs);
     setDevices(ds.items);
     setUsage(us.items);
@@ -411,10 +461,41 @@ export default function Dashboard() {
     const url = URL.createObjectURL(new Blob([bytes]));
     const link = document.createElement("a");
     link.href = url;
-    link.download = `${a.kind.toLowerCase()}-${a.id}${a.kind === "VERIFICATION_REPORT" ? ".json" : ""}`;
+    link.download =
+      a.name ||
+      `${a.kind.toLowerCase()}-${a.id}${a.kind === "VERIFICATION_REPORT" ? ".json" : ""}`;
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
+  const kindName = (x: Task) => {
+    const k = kinds.find((k) => k.kind === (x.kind || x.task_type));
+    return k ? (lang === "zh" ? k.name_zh : k.name_en) : x.task_type.replaceAll("_", " ");
+  };
+  const statusLine = (x: Task): string => {
+    if (x.status === "QUEUED") {
+      const waits = (x.last_decision?.reasons || [])
+        .map((r) => t(`wait.${r}` as never))
+        .filter((r) => !r.startsWith("wait."));
+      const head = x.queue_position
+        ? t("st_queued_n", { n: x.queue_position })
+        : t("st_queued");
+      return waits.length ? `${head} · ${waits.join("；")}` : head;
+    }
+    if (["RESERVED", "RUNNING"].includes(x.status)) {
+      const p = x.progress;
+      return p?.percent != null
+        ? t("st_running_p", { p: p.percent, m: p.message || "" })
+        : t("st_running");
+    }
+    if (x.status === "VERIFYING") return t("st_verifying");
+    if (x.failure && ["FAILED", "TIMED_OUT"].includes(x.status))
+      return `${t(`fail.${x.failure.category || "OTHER"}` as never)}${x.failure.code ? ` (${x.failure.code})` : ""}`;
+    if (x.status === "SUCCEEDED")
+      return x.verification_status === "PASSED"
+        ? t("st_verified")
+        : t("st_done_unverified");
+    return resultLabel(x);
+  };
   const taskHistory = Array.from(
     new Map([...tasks, ...incoming].map((t) => [t.id, t])).values(),
   );
@@ -1108,107 +1189,209 @@ export default function Dashboard() {
           <section id="submit">
             <p className="eyebrow">{t("ask_circle")}</p>
             <h2>{t("submit_review")}</h2>
-            <form
-              onSubmit={(e: FormEvent<HTMLFormElement>) => {
-                e.preventDefault();
-                const f = new FormData(e.currentTarget);
-                void act(async () => {
-                  const t = await api<Task>(
-                    "experimental-tasks",
-                    "POST",
-                    {
-                      task_type: "CODE_REVIEW",
-                      group_id: gid,
-                      connection_id: f.get("connection"),
-                      repository_url: f.get("repo"),
-                      commit_sha: f.get("sha"),
-                      prompt: f.get("prompt"),
-                      max_duration_seconds: Number(f.get("timeout")),
-                      execution_mode: f.get("mode"),
-                    },
-                    crypto.randomUUID(),
-                  );
-                  setSelected(t);
-                }, t("submitted"));
-              }}
-            >
-              <label>
-                {t("owner_device")}
-                <select name="connection" required>
-                  {nodes
-                    .filter((n) => n.owner_id !== me.user_id)
-                    .map((n) => (
-                      <option key={n.connection_id} value={n.connection_id}>
-                        {n.device_label} · {n.online ? t("online") : t("offline")}
-                        {n.requires_approval ? "" : ` · ${t("auto_label")}`}
-                      </option>
-                    ))}
-                </select>
-              </label>
-              <label>
-                {t("public_repo")}
-                <input
-                  name="repo"
-                  type="url"
-                  required
-                  placeholder="https://github.com/octocat/Hello-World"
-                />
-              </label>
-              <label>
-                {t("pinned_commit")}
-                <input
-                  name="sha"
-                  required
-                  pattern="[a-fA-F0-9]{40}"
-                  maxLength={40}
-                  placeholder={t("sha_placeholder")}
-                />
-              </label>
-              <label>
-                {t("review_instructions")}
-                <textarea
-                  name="prompt"
-                  required
-                  maxLength={12000}
-                  placeholder={t("prompt_placeholder")}
-                />
-              </label>
-              <div className="form-row">
-                <label>
-                  {t("hard_timeout")}
-                  <input
-                    name="timeout"
-                    type="number"
-                    min="10"
-                    max={group?.max_task_duration_seconds ?? 600}
-                    defaultValue="600"
-                    required
-                  />
-                </label>
-                <label>
-                  {t("execution")}
-                  <select name="mode">
-                    <option value="SIMULATED">{t("simulated")}</option>
-                    <option
-                      value="LIVE"
-                      disabled={!group?.authorization?.live_execution_enabled}
+            {(() => {
+              const kind =
+                kinds.find((k) => k.kind === kindSel) || kinds[0] || null;
+              const kindName = (k: TaskKind) =>
+                lang === "zh" ? k.name_zh : k.name_en;
+              return (
+                <form
+                  onSubmit={(e: FormEvent<HTMLFormElement>) => {
+                    e.preventDefault();
+                    if (!kind) return;
+                    const f = new FormData(e.currentTarget);
+                    void act(async () => {
+                      const ids: string[] = [];
+                      for (const file of files) {
+                        setNotice(t("uploading", { name: file.name }));
+                        ids.push(await uploadFile(file));
+                      }
+                      const target = f.get("target_language");
+                      const fmt = f.get("format");
+                      const created = await api<Task>(
+                        "experimental-tasks",
+                        "POST",
+                        {
+                          kind: kind.kind,
+                          group_id: gid,
+                          connection_id: f.get("connection"),
+                          requirement: f.get("prompt"),
+                          max_duration_seconds: Number(f.get("timeout")),
+                          execution_mode: f.get("mode"),
+                          attachments: ids,
+                          parameters: target ? { target_language: target } : {},
+                          ...(fmt ? { deliverable: { format: fmt } } : {}),
+                          ...(kind.needs_repository
+                            ? {
+                                repository: {
+                                  url: f.get("repo"),
+                                  commit_sha: f.get("sha"),
+                                },
+                              }
+                            : {}),
+                        },
+                        crypto.randomUUID(),
+                      );
+                      setFiles([]);
+                      setSelected(created);
+                    }, t("submitted"));
+                  }}
+                >
+                  <label>
+                    {t("kind_label")}
+                    <select
+                      value={kind?.kind || ""}
+                      onChange={(e) => {
+                        setKindSel(e.target.value);
+                        setFiles([]);
+                      }}
                     >
-                      {t("live_option")}
-                    </option>
-                  </select>
-                </label>
-              </div>
-              <button
-                disabled={
-                  busy ||
-                  !active ||
-                  !nodes.some((n) => n.owner_id !== me.user_id)
-                }
-              >
-                {t("request_review")} <span>↗</span>
-              </button>
-              <small>{t("submit_note")}</small>
-            </form>
+                      {kinds.map((k) => (
+                        <option key={k.kind} value={k.kind}>
+                          {kindName(k)}
+                          {k.status === "OPEN" ? "" : ` · ${t("kind_sim_only")}`}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {kind && <small>{lang === "zh" ? kind.description_zh : kind.name_en}</small>}
+                  <label>
+                    {t("owner_device")}
+                    <select name="connection" required>
+                      {nodes
+                        .filter((n) => n.owner_id !== me.user_id)
+                        .map((n) => (
+                          <option key={n.connection_id} value={n.connection_id}>
+                            {n.device_label} ·{" "}
+                            {n.online ? t("online") : t("offline")}
+                            {n.requires_approval ? "" : ` · ${t("auto_label")}`}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  {kind?.needs_repository && (
+                    <>
+                      <label>
+                        {t("public_repo")}
+                        <input
+                          name="repo"
+                          type="url"
+                          required
+                          placeholder="https://github.com/octocat/Hello-World"
+                        />
+                      </label>
+                      <label>
+                        {t("pinned_commit")}
+                        <input
+                          name="sha"
+                          required
+                          pattern="[a-fA-F0-9]{40}"
+                          maxLength={40}
+                          placeholder={t("sha_placeholder")}
+                        />
+                      </label>
+                    </>
+                  )}
+                  {!!kind?.max_attachments && (
+                    <label>
+                      {t("attachments")}
+                      <input
+                        type="file"
+                        multiple={kind.max_attachments > 1}
+                        accept={kind.extensions.map((x) => "." + x).join(",")}
+                        onChange={(e) =>
+                          setFiles(
+                            Array.from(e.target.files || []).slice(
+                              0,
+                              kind.max_attachments,
+                            ),
+                          )
+                        }
+                        required={kind.min_attachments > 0}
+                      />
+                      <small>
+                        {t("attachments_hint", {
+                          types: kind.extensions.map((x) => "." + x).join(" "),
+                          n: kind.max_attachments,
+                        })}
+                      </small>
+                    </label>
+                  )}
+                  {kind?.required_parameters.includes("target_language") && (
+                    <label>
+                      {t("target_language")}
+                      <select name="target_language" defaultValue="en">
+                        {LANGUAGES.map((l) => (
+                          <option key={l} value={l}>
+                            {t(`lang.${l}` as never)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  {kind && kind.deliverable_formats.length > 1 && (
+                    <label>
+                      {t("deliverable_format")}
+                      <select name="format" defaultValue={kind.deliverable_format}>
+                        {kind.deliverable_formats.map((x) => (
+                          <option key={x} value={x}>
+                            .{x}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  <label>
+                    {t("review_instructions")}
+                    <textarea
+                      name="prompt"
+                      required
+                      maxLength={12000}
+                      placeholder={t("prompt_placeholder")}
+                    />
+                  </label>
+                  <div className="form-row">
+                    <label>
+                      {t("hard_timeout")}
+                      <input
+                        name="timeout"
+                        type="number"
+                        min="10"
+                        max={group?.max_task_duration_seconds ?? 600}
+                        defaultValue="600"
+                        required
+                      />
+                    </label>
+                    <label>
+                      {t("execution")}
+                      <select name="mode">
+                        <option value="SIMULATED">{t("simulated")}</option>
+                        <option
+                          value="LIVE"
+                          disabled={
+                            !group?.authorization?.live_execution_enabled ||
+                            !kind?.live_available
+                          }
+                        >
+                          {t("live_option")}
+                        </option>
+                      </select>
+                    </label>
+                  </div>
+                  <button
+                    disabled={
+                      busy ||
+                      !active ||
+                      !kind ||
+                      !nodes.some((n) => n.owner_id !== me.user_id)
+                    }
+                  >
+                    {t("request_review")} <span>↗</span>
+                  </button>
+                  <small>{t("submit_note")}</small>
+                </form>
+              );
+            })()}
           </section>
         </div>
         <section>
@@ -1235,10 +1418,10 @@ export default function Dashboard() {
               >
                 <code>{x.id.slice(0, 8)}</code>
                 <span>
-                  {x.task_type.replaceAll("_", " ")} · {x.execution_mode} ·{" "}
+                  {kindName(x)} · {x.execution_mode} ·{" "}
                   {x.owner_id === me.user_id ? t("your_device") : t("your_request")}
                 </span>
-                <span className="pill">{resultLabel(x)}</span>
+                <span className="pill">{statusLine(x)}</span>
               </button>
             ))}
         </section>
@@ -1248,18 +1431,24 @@ export default function Dashboard() {
               <div>
                 <p className="eyebrow">{t("task_n", { id: selected.id.slice(0, 8) })}</p>
                 <h2>
-                  {resultLabel(selected)} · {selected.execution_mode}
+                  {kindName(selected)} · {statusLine(selected)}
                 </h2>
               </div>
               <button className="quiet" onClick={() => setSelected(null)}>
                 {t("close")}
               </button>
             </div>
-            <p>
-              {selected.result_summary ||
-                selected.last_decision?.reasons.join(", ") ||
-                t("waiting")}
-            </p>
+            {selected.progress?.percent != null &&
+              ["RESERVED", "RUNNING"].includes(selected.status) && (
+                <progress max={100} value={selected.progress.percent} />
+              )}
+            {selected.failure &&
+              ["FAILED", "TIMED_OUT"].includes(selected.status) && (
+                <p className="error">
+                  {t(`fail_hint.${selected.failure.category || "OTHER"}` as never)}
+                </p>
+              )}
+            <p>{selected.result_summary || t("waiting")}</p>
             {selected.verification_status === "UNVERIFIED" && (
               <p className="notice">{t("unverified_note")}</p>
             )}
@@ -1281,21 +1470,35 @@ export default function Dashboard() {
                 {t("cancel_task")}
               </button>
             )}
+            {artifacts.some((a) => a.kind === "DELIVERABLE") && (
+              <>
+                <h3>{t("deliverables")}</h3>
+                <div className="downloads">
+                  {artifacts
+                    .filter((a) => a.kind === "DELIVERABLE")
+                    .map((a) => (
+                      <button
+                        key={a.id}
+                        onClick={() => void act(() => download(a), t("sha_checked"))}
+                      >
+                        ↓ {a.name}
+                      </button>
+                    ))}
+                </div>
+              </>
+            )}
             <div className="downloads">
-              {artifacts.map((a) => (
-                <button
-                  className="quiet"
-                  key={a.id}
-                  onClick={() =>
-                    void act(
-                      () => download(a),
-                      t("sha_checked"),
-                    )
-                  }
-                >
-                  ↓ {a.kind} <small>{a.source}</small>
-                </button>
-              ))}
+              {artifacts
+                .filter((a) => a.kind !== "DELIVERABLE")
+                .map((a) => (
+                  <button
+                    className="quiet"
+                    key={a.id}
+                    onClick={() => void act(() => download(a), t("sha_checked"))}
+                  >
+                    ↓ {a.kind} <small>{a.source}</small>
+                  </button>
+                ))}
             </div>
             <h3>{t("timeline")}</h3>
             <ol className="timeline" aria-label="Task timeline">

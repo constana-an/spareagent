@@ -83,6 +83,8 @@ class CompletionInput:
     usage: UsageReport | None = None
     observed_usage: dict[str, int] | None = None
     reset_hint: str | None = None
+    # 0013 step D: the device's most specific failure code (e.g. WRONG_LANGUAGE)
+    failure_detail: str | None = None
 
 
 @dataclass(frozen=True)
@@ -201,6 +203,8 @@ class LeaseService:
                         and worker.last_heartbeat
                         >= now - timedelta(seconds=self.ctx.settings.worker_heartbeat_ttl_seconds)
                     ),
+                    # This reservation already counts in active_tasks; discount it.
+                    node_at_capacity=max(0, worker.active_tasks - 1) >= worker.max_concurrency,
                 )
                 decision = ExperimentalSharingPolicy.evaluate(snap, mode=Mode.LIVE)
                 if not decision.allowed:
@@ -437,7 +441,11 @@ class LeaseService:
                 session,
                 task,
                 TaskStatus.RETRY_PENDING,
-                payload={"reason": reason, "attempt_number": attempt.attempt_number},
+                payload={
+                    "reason": reason,
+                    "attempt_number": attempt.attempt_number,
+                    **({"detail": data.failure_detail} if data.failure_detail else {}),
+                },
                 attempt_id=attempt.id,
             )
         else:
@@ -448,6 +456,7 @@ class LeaseService:
                 payload={
                     "reason": reason,
                     "result_summary": redact(data.result_summary or f"Failed: {reason}")[:2000],
+                    **({"detail": data.failure_detail} if data.failure_detail else {}),
                 },
                 attempt_id=attempt.id,
             )

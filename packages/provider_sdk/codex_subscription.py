@@ -312,7 +312,7 @@ class CodexSubscriptionAdapter:
                     prompt = recipes.prepare_analysis(request, ws, data_tools=access is not None)
                     expected = 0
             except recipes.RecipeError as exc:
-                raise PermanentProviderError(f"{exc.code}: {exc}") from exc
+                raise PermanentProviderError(f"{exc.code}: {exc}", detail_code=exc.code) from exc
             yield ProgressEvent(f"Prepared {len(request.inputs)} attachment(s)", 10)
             run: CodexRunResult | None = None
             percent = 12
@@ -347,6 +347,7 @@ class CodexSubscriptionAdapter:
                 raise PermanentProviderError(
                     f"Result did not pass the device check: {exc.code} {failed}"[:1000],
                     usage=self._usage(request, run),
+                    detail_code=exc.code if exc.code.isupper() else None,
                 ) from exc
             summary = redact(run.final_message or "Codex finished without a final message")
             log_text = redact(

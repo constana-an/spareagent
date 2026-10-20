@@ -216,9 +216,10 @@ async def run_on_device(c, node, *, artifacts=(("SUMMARY", b"Looks good."),), **
     resp = await poll(c, node)
     assert resp.status_code == 200, resp.text
     lease = resp.json()
-    assert (
-        await c.post(f"/v1/leases/{lease['lease_id']}/accept", headers=bearer(node["access_token"]))
-    ).status_code == 204
+    accepted = await c.post(
+        f"/v1/leases/{lease['lease_id']}/accept", headers=bearer(node["access_token"])
+    )
+    assert accepted.status_code == 204, accepted.text
     body = {
         "finalization_key": f"fin-{lease['attempt_id']}",
         "succeeded": True,

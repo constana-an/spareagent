@@ -103,6 +103,18 @@ class TaskSummary(BaseModel):
     approval_status: str
     approval_source: str | None
     created_at: datetime
+    started_at: datetime | None = None
+    progress: dict | None = None
+    queue_position: int | None = None
+    failure: dict | None = None
+    max_duration_seconds: int | None = None
+
+
+class UsageSummary(BaseModel):
+    tasks_started_last_24h: int = 0
+    execution_minutes_last_24h: float = 0
+    running: int = 0
+    queued: int = 0
 
 
 class SharingStatusOut(BaseModel):
@@ -115,6 +127,7 @@ class SharingStatusOut(BaseModel):
     live_blockers: list[str]
     tasks_started_last_24h: int
     tasks: list[TaskSummary]
+    usage: UsageSummary = Field(default_factory=UsageSummary)
     dashboard_url: str
     # Only returned when a new code was just issued; only its digest is stored.
     invite_code: str | None = None

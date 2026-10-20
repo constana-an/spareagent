@@ -62,6 +62,9 @@ LOGIN_TIMEOUT_SECONDS = 900
 INSTALL_TIMEOUT_SECONDS = 900
 SHUTDOWN_GRACE_SECONDS = 60.0
 MAX_PARALLEL = 3
+# Seconds running tasks get after the owner goes offline: "finish" waits for the longest
+# allowed task, "now" stops them at once, "shutdown" (window closed) keeps a short grace.
+OFFLINE_GRACE = {"finish": 3600.0 + 60, "now": 0.0, "shutdown": SHUTDOWN_GRACE_SECONDS}
 GIT_PROBE_SECONDS = 60.0
 
 
@@ -230,6 +233,7 @@ class Snapshot:
     server: dict[str, Any] | None = None
     server_error: str | None = None
     notices: list[str] = field(default_factory=list)
+    offline_mode: str | None = None
 
 
 class Controller:
@@ -258,6 +262,7 @@ class Controller:
         self._git_cache: tuple[float, bool] | None = None
         self.data_env = DataToolEnv(directory / "runtime", runtime_pins)
         self._tool_job: asyncio.Task | None = None
+        self._agent = None
         self._client_factory = client_factory or self._default_client
         self._agent_factory = agent_factory or self._default_agent
         self.snap = Snapshot()
@@ -314,6 +319,8 @@ class Controller:
         return {
             "phase": s.phase,
             "step": s.step,
+            "offline_mode": s.offline_mode,
+            "running_here": self._agent.active if self._agent is not None else 0,
             "error": s.error,
             "notices": s.notices[-3:],
             "bundle_ok": self.bundle is not None,
@@ -361,7 +368,7 @@ class Controller:
         if self.snap.phase in ("STARTING", "STOPPING"):
             return
         if self.snap.phase == "ONLINE":
-            await self.go_offline()
+            await self.go_offline(options.get("offline_mode") or "finish")
         else:
             await self.go_online(options)
 
@@ -536,7 +543,7 @@ class Controller:
         )
         # The server assigns at most the owner's concurrency setting (1-3); the device keeps
         # enough slots for the maximum so a changed setting needs no restart.
-        agent = WorkerAgent(
+        agent = self._agent = WorkerAgent(
             client,
             AgentConfig(
                 concurrency=MAX_PARALLEL,
@@ -602,9 +609,15 @@ class Controller:
             else:
                 self._fail("worker_stopped", detail)
 
-    async def go_offline(self) -> None:
+    async def go_offline(self, mode: str = "shutdown") -> None:
+        """Stop sharing. No new task is accepted from the first moment on; running tasks
+        either finish (up to their own time limit), stop now (the platform hands them back
+        to the queue when another attempt is allowed), or get the short shutdown grace."""
+        if mode not in OFFLINE_GRACE:
+            raise AppError("invalid_input", mode)
         async with self._busy:
             self.snap.phase, self.snap.step, self.snap.error = "STOPPING", "server_offline", None
+            self.snap.offline_mode = mode
             from packages.worker.local_controls import LocalSharingControl
 
             LocalSharingControl(self.directory).pause("owner went offline in the app")
@@ -614,14 +627,17 @@ class Controller:
                     self.snap.server = await client.sharing_offline()
                 except (WorkerApiError, TransportError) as exc:
                     self.snap.notices.append(f"server pause failed: {exc}")
-            self.snap.step = "worker_stop"
+            self.snap.step = "draining" if mode == "finish" else "worker_stop"
+            grace = OFFLINE_GRACE[mode]
+            if self._agent is not None:
+                self._agent.config.shutdown_grace_seconds = grace
             if self._stop is not None:
                 self._stop.set()
             if self._agent_task is not None:
                 with contextlib.suppress(Exception):
-                    await asyncio.wait_for(self._agent_task, SHUTDOWN_GRACE_SECONDS + 15)
-            self._stop = self._agent_task = None
-            self.snap.phase, self.snap.step = "OFFLINE", None
+                    await asyncio.wait_for(self._agent_task, grace + 15)
+            self._stop = self._agent_task = self._agent = None
+            self.snap.phase, self.snap.step, self.snap.offline_mode = "OFFLINE", None, None
 
     # ---------------------------------------------------------------- owner settings
     async def _owner_call(self, name: str, *args: Any) -> dict[str, Any]:

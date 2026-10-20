@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SpareAgent MVP API
-  version: 1.9.0
+  version: 1.10.0
   description: 'W1: Tasks, Events, Models, Chat nonstream, health. W2: remote worker enrollment, node credentials and lease protocol.'
 servers:
   - url: http://localhost:8000
@@ -1749,6 +1749,12 @@ components:
             maxLength: 80
           - type: 'null'
           title: Reset Hint
+        failure_detail:
+          anyOf:
+          - type: string
+            pattern: ^[A-Z][A-Z_]{1,39}$
+          - type: 'null'
+          description: 'step D: the device''s most specific failure code (shown to the member)'
       additionalProperties: false
       type: object
       required:
@@ -2624,6 +2630,23 @@ components:
           - type: string
           - type: 'null'
           title: Result Summary
+        progress:
+          anyOf:
+          - type: object
+            properties:
+              percent: {type: [integer, 'null']}
+              message: {type: [string, 'null']}
+              at: {type: string, format: date-time}
+          - type: 'null'
+        queue_position: {type: [integer, 'null'], description: '1-based place among tasks waiting for the same device'}
+        started_at: {type: [string, 'null'], format: date-time}
+        failure:
+          anyOf:
+          - type: object
+            properties:
+              code: {type: [string, 'null']}
+              category: {type: [string, 'null'], enum: [INPUT, TIMEOUT, WAIT_TIMEOUT, OUTPUT_LIMIT, DEVICE_INTERRUPTED, CHECK_FAILED, AUTHORIZATION, LOGIN, USAGE_LIMIT, CANCELLED, OTHER, null]}
+          - type: 'null'
       type: object
       required:
       - id
@@ -2733,6 +2756,13 @@ components:
         tasks:
           type: array
           items: {type: object, additionalProperties: true}
+        usage:
+          type: object
+          properties:
+            tasks_started_last_24h: {type: integer}
+            execution_minutes_last_24h: {type: number}
+            running: {type: integer}
+            queued: {type: integer}
         dashboard_url: {type: string}
         invite_code: {type: ['string', 'null'], description: Returned only when a new code was just issued}
     FriendsIdentity:

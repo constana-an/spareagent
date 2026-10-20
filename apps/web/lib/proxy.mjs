@@ -18,7 +18,13 @@ const routes = [
   ["GET", `^tasks/${uuid}/(events|artifacts)$`],
   ["GET", `^tasks/${uuid}/artifacts/${uuid}/content$`],
   ["POST", `^tasks/${uuid}/cancel$`],
+  ["GET", "^task-kinds$"],
+  ["POST", "^experimental-uploads$"],
 ];
+// Attachments are relayed as raw bytes; everything else is small JSON.
+const UPLOAD_PATH = "experimental-uploads";
+const MAX_JSON_BODY = 65536;
+const MAX_UPLOAD_BODY = 20 * 1024 * 1024;
 export function allowed(method, path) {
   return routes.some(([m, p]) => method === m && new RegExp(p).test(path));
 }
@@ -54,6 +60,14 @@ export async function relay(request, path, env = process.env, fetcher = fetch) {
     const value = request.headers.get(name);
     if (value) headers.set(name, value);
   }
+  const upload = path === UPLOAD_PATH;
+  if (upload) {
+    const name = request.headers.get("x-filename") || "";
+    if (!name || name.length > 600 || /[^A-Za-z0-9%._~!*'()-]/.test(name))
+      return new Response("Invalid file name", { status: 422 });
+    headers.set("x-filename", name); // percent-encoded by the page
+    headers.set("content-type", "application/octet-stream");
+  }
   if (request.method !== "GET") headers.set("origin", origin);
   const target = new URL(`/v1/${path}`, base);
   const input = new URL(request.url);
@@ -62,8 +76,16 @@ export async function relay(request, path, env = process.env, fetcher = fetch) {
     if (value) target.searchParams.set(name, value);
   }
   try {
-    const body = request.method === "GET" ? undefined : await request.text();
-    if (body && body.length > 65536)
+    const declared = Number(request.headers.get("content-length") || 0);
+    const limit = upload ? MAX_UPLOAD_BODY : MAX_JSON_BODY;
+    if (declared > limit) return new Response("Request too large", { status: 413 });
+    const body =
+      request.method === "GET"
+        ? undefined
+        : upload
+          ? new Uint8Array(await request.arrayBuffer())
+          : await request.text();
+    if (body && body.length > limit)
       return new Response("Request too large", { status: 413 });
     const upstream = await fetcher(target, {
       method: request.method,

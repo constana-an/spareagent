@@ -162,8 +162,9 @@ class ExperimentalDispatcher:
                 worker.status in ONLINE_STATUSES
                 and worker.last_heartbeat is not None
                 and worker.last_heartbeat >= fresh_after
-                and worker.active_tasks < worker.max_concurrency
             ),
+            # A busy device is not an offline one: members see "busy", not "offline".
+            node_at_capacity=worker.active_tasks >= worker.max_concurrency,
             active_tasks_on_connection=await SubscriptionUsageMonitor.active_tasks(session, conn),
             tasks_started_last_24h=await SubscriptionUsageMonitor.started_last_24h(
                 session, conn.id, now
