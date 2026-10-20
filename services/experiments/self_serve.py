@@ -179,8 +179,12 @@ class SelfServeSharingService:
             raise DomainError(422, "TERMS_VERSION_MISMATCH", "Please accept the current terms")
         now = utcnow()
         async with self.ctx.sessionmaker() as session, session.begin():
+            # FOR SHARE: a concurrent template revocation (FOR UPDATE + cascade) cannot
+            # commit between this check and the copy below.
             template = await session.get(
-                ExperimentalAuthorization, self.ctx.settings.self_serve_authorization_id
+                ExperimentalAuthorization,
+                self.ctx.settings.self_serve_authorization_id,
+                with_for_update={"read": True},
             )
             if not authorization_usable(template, now):
                 raise conflict(

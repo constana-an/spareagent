@@ -63,10 +63,10 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:13px}
 
 <section class="hero">
   <button class="big" id="big" type="button"></button>
-  <div class="state" id="state"></div>
+  <div class="state" id="state" role="status" aria-live="polite"></div>
   <ol class="steps hidden" id="steps"></ol>
   <button class="s hidden" id="cancel" type="button" data-t="cancel"></button>
-  <div class="error hidden" id="error"></div>
+  <div class="error hidden" id="error" role="alert"></div>
 </section>
 
 <section class="card consent" id="consent">
@@ -102,7 +102,7 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:13px}
   <label style="margin-top:10px"><input id="auto" type="checkbox"><span data-t="auto_approve"></span></label>
   <div class="row" style="margin-top:10px;align-items:center">
     <button class="s p" id="save" type="button" data-t="save"></button>
-    <small id="usage"></small>
+    <small id="usage" role="status" aria-live="polite"></small>
   </div>
 </section>
 
@@ -119,7 +119,7 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:13px}
   <p><button class="s" id="dashboard" type="button" data-t="open_dashboard"></button></p>
 </section>
 
-<div class="notice hidden" id="notice"></div>
+<div class="notice hidden" id="notice" role="status" aria-live="polite"></div>
 <p><small data-t="footer"></small></p>
 </main>
 <script>
@@ -168,7 +168,27 @@ zh: {
  e_worker_stopped:"接单程序意外停止。", e_not_registered:"请先上线一次。",
  e_plan_invalid:"请选择订阅类型。", e_invalid_input:"输入有误：", e_unexpected:"发生意外错误：",
  s_QUEUED:"排队中", s_RESERVED:"已分配", s_RUNNING:"运行中", s_VERIFYING:"校验中", s_SUCCEEDED:"完成",
- s_FAILED:"失败", s_CANCELLED:"已取消", s_CANCELLING:"取消中", s_TIMED_OUT:"超时", s_CREATED:"已创建"
+ s_FAILED:"失败", s_CANCELLED:"已取消", s_CANCELLING:"取消中", s_TIMED_OUT:"超时", s_CREATED:"已创建",
+ s_AWAITING_APPROVAL:"等待批准", s_REJECTED:"已拒绝",
+ tt_CODE_REVIEW:"代码审查", tt_TRANSLATE:"翻译", tt_DATA_ANALYSIS:"表格分析", tt_CODE_CHANGE:"修改代码",
+ tt_WRITING:"写作与润色", tt_SUMMARIZE:"总结", tt_DOCUMENT_QA:"文档问答",
+ m_LIVE:"真实执行", m_SIMULATED:"模拟",
+ save_failed:"未保存：", saving:"正在保存…",
+ r_members:(a,b)=>`小组人数需在 ${a}–${b} 之间。`, r_tasks:"每 24 小时任务数需在 1–50 之间。",
+ r_minutes:"单个任务时长需在 1–60 分钟之间。", r_integer:"请填写整数。",
+ sc_code:(c)=>`（错误代码 ${c}）`,
+ sc_MEMBER_LIMIT_OUT_OF_RANGE:"小组人数超出允许范围：不能少于当前成员数，也不能超过服务器上限。",
+ sc_GROUP_FULL:"小组已满，请先调高人数上限。", sc_GROUP_DISABLED:"这个小组已被停用，请联系运营者。",
+ sc_SELF_SERVE_NOT_AUTHORIZED:"运营者的分享授权已撤销或过期，暂时不能上线。请联系运营者。",
+ sc_AUTHORIZATION_REVOKED:"运营者已撤销分享授权，暂时不能运行任务。", sc_LIVE_NOT_AUTHORIZED:"运营者尚未授权真实执行。",
+ sc_LIVE_EXECUTION_DISABLED:"服务器暂未开启真实执行。", sc_EXPERIMENT_DISABLED:"服务器暂未开放分享功能。",
+ sc_SIGNUP_CODE_INVALID:"安装包里的注册码无效，请向运营者索取新的安装包。",
+ sc_TERMS_VERSION_MISMATCH:"条款已更新，请重新打开本页面后再试。", sc_INVITE_CODE_INVALID:"邀请码无效。",
+ sc_CANNOT_REMOVE_OWNER:"不能移除你自己。", sc_MEMBER_NOT_FOUND:"找不到该成员，可能已被移除。",
+ sc_NOT_SELF_SERVE_NODE:"这台设备不是通过一键分享注册的。", sc_SELF_SERVE_GROUP_NOT_FOUND:"找不到你的小组，请重新上线。",
+ sc_SUBSCRIPTION_AUTH_INVALID:"Codex 登录无效，请重新登录你自己的 ChatGPT 账号。",
+ sc_SHARING_REVOKED:"分享已被撤销，请联系运营者。", sc_VALIDATION_ERROR:"提交的数值不在允许范围内。",
+ sc_UNAUTHENTICATED:"设备凭据已失效，请重新上线。", sc_RATE_LIMITED:"操作太频繁，请稍后再试。"
 },
 en: {
  title:"SpareAgent · One-click sharing", subtitle:"Share your spare ChatGPT Codex capacity with your own group",
@@ -213,7 +233,15 @@ en: {
  e_worker_stopped:"The worker stopped unexpectedly.", e_not_registered:"Go online once first.",
  e_plan_invalid:"Choose your plan.", e_invalid_input:"Invalid input: ", e_unexpected:"Unexpected error: ",
  s_QUEUED:"Queued", s_RESERVED:"Assigned", s_RUNNING:"Running", s_VERIFYING:"Verifying", s_SUCCEEDED:"Done",
- s_FAILED:"Failed", s_CANCELLED:"Cancelled", s_CANCELLING:"Cancelling", s_TIMED_OUT:"Timed out", s_CREATED:"Created"
+ s_FAILED:"Failed", s_CANCELLED:"Cancelled", s_CANCELLING:"Cancelling", s_TIMED_OUT:"Timed out", s_CREATED:"Created",
+ s_AWAITING_APPROVAL:"Awaiting approval", s_REJECTED:"Rejected",
+ tt_CODE_REVIEW:"Code review", tt_TRANSLATE:"Translation", tt_DATA_ANALYSIS:"Spreadsheet analysis", tt_CODE_CHANGE:"Code change",
+ tt_WRITING:"Writing", tt_SUMMARIZE:"Summary", tt_DOCUMENT_QA:"Document Q&A",
+ m_LIVE:"Live", m_SIMULATED:"Simulated",
+ save_failed:"Not saved: ", saving:"Saving…",
+ r_members:(a,b)=>`Members must be between ${a} and ${b}.`, r_tasks:"Tasks per 24 hours must be between 1 and 50.",
+ r_minutes:"Minutes per task must be between 1 and 60.", r_integer:"Enter whole numbers.",
+ sc_code:(c)=>` (error code ${c})`
 }};
 const ONLINE_STEPS=["codex_install","codex_login","signup","owner_check","server_online","worker_start"];
 const OFFLINE_STEPS=["server_offline","worker_stop"];
@@ -227,10 +255,19 @@ async function call(route, body){
   const r=await fetch("/api/"+route,{method:"POST",headers:{"Content-Type":"application/json","X-App-Key":KEY},
     body:JSON.stringify(body||{})});
   const data=await r.json().catch(()=>({}));
-  if(!r.ok){const e=data.error||{};throw Object.assign(new Error(e.detail||""),{code:e.code||"unexpected"})}
+  if(!r.ok){const e=data.error||{};throw Object.assign(new Error(e.detail||""),{code:e.code||"unexpected",server_code:e.server_code})}
   return data;
 }
-function errText(code,detail){return t("e_"+code)+(detail?(" "+detail):"")}
+function has(k){return Object.prototype.hasOwnProperty.call(T[lang]||T.zh,k)}
+function errText(err){
+  if(err.code==="server_rejected"&&err.server_code){
+    // Translated, actionable text for known codes; the raw server message only in English.
+    if(has("sc_"+err.server_code))return t("sc_"+err.server_code);
+    return t("e_server_rejected")+(lang==="en"&&err.detail?err.detail:"")+t("sc_code",err.server_code);
+  }
+  return t("e_"+err.code)+(err.detail?(" "+err.detail):"");
+}
+function label(p,v){return has(p+v)?t(p+v):String(v||"").replaceAll("_"," ").toLowerCase()}
 function show(el,on){el.classList.toggle("hidden",!on)}
 function fmt(ts){return ts?new Date(ts).toLocaleString(lang==="zh"?"zh-CN":"en-US",{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"}):"—"}
 
@@ -243,7 +280,7 @@ function applyStatic(){
   for(let i=1;i<=7;i++){const li=document.createElement("li");li.textContent=t("ack_"+i);$("ack").appendChild(li)}
 }
 function render(){
-  if(!S){if(localErr){show($("error"),true);$("error").textContent=errText(localErr.code,localErr.detail)}return}
+  if(!S){if(localErr){show($("error"),true);$("error").textContent=errText(localErr)}return}
   const big=$("big"), ph=S.phase;
   big.className="big"+(ph==="ONLINE"?" online":"")+(ph==="STARTING"||ph==="STOPPING"?" busy":"");
   big.disabled=ph==="STARTING"||ph==="STOPPING"||!KEY;
@@ -258,7 +295,7 @@ function render(){
     steps.forEach((k,i)=>{const li=document.createElement("li");li.textContent=(i<at?"✓ ":i===at?"→ ":"· ")+t("step_"+k);
       li.className=i<at?"done":i===at?"now":"";ol.appendChild(li)})}
   const err=S.error||localErr;
-  show($("error"),!!err); if(err)$("error").textContent=errText(err.code,err.detail);
+  show($("error"),!!err); if(err)$("error").textContent=errText(err);
   show($("consent"),ph!=="ONLINE");
   if(!editing){$("device").value=S.device_label||"";$("plan").value=S.subscription_type||"PLUS"}
   const srv=S.server;
@@ -270,6 +307,7 @@ function render(){
     $("copy").disabled=!S.invite_link;
     if(!editing){
       $("max_members").value=g.max_members; $("max_members").max=g.member_cap;
+      $("max_members").min=Math.max(2,srv.members.length);
       $("max_tasks").value=g.max_tasks_per_day; $("max_minutes").value=Math.round(g.max_task_duration_seconds/60);
       $("auto").checked=srv.sharing?srv.sharing.auto_approve_members:true;
     }
@@ -285,7 +323,7 @@ function render(){
     const tb=$("task_rows"); tb.innerHTML="";
     srv.tasks.forEach(x=>{const tr=document.createElement("tr");
       const ap=x.approval_status==="APPROVED"?(x.approval_source==="OWNER_STANDING_APPROVAL"?t("approved_auto"):t("approved_owner")):x.approval_status==="PENDING"?t("pending"):t("rejected");
-      [fmt(x.created_at),x.task_type.replaceAll("_"," ")+" · "+x.execution_mode,t("s_"+x.status),ap].forEach(v=>{const td=document.createElement("td");td.textContent=v;tr.append(td)});
+      [fmt(x.created_at),label("tt_",x.task_type)+" · "+label("m_",x.execution_mode),label("s_",x.status),ap].forEach(v=>{const td=document.createElement("td");td.textContent=v;tr.append(td)});
       tb.append(tr)});
   }
   const notes=[];
@@ -295,9 +333,12 @@ function render(){
   show($("notice"),notes.length>0); $("notice").textContent=notes.join(" ");
 }
 async function act(route, body){
+  let ok=true;
   try{S=await call(route,body)}
-  catch(e){localErr={code:e.code,detail:e.message};setTimeout(()=>{localErr=null;render()},8000)}
+  catch(e){ok=false;localErr={code:e.code,detail:e.message,server_code:e.server_code};
+    setTimeout(()=>{localErr=null;render()},8000)}
   render();
+  return ok;
 }
 async function poll(){try{S=await call("state");render()}catch(e){}}
 
@@ -307,9 +348,26 @@ $("cancel").onclick=()=>act("cancel");
 $("rotate").onclick=()=>act("invite");
 $("copy").onclick=async()=>{try{await navigator.clipboard.writeText(S.invite_link);$("copy").textContent=t("copied");
   setTimeout(()=>$("copy").textContent=t("copy"),1500)}catch(e){}};
-$("save").onclick=async()=>{editing=false;await act("settings",{max_members:+$("max_members").value,
-  max_tasks_per_day:+$("max_tasks").value,max_task_minutes:+$("max_minutes").value,auto_approve_members:$("auto").checked});
-  flash=t("saved")+" · ";render();setTimeout(()=>{flash="";render()},2000)};
+function checkLimits(v){
+  const lo=Math.max(2,S&&S.server?S.server.members.length:2), hi=S&&S.server?S.server.group.member_cap:v.max_members;
+  if(![v.max_members,v.max_tasks_per_day,v.max_task_minutes].every(Number.isInteger))return t("r_integer");
+  if(v.max_members<lo||v.max_members>hi)return t("r_members",lo,hi);
+  if(v.max_tasks_per_day<1||v.max_tasks_per_day>50)return t("r_tasks");
+  if(v.max_task_minutes<1||v.max_task_minutes>60)return t("r_minutes");
+  return "";
+}
+function setFlash(text,ms){flash=text;render();if(ms)setTimeout(()=>{flash="";render()},ms)}
+$("save").onclick=async()=>{
+  const v={max_members:Number($("max_members").value),max_tasks_per_day:Number($("max_tasks").value),
+    max_task_minutes:Number($("max_minutes").value),auto_approve_members:$("auto").checked};
+  const bad=checkLimits(v);
+  if(bad){setFlash(t("save_failed")+bad+" · ",6000);return}  // keep the user's edits on screen
+  $("save").disabled=true;setFlash(t("saving")+" · ");
+  const ok=await act("settings",v);
+  $("save").disabled=false;
+  if(ok){editing=false;setFlash(t("saved")+" · ",2000)}
+  else{setFlash(t("save_failed").replace(/[：:\s]+$/,"")+" · ",8000)}  // reason is in the error box
+};
 $("dashboard").onclick=async()=>{try{const r=await call("dashboard");window.open(r.url,"_blank","noopener")}catch(e){localErr={code:e.code,detail:e.message};render()}};
 ["max_members","max_tasks","max_minutes","auto","device","plan"].forEach(id=>{$(id).addEventListener("focus",()=>editing=true);$(id).addEventListener("input",()=>editing=true)});
 applyStatic(); poll(); setInterval(poll,1500);

@@ -340,16 +340,18 @@ class Controller:
             except AppError as exc:
                 self._fail(exc.code, exc.detail)
             except WorkerApiError as exc:
-                self._fail("server_rejected", f"{exc.code}: {exc}")
+                self._fail("server_rejected", exc.message, server_code=exc.code)
             except TransportError as exc:
                 self._fail("server_unreachable", str(exc))
             except Exception as exc:  # noqa: BLE001 - surface every failure on the page
                 log.exception("going online failed")
                 self._fail("unexpected", type(exc).__name__)
 
-    def _fail(self, code: str, detail: str = "") -> None:
+    def _fail(self, code: str, detail: str = "", server_code: str | None = None) -> None:
         self.snap.phase, self.snap.step = "ERROR", None
         self.snap.error = {"code": code, "detail": detail}
+        if server_code:
+            self.snap.error["server_code"] = server_code
 
     async def _online_steps(self, options: dict[str, Any]) -> None:
         if self.bundle is None:
@@ -559,8 +561,10 @@ class Controller:
             clean["max_task_duration_seconds"] = int(body["max_task_minutes"]) * 60
         if body.get("auto_approve_members") is not None:
             clean["auto_approve_members"] = bool(body["auto_approve_members"])
-            self._save(auto_approve_members=clean["auto_approve_members"])
         await self._owner_call("sharing_settings", clean)
+        # Only remember the choice locally once the server has accepted it.
+        if "auto_approve_members" in clean:
+            self._save(auto_approve_members=clean["auto_approve_members"])
 
     async def rotate_invite(self) -> None:
         await self._owner_call("rotate_invite_code")

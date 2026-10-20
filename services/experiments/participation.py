@@ -294,12 +294,25 @@ class ExperimentalParticipationService:
             if auth is None:
                 raise not_found("AUTHORIZATION_NOT_FOUND", "Authorization not found")
             auth.revoked_at = auth.revoked_at or utcnow()
+            # Self-serve groups run on per-group copies of an operator template; revoking
+            # the template must stop every copy, because dispatch and the database trigger
+            # only ever look at the group's own record.
+            copies = await session.execute(
+                update(ExperimentalAuthorization)
+                .where(
+                    ExperimentalAuthorization.authorization_scope["self_serve_template_id"].astext
+                    == str(auth.id),
+                    ExperimentalAuthorization.revoked_at.is_(None),
+                )
+                .values(revoked_at=auth.revoked_at)
+            )
             _audit(
                 session,
                 principal.user_id,
                 "experiment.authorization.revoke",
                 "authorization",
                 auth.id,
+                cascaded_copies=copies.rowcount,
             )
         return auth
 

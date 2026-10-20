@@ -13,6 +13,7 @@ import pytest
 
 from packages.worker.app import AppError, Bundle, Controller, load_app_state
 from packages.worker.app_server import AppServer
+from packages.worker.lease_client import WorkerApiError
 from packages.worker.local_controls import LocalSharingControl
 from packages.worker.state import load_state
 
@@ -152,6 +153,25 @@ async def test_failures_are_reported_and_nothing_goes_online(tmp_path, codex, bu
     await c.go_online({})
     assert c.snap.phase == "ERROR" and c.snap.error["code"] == code
     assert ("online",) not in [x[:1] for x in log] and not agent_runs
+
+
+async def test_rejected_settings_are_not_remembered_locally(tmp_path):
+    class RejectingClient(FakeClient):
+        async def sharing_settings(self, body):
+            raise WorkerApiError(422, "MEMBER_LIMIT_OUT_OF_RANGE", "max_members out of range")
+
+    c = Controller(
+        tmp_path,
+        BUNDLE,
+        codex=FakeCodex(),
+        client_factory=lambda state: RejectingClient([]),
+        agent_factory=lambda stop: stop.wait(),
+    )
+    await c.go_online({"device_label": "Alice Mac", "subscription_type": "PLUS"})
+    with pytest.raises(WorkerApiError):
+        await c.update_settings({"max_members": 99, "auto_approve_members": False})
+    assert load_app_state(tmp_path).get("auto_approve_members", True) is True
+    await c.shutdown()
 
 
 async def test_cancel_aborts_a_slow_start(tmp_path):

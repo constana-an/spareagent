@@ -400,3 +400,45 @@ async def test_join_code_requires_dashboard_origin(oc):
         json={"code": "ABCD-EFGH-JKLM", "terms_version": TERMS, "acknowledgements": JOIN_ACKS},
     )
     assert resp.status_code == 403
+
+
+# ====================================================== template revocation (D-73)
+async def revoke_template(oc, octx):
+    template = octx.settings.self_serve_authorization_id
+    await ok(
+        await oc.post(f"/v1/experiments/authorizations/{template}/revoke", headers=headers(ADMIN))
+    )
+
+
+async def test_revoked_template_refuses_new_live_tasks_in_existing_group(oc, octx):
+    node = await signup_device(oc)
+    status = await go_online(oc, node)
+    bob, _ = await join(octx, status["invite_code"])
+    try:
+        await revoke_template(oc, octx)
+        view = await ok(await owner(oc, node, "GET", ""))
+        assert view["live_ready"] is False
+        resp = await bob.post(
+            "/v1/experimental-tasks",
+            json=task_body(
+                status["group"]["id"], status["sharing"]["connection_id"], execution_mode="LIVE"
+            ),
+            headers={**ORIGIN, "Idempotency-Key": "revoked-template-new-task"},
+        )
+        assert resp.status_code == 409, resp.text
+        assert resp.json()["error"]["code"] == "LIVE_NOT_AUTHORIZED"
+    finally:
+        await bob.aclose()
+
+
+async def test_revoked_template_stops_already_queued_live_task(oc, octx):
+    node = await signup_device(oc)
+    status = await go_online(oc, node)
+    bob, _ = await join(octx, status["invite_code"])
+    try:
+        await submit_as(bob, status, status["sharing"]["connection_id"])
+        await revoke_template(oc, octx)
+        lease = await poll(oc, node)
+        assert lease.status_code != 200, lease.text
+    finally:
+        await bob.aclose()

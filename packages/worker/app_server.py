@@ -142,7 +142,11 @@ class AppServer:
                 except AppError as exc:
                     err = {"code": exc.code, "detail": exc.detail}
                 except WorkerApiError as exc:
-                    err = {"code": "server_rejected", "detail": f"{exc.code}: {exc}"}
+                    err = {
+                        "code": "server_rejected",
+                        "server_code": exc.code,
+                        "detail": exc.message,
+                    }
                 except TransportError as exc:
                     err = {"code": "server_unreachable", "detail": str(exc)}
                 except (ValueError, TypeError) as exc:
