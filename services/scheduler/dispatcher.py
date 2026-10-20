@@ -52,6 +52,8 @@ def execution_request(task: Task, attempt_id: uuid.UUID, attempt_number: int) ->
         max_budget_cents=task.max_budget_cents,
         attempt_number=attempt_number,
         task_type=task.task_type,
+        parameters=dict((task.spec or {}).get("parameters") or {}),
+        deliverable=(task.spec or {}).get("deliverable"),
     )
 
 

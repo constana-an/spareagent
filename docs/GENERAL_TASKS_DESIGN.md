@@ -1,6 +1,6 @@
 # 通用任务委托平台：设计（第 2–4 阶段）
 
-状态：**已确认；A 已实现（迁移 0011、种类目录、新任务 API、附件，D-75…D-78）**，B–F 待实现。日期 2026-10-19。基线：`feat/macos-app` @ `e810be4`（第 1 阶段已完成：模板撤销级联 D-73、保存反馈 D-74、免开发环境安装包）。
+状态：**已确认；A、B 已实现（D-75…D-82）**，C–F 待实现。日期 2026-10-19。基线：`feat/macos-app` @ `e810be4`（第 1 阶段已完成：模板撤销级联 D-73、保存反馈 D-74、免开发环境安装包）。
 
 ## 0. 目标与边界
 
@@ -46,7 +46,7 @@
 
 | 种类 | 输入 | 交付物 | 设备所需能力 | 结构校验（平台侧，不调用模型） |
 |---|---|---|---|---|
-| `TRANSLATE_DOCUMENT` 翻译文档 | 1 个 `.docx`/`.md`/`.txt`/`.pdf`（≤ 10 MB）+ 目标语言 | 同格式译文（PDF 输入交付 `.docx`）+ `summary.md` | `doc` | 输出存在、格式可解析、段落数与原文差异 ≤ 20 %、目标语言字符占比达标 |
+| `TRANSLATE_DOCUMENT` 翻译文档 | 1 个 `.docx`/`.md`/`.txt`（≤ 20 MB）+ 目标语言（PDF 暂不支持，见 D-80） | 译文（`.docx`/`.md`/`.txt`）+ 摘要 | `doc` | 输出存在、格式可解析、段落数与原文差异 ≤ 20 %、目标语言字符占比达标 |
 | `ANALYZE_SPREADSHEET` 分析表格 | 1–5 个 `.csv`/`.xlsx`（合计 ≤ 20 MB）+ 问题 | `report.md`（含结论与计算过程）+ `charts/*.png` + `cleaned.xlsx`（可选） | `python-data` | 报告存在且引用了输入文件；图片可解码；表格可打开 |
 | `CODE_CHANGE` 修改代码 | 仓库 URL + commit + 需求 | `changes.patch` + `summary.md` + 测试输出 | `git`、`code` | 补丁可在固定 commit 上 `git apply --check`；已有的独立校验器（W3）在沙箱中复跑测试 |
 | `CODE_REVIEW` 代码审查（已有） | 仓库 URL + commit | `review.md` | `git`、`code` | 现有逻辑 |

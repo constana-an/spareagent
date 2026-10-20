@@ -423,3 +423,116 @@ async def test_scheduler_forgets_expired_unclaimed_uploads(oc, octx):
         assert left == [used["id"]] and stale["id"] not in left
     finally:
         await bob.aclose()
+
+
+# ------------------------------------------------------------------ step B: deliverables
+async def live_translation(oc, octx, source: bytes):
+    node, status, bob = await group_with_member(oc, octx)
+    await set_kind(oc, "TRANSLATE_DOCUMENT", "OPEN", report="reports/test-acceptance.json")
+    doc = await upload(bob, "paper.docx", source)
+    task = await submit(
+        bob,
+        generic(
+            status,
+            kind="TRANSLATE_DOCUMENT",
+            requirement="Translate into Japanese",
+            attachments=[doc["id"]],
+            parameters={"target_language": "ja"},
+            execution_mode="LIVE",
+        ),
+    )
+    return node, bob, task
+
+
+async def complete_with(oc, node, files: list[tuple[str, str, bytes]]) -> dict:
+    import base64
+
+    lease = (await poll(oc, node)).json()
+    auth = bearer(node["access_token"])
+    assert (
+        await oc.post(f"/v1/leases/{lease['lease_id']}/accept", headers=auth)
+    ).status_code == 204
+    arts = [("SUMMARY", "summary.md", "text/plain", b"Translated.")] + [
+        ("DELIVERABLE", n, m, c) for n, m, c in files
+    ]
+    body = {
+        "finalization_key": f"fin-{lease['attempt_id']}",
+        "succeeded": True,
+        "result_summary": "done",
+        "artifacts": [
+            {"kind": k, "name": n, "media_type": m, "content_base64": base64.b64encode(c).decode()}
+            for k, n, m, c in arts
+        ],
+    }
+    return await ok(
+        await oc.post(f"/v1/leases/{lease['lease_id']}/complete", json=body, headers=auth)
+    )
+
+
+DOCX_MT = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+
+async def test_live_translation_is_checked_and_downloadable_by_name(oc, octx):
+    from packages.common.deliverables import docx_paragraphs, docx_replace_paragraphs
+    from services.verification.service import VerificationService
+    from tests.unit.test_deliverables import make_docx
+
+    source = make_docx()
+    node, bob, task = await live_translation(oc, octx, source)
+    try:
+        translated = docx_replace_paragraphs(source, ["こんにちは", "セル", "最後の段落"])
+        done = await complete_with(oc, node, [("translation.docx", DOCX_MT, translated)])
+        assert done["task_status"] == "VERIFYING"
+        assert await VerificationService(octx, None, None).run_once() == "SUCCEEDED"
+        view = await ok(await bob.get(f"/v1/experimental-tasks/{task['id']}"))
+        assert view["status"] == "SUCCEEDED" and view["verification_status"] == "UNVERIFIED"
+        assert view["result_summary"] == "UNVERIFIED: STRUCTURE_CHECKED_CONTENT_NOT_REVIEWED"
+        arts = (await ok(await bob.get(f"/v1/tasks/{task['id']}/artifacts")))["items"]
+        (deliv,) = [a for a in arts if a["kind"] == "DELIVERABLE"]
+        assert deliv["name"] == "translation.docx" and deliv["media_type"] == DOCX_MT
+        got = await bob.get(f"/v1/tasks/{task['id']}/artifacts/{deliv['id']}/content")
+        assert got.status_code == 200
+        assert got.headers["content-disposition"] == 'attachment; filename="translation.docx"'
+        assert docx_paragraphs(got.content) == ["こんにちは", "セル", "最後の段落"]
+        report = [a for a in arts if a["kind"] == "VERIFICATION_REPORT"]
+        assert report, arts
+    finally:
+        await bob.aclose()
+
+
+async def test_live_translation_in_the_wrong_language_fails_verification(oc, octx):
+    from packages.common.deliverables import docx_replace_paragraphs
+    from services.verification.service import VerificationService
+    from tests.unit.test_deliverables import make_docx
+
+    source = make_docx()
+    node, bob, task = await live_translation(oc, octx, source)
+    try:
+        english = docx_replace_paragraphs(source, ["Hello there", "A cell", "The end"])
+        await complete_with(oc, node, [("translation.docx", DOCX_MT, english)])
+        assert await VerificationService(octx, None, None).run_once() == "FAILED"
+        view = await ok(await bob.get(f"/v1/experimental-tasks/{task['id']}"))
+        assert view["status"] == "FAILED" and view["verification_status"] == "FAILED"
+        async with octx.engine.connect() as conn:
+            reason = (
+                await conn.execute(text("SELECT reason FROM verification_results"))
+            ).scalar_one()
+        assert reason == "WRONG_LANGUAGE"
+        arts = (await ok(await bob.get(f"/v1/tasks/{task['id']}/artifacts")))["items"]
+        assert not [a for a in arts if a["kind"] == "DELIVERABLE"]  # never published
+    finally:
+        await bob.aclose()
+
+
+async def test_submission_gate_refuses_disallowed_deliverable_types(oc, octx):
+    from tests.unit.test_deliverables import make_docx
+
+    node, bob, task = await live_translation(oc, octx, make_docx())
+    try:
+        png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 30
+        done = await complete_with(oc, node, [("translation.png", "image/png", png)])
+        assert done["task_status"] == "FAILED"
+        view = await ok(await bob.get(f"/v1/experimental-tasks/{task['id']}"))
+        assert "disallowed type" in (view["result_summary"] or "")
+    finally:
+        await bob.aclose()

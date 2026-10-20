@@ -201,6 +201,15 @@ class NodeClient:
     async def renew(self, lease_id: str) -> dict[str, Any]:
         return (await self.call("POST", f"/v1/leases/{lease_id}/renew")).json()
 
+    async def lease_input(self, lease_id: str, input_id: str, sha256: str) -> bytes:
+        """A task attachment; refused unless its bytes match the lease's SHA-256."""
+        import hashlib
+
+        resp = await self.call("GET", f"/v1/leases/{lease_id}/inputs/{input_id}")
+        if hashlib.sha256(resp.content).hexdigest() != sha256:
+            raise WorkerApiError(422, "INPUT_CHECKSUM_MISMATCH", "Attachment checksum mismatch")
+        return resp.content
+
     async def complete(self, lease_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         return (await self.call("POST", f"/v1/leases/{lease_id}/complete", json=payload)).json()
 

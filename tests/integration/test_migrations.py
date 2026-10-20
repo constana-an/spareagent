@@ -32,6 +32,7 @@ async def test_migration_applied_once_and_rerun_is_noop(migrated_database):
         "0009_friends_beta",
         "0010_one_click_sharing",
         "0011_generic_tasks",
+        "0012_deliverables",
     ]
 
 
@@ -45,6 +46,7 @@ def test_seed_files_are_not_schema_migrations():
         "0009_friends_beta",
         "0010_one_click_sharing",
         "0011_generic_tasks",
+        "0012_deliverables",
     ]
     assert [m.version for m in discover(include_seed=True)] == [
         "0002_seed_dev",

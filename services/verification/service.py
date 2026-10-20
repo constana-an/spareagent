@@ -61,8 +61,8 @@ class Job:
     task_id: uuid.UUID
     attempt_id: uuid.UUID
     attempt_number: int
-    repository_url: str
-    commit_sha: str
+    repository_url: str | None
+    commit_sha: str | None
     execution_profile: str = "CODE"
     task_type: str = "CODE_FIX"
 
@@ -127,7 +127,7 @@ class VerificationService:
                     "task_id": task.id,
                     "attempt_id": attempt.id,
                     "status": "RUNNING",
-                    "base_commit_sha": task.commit_sha.strip(),
+                    "base_commit_sha": task.commit_sha.strip() if task.commit_sha else None,
                     "verifier_id": self.verifier_id,
                     "claimed_until": now + timedelta(seconds=s.verification_claim_seconds),
                     "started_at": now,
@@ -145,7 +145,7 @@ class VerificationService:
                     attempt.id,
                     attempt.attempt_number,
                     task.repository_url,
-                    task.commit_sha.strip(),
+                    task.commit_sha.strip() if task.commit_sha else None,
                     task.execution_profile,
                     task.task_type,
                 )
@@ -165,15 +165,92 @@ class VerificationService:
             )
         out = {}
         for row in rows:
+            if row.kind == "DELIVERABLE":
+                continue  # several per attempt; see _load_deliverables
             content = await self.ctx.artifacts.get(row.storage_key)  # integrity-checked
             if hashlib.sha256(content).hexdigest() != row.sha256.strip() or row.kind in out:
                 raise ValueError("Artifact metadata integrity failure")
             out[row.kind] = ArtifactPayload(row.kind, row.kind.lower(), row.media_type, content)
         return out
 
+    async def _load_deliverables(self, attempt_id: uuid.UUID) -> list[ArtifactPayload]:
+        async with self.ctx.sessionmaker() as session:
+            rows = list(
+                (
+                    await session.execute(
+                        select(Artifact)
+                        .where(
+                            Artifact.attempt_id == attempt_id,
+                            Artifact.source == "WORKER",
+                            Artifact.kind == "DELIVERABLE",
+                        )
+                        .order_by(Artifact.name)
+                    )
+                ).scalars()
+            )
+        out = []
+        for row in rows:
+            content = await self.ctx.artifacts.get(row.storage_key)  # integrity-checked
+            if hashlib.sha256(content).hexdigest() != row.sha256.strip():
+                raise ValueError("Artifact metadata integrity failure")
+            out.append(ArtifactPayload("DELIVERABLE", row.name, row.media_type, content))
+        return out
+
+    async def _verify_document(self, job: Job, out: Outcome) -> Outcome:
+        """Translation / analysis: structural checks of the deliverables against the
+        task's inputs and parameters. Content quality is never claimed (UNVERIFIED)."""
+        from packages.common import deliverables as d
+        from services.execution.verifier import verify_codex_live
+        from services.tasks.uploads import UploadService
+
+        try:
+            singles = await self._load_artifacts(job.attempt_id)
+            files = await self._load_deliverables(job.attempt_id)
+            async with self.ctx.sessionmaker() as session:
+                task = await session.get(Task, job.task_id)
+                uploads = (await UploadService.for_tasks(session, [job.task_id]))[job.task_id]
+            inputs = [
+                d.FileIn(u.filename, await self.ctx.artifacts.get(u.storage_key)) for u in uploads
+            ]
+        except Exception as exc:  # noqa: BLE001 - integrity failure or store error
+            out.check("artifact_integrity", False, type(exc).__name__)
+            out.reason = "ARTIFACT_INTEGRITY"
+            return out
+        out.check("artifact_integrity", True)
+        structure = verify_codex_live(job.task_type, (*singles.values(), *files))
+        if not out.check("artifact_schema", structure.ok, structure.reason):
+            out.reason = "INVALID_LIVE_ARTIFACTS"
+            return out
+        spec = task.spec or {}
+        delivered = [d.FileIn(f.name, f.content) for f in files]
+        if job.task_type == "TRANSLATE_DOCUMENT":
+            if not out.check("source_present", len(inputs) == 1, len(inputs)):
+                out.reason = "SOURCE_MISSING"
+                return out
+            report = d.check_translation(
+                delivered,
+                inputs[0],
+                (spec.get("parameters") or {}).get("target_language", ""),
+                spec.get("deliverable") or {"format": "docx", "filename": "translation.docx"},
+            )
+        else:
+            report = d.check_analysis(delivered, [i.name for i in inputs])
+        for c in report.checks:
+            out.check(c["name"], c["ok"], c["detail"])
+        out.verified = {"deliverables": [f.name for f in files]}
+        if report.ok:
+            out.status, out.reason = "UNVERIFIED", "STRUCTURE_CHECKED_CONTENT_NOT_REVIEWED"
+        else:
+            out.reason = report.reason or "DELIVERABLE_CHECK_FAILED"
+        return out
+
     async def verify(self, job: Job) -> Outcome:
         out = Outcome("FAILED", "")
         live = job.execution_profile == "CODEX_LIVE"
+        from packages.common.deliverables import DOCUMENT_KINDS
+
+        if job.task_type in DOCUMENT_KINDS:
+            return await self._verify_document(job, out)
         recipes = (
             catalog_mod.LIVE_WRITE_TESTS_CATALOG
             if live and job.task_type == "WRITE_TESTS"

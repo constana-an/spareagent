@@ -105,9 +105,20 @@ class ArtifactIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     # VERIFICATION_REPORT is platform-only and can never be submitted by a node.
-    kind: Literal["PATCH", "TEST_REPORT", "LOG", "SUMMARY", "EXECUTION_LOG"]
+    kind: Literal["PATCH", "TEST_REPORT", "LOG", "SUMMARY", "EXECUTION_LOG", "DELIVERABLE"]
     name: SafeName
-    media_type: Literal["text/plain", "text/x-diff", "application/json"]
+    # Deliverable types are listed in packages/common/deliverables.py MEDIA_TYPES.
+    media_type: Literal[
+        "text/plain",
+        "text/x-diff",
+        "application/json",
+        "text/markdown",
+        "text/csv",
+        "image/png",
+        "image/svg+xml",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ]
     content_base64: Annotated[StrictStr, Field(max_length=8 * 1024 * 1024)]
 
 

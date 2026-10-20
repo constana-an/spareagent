@@ -152,6 +152,7 @@ class Artifact(Base):
         Text, nullable=False, server_default=text("'WORKER'")
     )
     published: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    name: Mapped[str | None] = mapped_column(Text)  # 0012: DELIVERABLE file name
 
 
 class UsageRecord(Base):
@@ -251,7 +252,7 @@ class VerificationResult(Base):
     )
     status: Mapped[str] = mapped_column(Text, nullable=False)
     reason: Mapped[str | None] = mapped_column(Text)
-    base_commit_sha: Mapped[str] = mapped_column(CHAR(40), nullable=False)
+    base_commit_sha: Mapped[str | None] = mapped_column(CHAR(40))  # 0012: null for documents
     patch_sha256: Mapped[str | None] = mapped_column(CHAR(64))
     worker_reported: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, server_default=text("'{}'::jsonb")

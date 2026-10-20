@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SpareAgent MVP API
-  version: 1.7.0
+  version: 1.8.0
   description: 'W1: Tasks, Events, Models, Chat nonstream, health. W2: remote worker enrollment, node credentials and lease protocol.'
 servers:
   - url: http://localhost:8000
@@ -1535,10 +1535,11 @@ components:
       description: 'Only published artifacts are listed. For CODE tasks, worker artifacts are published only after independent platform verification passes; VERIFICATION_REPORT is always platform-sourced.'
       properties:
         id: {type: string, format: uuid}
-        kind: {type: string, enum: [PATCH, TEST_REPORT, LOG, SUMMARY, EXECUTION_LOG, VERIFICATION_REPORT]}
+        kind: {type: string, enum: [PATCH, TEST_REPORT, LOG, SUMMARY, EXECUTION_LOG, VERIFICATION_REPORT, DELIVERABLE]}
         sha256: {type: string}
         media_type: {type: string}
         source: {type: string, enum: [WORKER, PLATFORM]}
+        name: {anyOf: [{type: string}, {type: 'null'}], description: '0012: file name of a DELIVERABLE (also used for download)'}
     Model:
       type: object
       required: [id, object, owned_by]
@@ -2842,6 +2843,7 @@ components:
           - LOG
           - SUMMARY
           - EXECUTION_LOG
+          - DELIVERABLE
           title: Kind
         name:
           type: string
@@ -2855,6 +2857,12 @@ components:
           - text/plain
           - text/x-diff
           - application/json
+          - text/markdown
+          - text/csv
+          - image/png
+          - image/svg+xml
+          - application/vnd.openxmlformats-officedocument.wordprocessingml.document
+          - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
           title: Media Type
         content_base64:
           type: string

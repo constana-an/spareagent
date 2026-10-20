@@ -87,10 +87,19 @@ class TaskList(BaseModel):
 
 class ArtifactOut(BaseModel):
     id: uuid.UUID
-    kind: Literal["PATCH", "TEST_REPORT", "LOG", "SUMMARY", "EXECUTION_LOG", "VERIFICATION_REPORT"]
+    kind: Literal[
+        "PATCH",
+        "TEST_REPORT",
+        "LOG",
+        "SUMMARY",
+        "EXECUTION_LOG",
+        "VERIFICATION_REPORT",
+        "DELIVERABLE",
+    ]
     sha256: str
     media_type: str
     source: Literal["WORKER", "PLATFORM"]
+    name: str | None = None  # 0012: deliverable file name
 
 
 class ArtifactList(BaseModel):

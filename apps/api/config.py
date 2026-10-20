@@ -64,7 +64,8 @@ class Settings(BaseSettings):
     max_node_concurrency: int = Field(default=4, ge=1, le=100)
     lease_poll_max_wait_seconds: float = Field(default=25.0, ge=0, le=60)
     lease_poll_interval_seconds: float = Field(default=0.5, gt=0, le=10)
-    max_completion_artifact_bytes: int = Field(default=5 * 1024 * 1024, ge=1024)
+    # 0012: room for a task's deliverables (each ≤ 5 MB, together ≤ 12 MB) plus logs.
+    max_completion_artifact_bytes: int = Field(default=13 * 1024 * 1024, ge=1024)
 
     # Week 3 sandboxed code execution (disabled by default; D-35)
     code_execution_enabled: bool = False

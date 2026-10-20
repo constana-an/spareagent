@@ -114,11 +114,17 @@ async def store_artifacts(
             media_type=item.media_type,
             source=source,
             published=published,
+            name=item.name if item.kind == "DELIVERABLE" else None,
         )
         await session.execute(
             stmt.on_conflict_do_update(
                 index_elements=["storage_key"],
-                set_={"attempt_id": attempt_id, "kind": item.kind, "published": published},
+                set_={
+                    "attempt_id": attempt_id,
+                    "kind": item.kind,
+                    "published": published,
+                    "name": stmt.excluded.name,
+                },
                 where=Artifact.published.is_(False),
             )
         )
@@ -391,7 +397,7 @@ class LeaseService:
             if task.execution_profile == "CODEX_LIVE":
                 report = verifier.verify_codex_live(task.task_type, data.artifacts)
             else:
-                report = verifier.verify(data.artifacts)
+                report = verifier.verify(data.artifacts, task.task_type)
             if report.ok:
                 await self._store_artifacts(session, task, attempt, data.artifacts)
                 await close_attempt(session, attempt, "SUCCEEDED")
