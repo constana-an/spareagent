@@ -472,6 +472,34 @@ class SelfServeSharingService:
         status["invite_code"] = code
         return status
 
+    async def set_member_limits(
+        self, worker_id: uuid.UUID, user_id: uuid.UUID, limits: dict[str, int | None]
+    ) -> dict[str, Any]:
+        """The owner's caps for one member on this device per rolling 24 h (D-98). `None`
+        clears a cap; only the given keys change. A queued task waits while over a cap."""
+        self._require_enabled()
+        async with self.ctx.sessionmaker() as session, session.begin():
+            owner_id, group = await self._owner_group(session, worker_id, lock=True)
+            if user_id == owner_id:
+                raise DomainError(422, "OWNER_HAS_NO_MEMBER_LIMITS", "Limits are for members")
+            member = await self.participation._membership(session, group.id, user_id)
+            if member is None or member.status == "REMOVED":
+                raise not_found("MEMBER_NOT_FOUND", "Member not found")
+            for key in ("max_tasks_per_day", "max_minutes_per_day"):
+                if key in limits:
+                    setattr(member, key, limits[key])
+            _audit(
+                session,
+                owner_id,
+                "self_serve.member.limits",
+                "group",
+                group.id,
+                user=user_id,
+                max_tasks_per_day=member.max_tasks_per_day,
+                max_minutes_per_day=member.max_minutes_per_day,
+            )
+        return await self.status(worker_id)
+
     async def dashboard_login(self, worker_id: uuid.UUID) -> dict[str, Any]:
         """A one-time dashboard sign-in code for the owner of this device."""
         from db.models import FriendsLoginInvite
@@ -532,6 +560,11 @@ class SelfServeSharingService:
             ).all()
             details = await task_details(session, [t for t, _ in tasks])
             busy_seconds = await self._busy_seconds_last_24h(session, worker_id, now)
+            per_member = (
+                await SubscriptionUsageMonitor.member_usage_last_24h(session, conn.id, now)
+                if conn
+                else {}
+            )
         live_blockers = []
         if not self.ctx.settings.experiment_live_enabled:
             live_blockers.append("LIVE_EXECUTION_DISABLED")
@@ -559,6 +592,10 @@ class SelfServeSharingService:
                     "status": m.status,
                     "joined_at": m.joined_at,
                     "is_owner": m.user_id == owner_id,
+                    "tasks_last_24h": int(per_member.get(m.user_id, {}).get("tasks", 0)),
+                    "minutes_last_24h": round(per_member.get(m.user_id, {}).get("minutes", 0.0), 1),
+                    "max_tasks_per_day": m.max_tasks_per_day,
+                    "max_minutes_per_day": m.max_minutes_per_day,
                 }
                 for m in members
             ],

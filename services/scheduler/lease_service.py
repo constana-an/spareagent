@@ -237,6 +237,19 @@ class LeaseService:
                     tasks_started_last_24h=await SubscriptionUsageMonitor.started_last_24h(
                         session, conn.id, now, exclude_task_id=task.id
                     ),
+                    member_tasks_started_last_24h=int(
+                        (
+                            await SubscriptionUsageMonitor.member_usage_last_24h(
+                                session,
+                                conn.id,
+                                now,
+                                requester_id=consent.requester_id,
+                                exclude_task_id=task.id,
+                            )
+                        )
+                        .get(consent.requester_id, {})
+                        .get("tasks", 0)
+                    ),
                     node_online=(
                         worker.status in ONLINE_STATUSES
                         and worker.last_heartbeat is not None

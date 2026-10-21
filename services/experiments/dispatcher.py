@@ -104,6 +104,19 @@ class ExperimentalDispatcher:
                 )
             ).scalars()
         )
+        member = (
+            await session.execute(
+                select(ExperimentalGroupMember).where(
+                    ExperimentalGroupMember.group_id == group.id,
+                    ExperimentalGroupMember.user_id == consent.requester_id,
+                )
+            )
+        ).scalar_one_or_none()
+        used = (
+            await SubscriptionUsageMonitor.member_usage_last_24h(
+                session, conn.id, now, requester_id=consent.requester_id
+            )
+        ).get(consent.requester_id, {"tasks": 0, "minutes": 0.0})
         auth = await current_authorization(session, group.id)
         scope_types = (auth.authorization_scope or {}).get("task_types") if auth else None
         fresh_after = now - timedelta(seconds=self.ctx.settings.worker_heartbeat_ttl_seconds)
@@ -189,6 +202,10 @@ class ExperimentalDispatcher:
             required_tools=kind_catalog.required_tools(task.task_type, getattr(task, "spec", None)),
             node_tools=declared_tools(worker.capabilities),
             owner_allowed_tools=frozenset(prefs.allowed_tools if prefs else ()),
+            member_tasks_started_last_24h=int(used["tasks"]),
+            member_minutes_last_24h=used["minutes"],
+            member_max_tasks_per_day=member.max_tasks_per_day if member else None,
+            member_max_minutes_per_day=member.max_minutes_per_day if member else None,
         )
         return snap, conn, auth.id if auth else None
 

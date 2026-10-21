@@ -70,6 +70,11 @@ class AppServer:
             await c.update_settings(body)
         elif route == "invite":
             await c.rotate_invite()
+        elif route == "member-limits":
+            await c.set_member_limits(
+                str(body.get("user_id", "")),
+                {k: body.get(k) for k in ("max_tasks_per_day", "max_minutes_per_day")},
+            )
         elif route == "remove-member":
             await c.remove_member(str(body.get("user_id", "")))
         elif route == "install-tool":

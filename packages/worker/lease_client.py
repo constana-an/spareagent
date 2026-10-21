@@ -236,6 +236,10 @@ class NodeClient:
     async def rotate_invite_code(self) -> dict[str, Any]:
         return (await self.call("POST", "/v1/workers/me/sharing/invite-code")).json()
 
+    async def set_member_limits(self, user_id: str, limits: dict[str, Any]) -> dict[str, Any]:
+        path = f"/v1/workers/me/sharing/members/{user_id}/limits"
+        return (await self.call("PUT", path, json=limits)).json()
+
     async def remove_member(self, user_id: str) -> dict[str, Any]:
         return (await self.call("DELETE", f"/v1/workers/me/sharing/members/{user_id}")).json()
 

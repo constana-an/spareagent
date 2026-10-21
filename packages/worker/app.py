@@ -784,6 +784,15 @@ class Controller:
     async def rotate_invite(self) -> None:
         await self._owner_call("rotate_invite_code")
 
+    async def set_member_limits(self, user_id: str, limits: dict[str, Any]) -> None:
+        clean: dict[str, int | None] = {}
+        for key in ("max_tasks_per_day", "max_minutes_per_day"):
+            value = limits.get(key)
+            if value is not None and (not isinstance(value, int) or isinstance(value, bool)):
+                raise AppError("invalid_input", key)
+            clean[key] = value
+        await self._owner_call("set_member_limits", user_id, clean)
+
     async def remove_member(self, user_id: str) -> None:
         await self._owner_call("remove_member", user_id)
 

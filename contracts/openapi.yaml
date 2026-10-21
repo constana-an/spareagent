@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SpareAgent MVP API
-  version: 1.12.0
+  version: 1.13.0
   description: 'W1: Tasks, Events, Models, Chat nonstream, health. W2: remote worker enrollment, node credentials and lease protocol.'
 servers:
   - url: http://localhost:8000
@@ -1401,6 +1401,37 @@ paths:
         '403': {$ref: '#/components/responses/ApiError'}
         '404': {$ref: '#/components/responses/ApiError'}
         '422': {$ref: '#/components/responses/ApiError'}
+  /v1/workers/me/sharing/members/{user_id}/limits:
+    put:
+      x-spareagent-extension: one-click sharing
+      operationId: setOneClickMemberLimits
+      summary: Set (or clear with null) a member's own caps per rolling 24 hours on this device
+      security: [{nodeAuth: []}]
+      parameters:
+        - in: path
+          name: user_id
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                max_tasks_per_day: {type: ['integer', 'null'], minimum: 1, maximum: 50}
+                max_minutes_per_day: {type: ['integer', 'null'], minimum: 1, maximum: 1440}
+      responses:
+        '200':
+          description: Limits saved; the status lists every member's usage and caps
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OneClickSharingStatus'}
+        '401': {$ref: '#/components/responses/ApiError'}
+        '403': {$ref: '#/components/responses/ApiError'}
+        '404': {$ref: '#/components/responses/ApiError'}
+        '422': {$ref: '#/components/responses/ApiError'}
   /v1/workers/me/sharing/dashboard-login:
     post:
       x-spareagent-extension: one-click sharing
@@ -2457,6 +2488,11 @@ components:
                 type: integer
               requires_approval:
                 type: boolean
+              my_tasks_last_24h: {type: integer}
+              my_minutes_last_24h: {type: number}
+              my_max_tasks_per_day: {type: ['integer', 'null']}
+              my_max_minutes_per_day: {type: ['integer', 'null']}
+              device_max_tasks_per_day: {type: ['integer', 'null']}
             required:
             - connection_id
             - owner_id
@@ -2732,6 +2768,10 @@ components:
               status: {type: string}
               joined_at: {type: ['string', 'null'], format: date-time}
               is_owner: {type: boolean}
+              tasks_last_24h: {type: integer}
+              minutes_last_24h: {type: number}
+              max_tasks_per_day: {type: ['integer', 'null']}
+              max_minutes_per_day: {type: ['integer', 'null']}
         sharing:
           type: ['object', 'null']
           properties:

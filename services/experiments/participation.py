@@ -697,6 +697,8 @@ class ExperimentalParticipationService:
     ) -> list[dict[str, Any]]:
         async with self.ctx.sessionmaker() as session:
             await self._require_active_member(session, group_id, principal.user_id)
+            me = await self._membership(session, group_id, principal.user_id)
+            now = utcnow()
             rows = (
                 await session.execute(
                     select(SubscriptionConnection, SubscriptionSharingPreference, WorkerNode)
@@ -707,19 +709,30 @@ class ExperimentalParticipationService:
                     .join(WorkerNode, WorkerNode.id == SubscriptionConnection.worker_id)
                     .where(
                         SubscriptionSharingPreference.group_id == group_id,
-                        SubscriptionSharingPreference.sharing_state == "ENABLED",
+                        # A paused owner still takes requests (D-93); shown as offline.
+                        SubscriptionSharingPreference.sharing_state.in_(("ENABLED", "PAUSED")),
                         SubscriptionConnection.status == "CONNECTED",
                     )
                     .order_by(SubscriptionConnection.created_at)
                 )
             ).all()
+            usage = {
+                c.id: (
+                    await SubscriptionUsageMonitor.member_usage_last_24h(
+                        session, c.id, now, requester_id=principal.user_id
+                    )
+                ).get(principal.user_id, {"tasks": 0, "minutes": 0.0})
+                for c, _, _ in rows
+            }
             return [
                 {
                     "connection_id": c.id,
                     "owner_id": c.owner_id,
                     "device_label": c.device_label,
                     "auth_state": c.auth_state,
-                    "online": w.revoked_at is None and w.status != "OFFLINE",
+                    "online": w.revoked_at is None
+                    and w.status != "OFFLINE"
+                    and p.sharing_state == "ENABLED",
                     "allowed_task_types": p.allowed_task_types,
                     "max_task_duration_seconds": p.max_task_duration_seconds,
                     "requires_approval": not (
@@ -729,6 +742,12 @@ class ExperimentalParticipationService:
                             and str(principal.user_id) in p.advance_consent_requester_ids
                         )
                     ),
+                    # D-98: what I used on this device in 24 h, and the caps that apply to me.
+                    "my_tasks_last_24h": int(usage[c.id]["tasks"]),
+                    "my_minutes_last_24h": round(usage[c.id]["minutes"], 1),
+                    "my_max_tasks_per_day": me.max_tasks_per_day if me else None,
+                    "my_max_minutes_per_day": me.max_minutes_per_day if me else None,
+                    "device_max_tasks_per_day": p.max_tasks_per_day,
                 }
                 for c, p, w in rows
             ]

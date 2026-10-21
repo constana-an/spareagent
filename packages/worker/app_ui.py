@@ -55,6 +55,8 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:13px}
 h3.sub{font-size:14px;margin:16px 0 6px}
 .checks label{display:flex;align-items:center;gap:6px;font-size:14px;color:var(--ink);margin:4px 0;flex-wrap:wrap}
 .checks small{margin-left:4px}.checks button.s{padding:3px 10px;font-size:13px}
+input.cap{width:7.5em;padding:4px 6px}
+#member_rows td{vertical-align:middle}
 </style>
 </head>
 <body>
@@ -136,8 +138,10 @@ h3.sub{font-size:14px;margin:16px 0 6px}
 
 <section class="card hidden" id="members">
   <h2 data-t="members_title"></h2>
-  <table><thead><tr><th data-t="member"></th><th data-t="joined"></th><th></th></tr></thead>
+  <table><thead><tr><th data-t="member"></th><th data-t="joined"></th><th data-t="m_used"></th>
+    <th data-t="m_task_cap"></th><th data-t="m_min_cap"></th><th></th></tr></thead>
   <tbody id="member_rows"></tbody></table>
+  <p class="muted" data-t="m_caps_help"></p>
 </section>
 
 <section class="card hidden" id="tasks">
@@ -182,6 +186,9 @@ zh: {
  auto_approve:"自动批准小组成员的任务", save:"保存", saved:"已保存",
  usage:(n,m)=>`过去 24 小时已接 ${n} / ${m} 个任务`, cap:(c)=>`（服务器上限 ${c} 人）`,
  members_title:"小组成员", member:"成员", joined:"加入时间", you:"你", remove:"移除",
+ m_used:"过去 24 小时", m_used_val:(n,m)=>`${n} 个任务 · ${m} 分钟`, m_task_cap:"每日任务上限", m_min_cap:"每日分钟上限",
+ m_no_cap:"不单独限制", m_cap_range:"任务上限 1–50，分钟上限 1–1440，留空表示不单独限制。",
+ m_caps_help:"按成员单独限额：在你这台电脑上，每个成员每 24 小时最多用多少个任务、多少分钟执行时间。留空表示只受上面的整体上限约束。超出后，该成员的新任务会排队并显示原因，额度恢复或你调高后自动继续；正在运行的任务不受影响。",
  confirm_remove:"移除该成员？其未完成的任务会被取消，邀请码也会更换。",
  tasks_title:"最近的任务", time:"时间", kind:"类型", status:"状态", approval:"批准",
  approved_auto:"自动批准", approved_owner:"你批准", pending:"等待批准", rejected:"已拒绝",
@@ -269,6 +276,9 @@ en: {
  auto_approve:"Approve my group's tasks automatically", save:"Save", saved:"Saved",
  usage:(n,m)=>`${n} / ${m} tasks in the last 24 hours`, cap:(c)=>` (server cap ${c})`,
  members_title:"Members", member:"Member", joined:"Joined", you:"You", remove:"Remove",
+ m_used:"Last 24 h", m_used_val:(n,m)=>`${n} tasks · ${m} min`, m_task_cap:"Tasks per day", m_min_cap:"Minutes per day",
+ m_no_cap:"no own cap", m_cap_range:"Tasks 1–50, minutes 1–1440; leave empty for no own cap.",
+ m_caps_help:"Per-member caps on this Mac per rolling 24 hours. Empty means only the overall limits above apply. Over a cap, that member's new tasks wait with the reason and continue when usage frees up or you raise the cap; running tasks are not affected.",
  confirm_remove:"Remove this member? Their unfinished tasks are cancelled and the invite code changes.",
  tasks_title:"Recent tasks", time:"Time", kind:"Type", status:"Status", approval:"Approval",
  approved_auto:"Automatic", approved_owner:"By you", pending:"Pending", rejected:"Rejected",
@@ -391,14 +401,28 @@ function render(){
       renderKinds(srv); renderTools(srv);
     } else { renderToolStates() }
     $("usage").textContent=(flash||t("usage",srv.tasks_started_last_24h,g.max_tasks_per_day))+t("cap",g.member_cap);
-    const mb=$("member_rows"); mb.innerHTML="";
+    const mb=$("member_rows");
+    // Do not rebuild the rows while the owner is typing a member's limit.
+    if(!mb.contains(document.activeElement)){mb.innerHTML="";
     srv.members.forEach(m=>{const tr=document.createElement("tr");
       const a=document.createElement("td");a.textContent=m.is_owner?t("you"):m.user_id.slice(0,8);
       const b=document.createElement("td");b.textContent=fmt(m.joined_at);
+      const u=document.createElement("td");u.textContent=m.is_owner?"—":t("m_used_val",m.tasks_last_24h||0,m.minutes_last_24h||0);
+      const capCell=(key,max)=>{const td=document.createElement("td");if(m.is_owner){td.textContent="—";return [td,null]}
+        const i=document.createElement("input");i.type="number";i.min="1";i.max=String(max);i.className="cap";
+        i.placeholder=t("m_no_cap");i.value=m[key]??"";td.append(i);return [td,i]};
+      const [tc,ti]=capCell("max_tasks_per_day",50), [mc,mi]=capCell("max_minutes_per_day",1440);
       const c=document.createElement("td");
-      if(!m.is_owner){const btn=document.createElement("button");btn.className="s";btn.textContent=t("remove");
-        btn.onclick=()=>{if(confirm(t("confirm_remove")))act("remove-member",{user_id:m.user_id})};c.append(btn)}
-      tr.append(a,b,c);mb.append(tr)});
+      if(!m.is_owner){
+        const save=document.createElement("button");save.className="s p";save.textContent=t("save");
+        save.onclick=()=>{const v=x=>x.value.trim()===""?null:Number(x.value);
+          const body={user_id:m.user_id,max_tasks_per_day:v(ti),max_minutes_per_day:v(mi)};
+          const bad=[[body.max_tasks_per_day,50],[body.max_minutes_per_day,1440]].some(([x,hi])=>x!==null&&(!Number.isInteger(x)||x<1||x>hi));
+          if(bad){localErr={code:"invalid_input",detail:t("m_cap_range")};render();return}
+          act("member-limits",body)};
+        const btn=document.createElement("button");btn.className="s";btn.textContent=t("remove");
+        btn.onclick=()=>{if(confirm(t("confirm_remove")))act("remove-member",{user_id:m.user_id})};c.append(save,btn)}
+      tr.append(a,b,u,tc,mc,c);mb.append(tr)})}
     renderRunning(srv);
     const tb=$("task_rows"); tb.innerHTML="";
     srv.tasks.forEach(x=>{const tr=document.createElement("tr");

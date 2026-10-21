@@ -74,6 +74,18 @@ class MemberSummary(BaseModel):
     status: str
     joined_at: datetime | None
     is_owner: bool
+    # D-98: this member's use of the owner's device in the last 24 h and their caps.
+    tasks_last_24h: int = 0
+    minutes_last_24h: float = 0.0
+    max_tasks_per_day: int | None = None
+    max_minutes_per_day: int | None = None
+
+
+class MemberLimitsIn(Strict):
+    """Only the given keys change; null clears that cap."""
+
+    max_tasks_per_day: Annotated[StrictInt, Field(ge=1, le=50)] | None = None
+    max_minutes_per_day: Annotated[StrictInt, Field(ge=1, le=1440)] | None = None
 
 
 class SharingSummary(BaseModel):

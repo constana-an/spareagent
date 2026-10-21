@@ -12,6 +12,7 @@ from apps.api.dependencies import get_ctx, parse_uuid_or_404
 from apps.api.middleware.node_auth import get_node_principal
 from apps.api.schemas.self_serve import (
     DashboardLoginOut,
+    MemberLimitsIn,
     OnlineIn,
     SettingsIn,
     SharingStatusOut,
@@ -112,6 +113,22 @@ async def remove_member(
 ) -> SharingStatusOut:
     uid = parse_uuid_or_404(user_id, "MEMBER_NOT_FOUND")
     return _out(await svc(request).remove_member(node.worker_id, uid), response)
+
+
+@router.put(
+    "/workers/me/sharing/members/{user_id}/limits",
+    operation_id="setOneClickMemberLimits",
+    response_model=SharingStatusOut,
+)
+async def set_member_limits(
+    user_id: str,
+    body: MemberLimitsIn,
+    request: Request,
+    node: NodePrincipal = Depends(get_node_principal),
+) -> SharingStatusOut:
+    uid = parse_uuid_or_404(user_id, "MEMBER_NOT_FOUND")
+    limits = body.model_dump(include=body.model_fields_set)
+    return _out(await svc(request).set_member_limits(node.worker_id, uid, limits))
 
 
 @router.post(

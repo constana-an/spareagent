@@ -404,3 +404,27 @@ def test_old_single_address_bundles_still_load(tmp_path):
     c, _, _ = make_controller(tmp_path)
     assert c.snapshot()["networks"] == [{"id": "default", "label": "", "reachable": None}]
     assert c.snapshot()["invite_links"] == []
+
+
+async def test_owner_sets_member_limits_from_the_app(tmp_path):
+    sent = []
+
+    class Client(FakeClient):
+        async def set_member_limits(self, user_id, limits):
+            sent.append((user_id, limits))
+            return {"group": {}, "sharing": {"state": "ENABLED"}}
+
+    c = Controller(
+        tmp_path,
+        BUNDLE,
+        codex=FakeCodex(),
+        client_factory=lambda state: Client([]),
+        agent_factory=lambda stop: stop.wait(),
+        git_check=lambda: True,
+    )
+    await c.go_online({"device_label": "Alice Mac", "subscription_type": "PLUS"})
+    await c.set_member_limits("u-1", {"max_tasks_per_day": 3, "max_minutes_per_day": None})
+    assert sent == [("u-1", {"max_tasks_per_day": 3, "max_minutes_per_day": None})]
+    with pytest.raises(AppError):
+        await c.set_member_limits("u-1", {"max_tasks_per_day": "3"})
+    await c.go_offline()

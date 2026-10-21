@@ -320,6 +320,9 @@ class ExperimentalGroupMember(Base):
     removed_at: Mapped[datetime | None] = mapped_column(TZ)
     terms_version: Mapped[str | None] = mapped_column(Text)
     acknowledgements: Mapped[dict[str, Any]] = _jsonb("{}")
+    # 0016: owner-set caps for this member per rolling 24 h (NULL = group/device caps only)
+    max_tasks_per_day: Mapped[int | None] = mapped_column(Integer)
+    max_minutes_per_day: Mapped[int | None] = mapped_column(Integer)
 
 
 class ExperimentalAuthorization(Base):

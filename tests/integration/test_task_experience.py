@@ -284,3 +284,68 @@ async def test_reservation_that_lapses_before_starting_does_not_use_the_rerun(oc
         assert (await view(bob, task))["status"] == "RETRY_PENDING"
     finally:
         await bob.aclose()
+
+
+async def test_per_member_usage_and_limits(oc, octx):
+    """D-98: the owner sees each member's 24 h use and can cap a member's tasks/minutes;
+    the member sees their own use and caps; a capped member's task waits with the reason."""
+    from tests.conftest import execute
+
+    node, status, bob = await gt.group_with_member(oc, octx)
+    try:
+        conn = status["sharing"]["connection_id"]
+        first = await one_click.submit_as(bob, status, conn, mode="SIMULATED")
+        lease = await start(oc, node)
+        assert lease["task"]["task_id"] == first["id"]
+        await fail(oc, node, lease, error_code="EXECUTION_ERROR", retryable=False)
+        # Pretend the run took 30 minutes.
+        await execute(
+            octx,
+            "UPDATE task_attempts SET started_at=completed_at-interval '30 minutes'",
+        )
+        owner_view = await ok(await one_click.owner(oc, node, "GET", ""))
+        (member,) = [m for m in owner_view["members"] if not m["is_owner"]]
+        assert member["tasks_last_24h"] == 1
+        assert 29.5 <= member["minutes_last_24h"] <= 30.5
+        assert member["max_tasks_per_day"] is None and member["max_minutes_per_day"] is None
+
+        limits = f"/members/{member['user_id']}/limits"
+        await ok(await one_click.owner(oc, node, "PUT", limits, json={"max_tasks_per_day": 1}))
+        nodes = (
+            await ok(
+                await bob.get(f"/v1/experimental-tasks/nodes?group_id={status['group']['id']}")
+            )
+        )["items"]
+        (mine,) = nodes
+        assert mine["my_tasks_last_24h"] == 1 and mine["my_max_tasks_per_day"] == 1
+        assert mine["my_max_minutes_per_day"] is None
+
+        second = await one_click.submit_as(bob, status, conn, mode="SIMULATED")
+        assert (await poll(oc, node)).status_code == 204
+        assert "MEMBER_DAILY_LIMIT" in (await view(bob, second))["last_decision"]["reasons"]
+
+        # Clearing the task cap but capping minutes below what was used still holds it.
+        await ok(
+            await one_click.owner(
+                oc, node, "PUT", limits, json={"max_tasks_per_day": None, "max_minutes_per_day": 10}
+            )
+        )
+        assert (await poll(oc, node)).status_code == 204
+        assert "MEMBER_MINUTES_LIMIT" in (await view(bob, second))["last_decision"]["reasons"]
+        owner_view = await ok(await one_click.owner(oc, node, "GET", ""))
+        (member,) = [m for m in owner_view["members"] if not m["is_owner"]]
+        assert member["max_tasks_per_day"] is None and member["max_minutes_per_day"] == 10
+
+        # Raising it lets the queued task run.
+        await ok(await one_click.owner(oc, node, "PUT", limits, json={"max_minutes_per_day": 60}))
+        assert (await poll(oc, node)).json()["task"]["task_id"] == second["id"]
+
+        bad = await one_click.owner(oc, node, "PUT", limits, json={"max_tasks_per_day": 0})
+        assert bad.status_code == 422
+        owner_id = next(m["user_id"] for m in owner_view["members"] if m["is_owner"])
+        own = await one_click.owner(
+            oc, node, "PUT", f"/members/{owner_id}/limits", json={"max_tasks_per_day": 3}
+        )
+        assert own.status_code == 422
+    finally:
+        await bob.aclose()

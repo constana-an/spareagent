@@ -79,6 +79,8 @@ class Reason(StrEnum):
     TASK_KIND_NOT_OPEN = "TASK_KIND_NOT_OPEN"
     NODE_LACKS_CAPABILITY = "NODE_LACKS_CAPABILITY"
     TOOL_NOT_ALLOWED = "TOOL_NOT_ALLOWED"
+    MEMBER_DAILY_LIMIT = "MEMBER_DAILY_LIMIT"
+    MEMBER_MINUTES_LIMIT = "MEMBER_MINUTES_LIMIT"
 
 
 # Reasons that can clear without anyone changing the task (wait, keep QUEUED). Everything
@@ -96,6 +98,8 @@ TRANSIENT_REASONS = frozenset(
         Reason.NODE_NOT_CODEX_CAPABLE,  # the owner's device may restart with the executor
         Reason.NODE_LACKS_CAPABILITY,  # e.g. the owner installs the data tools
         Reason.TOOL_NOT_ALLOWED,  # the owner may allow the tool again
+        Reason.MEMBER_DAILY_LIMIT,  # this member's own caps (D-98) free up over 24 h
+        Reason.MEMBER_MINUTES_LIMIT,
     }
 )
 
@@ -168,6 +172,11 @@ class DispatchSnapshot:
     owner_allowed_tools: frozenset[str] = frozenset(
         {"code", "doc", "git", "network", "python-data"}
     )
+    # 0016: this requester's use of this device in 24 h and the owner's caps for them.
+    member_tasks_started_last_24h: int = 0
+    member_minutes_last_24h: float = 0.0
+    member_max_tasks_per_day: int | None = None
+    member_max_minutes_per_day: int | None = None
 
 
 @dataclass(frozen=True)
@@ -294,6 +303,16 @@ class ExperimentalSharingPolicy:
             r.append(Reason.CONCURRENCY_LIMIT)
         if s.tasks_started_last_24h >= min(s.group_max_tasks_per_day, s.owner_max_tasks_per_day):
             r.append(Reason.DAILY_LIMIT)
+        if (
+            s.member_max_tasks_per_day is not None
+            and s.member_tasks_started_last_24h >= s.member_max_tasks_per_day
+        ):
+            r.append(Reason.MEMBER_DAILY_LIMIT)
+        if (
+            s.member_max_minutes_per_day is not None
+            and s.member_minutes_last_24h >= s.member_max_minutes_per_day
+        ):
+            r.append(Reason.MEMBER_MINUTES_LIMIT)
         if s.rate_limited_until is not None and s.rate_limited_until > s.now:
             r.append(Reason.RATE_LIMITED)
         return Decision(allowed=not r, mode=mode, reasons=tuple(dict.fromkeys(r)))

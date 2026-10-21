@@ -279,6 +279,11 @@ class NodeOut(BaseModel):
     allowed_task_types: list[str]
     max_task_duration_seconds: int
     requires_approval: bool
+    my_tasks_last_24h: int = 0
+    my_minutes_last_24h: float = 0.0
+    my_max_tasks_per_day: int | None = None
+    my_max_minutes_per_day: int | None = None
+    device_max_tasks_per_day: int | None = None
 
 
 class NodeList(BaseModel):

@@ -6,11 +6,11 @@ if [[ "$(uname -s)" != Darwin ]]; then
   echo 'This setup is for macOS. See the worker runbook for other systems.' >&2; exit 2
 fi
 if [[ $# -ne 2 || ! "$2" =~ ^[0-9a-fA-F]{64}$ ]]; then
-  echo 'Usage: bash setup-worker-macos.sh /path/spareagent_worker-0.11.0-py3-none-any.whl SHA256' >&2; exit 2
+  echo 'Usage: bash setup-worker-macos.sh /path/spareagent_worker-0.12.0-py3-none-any.whl SHA256' >&2; exit 2
 fi
 wheel="$1"
 expected="$2"
-[[ -f "$wheel" && "$wheel" == *spareagent_worker-0.11.0-py3-none-any.whl ]] || { echo 'Expected the operator-supplied 0.11.0 worker wheel.' >&2; exit 2; }
+[[ -f "$wheel" && "$wheel" == *spareagent_worker-0.12.0-py3-none-any.whl ]] || { echo 'Expected the operator-supplied 0.12.0 worker wheel.' >&2; exit 2; }
 actual="$(shasum -a 256 "$wheel" | cut -d ' ' -f 1)"
 [[ "$actual" == "$expected" ]] || { echo 'Wheel SHA-256 mismatch. Stop and contact the operator.' >&2; exit 1; }
 python_bin="${SPAREAGENT_PYTHON:-python3.12}"

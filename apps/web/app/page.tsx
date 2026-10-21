@@ -50,6 +50,11 @@ type Node = {
   online: boolean;
   requires_approval: boolean;
   max_task_duration_seconds: number;
+  my_tasks_last_24h?: number;
+  my_minutes_last_24h?: number;
+  my_max_tasks_per_day?: number | null;
+  my_max_minutes_per_day?: number | null;
+  device_max_tasks_per_day?: number | null;
 };
 type Task = {
   id: string;
@@ -1299,6 +1304,23 @@ export default function Dashboard() {
                         ))}
                     </select>
                   </label>
+                  {nodes
+                    .filter((n) => n.owner_id !== me.user_id)
+                    .map((n) => (
+                      <small key={`usage-${n.connection_id}`} className="muted">
+                        {t("my_usage", {
+                          d: n.device_label,
+                          n: n.my_tasks_last_24h ?? 0,
+                          m: n.my_minutes_last_24h ?? 0,
+                        })}
+                        {n.my_max_tasks_per_day || n.my_max_minutes_per_day
+                          ? t("my_caps", {
+                              n: n.my_max_tasks_per_day ?? "—",
+                              m: n.my_max_minutes_per_day ?? "—",
+                            })
+                          : t("my_caps_none")}
+                      </small>
+                    ))}
                   {kind?.needs_repository && (
                     <>
                       <label>
