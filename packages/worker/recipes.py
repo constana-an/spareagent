@@ -87,6 +87,9 @@ class Workspace:
         path.chmod(stat.S_IRUSR)
         return path
 
+    def is_output_empty(self) -> bool:
+        return not any(p.is_file() for p in self.outputs.rglob("*"))
+
     def cleanup(self) -> None:
         for p in self.root.rglob("*"):
             if not p.is_symlink():

@@ -12,7 +12,7 @@ import uuid
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -55,6 +55,18 @@ def task_deadline_passed(
     return now >= start + timedelta(seconds=seconds)
 
 
+async def started_attempts(session: AsyncSession, task_id: uuid.UUID) -> int:
+    """Attempts a device accepted. A reservation that lapsed before the device started
+    it did no work, so it never uses up an experimental task's re-run."""
+    return (
+        await session.execute(
+            select(func.count())
+            .select_from(TaskAttempt)
+            .where(TaskAttempt.task_id == task_id, TaskAttempt.started_at.is_not(None))
+        )
+    ).scalar_one()
+
+
 # Experimental tasks run on one owner's device and use the owner's own plan, so they are
 # retried at most once and only when the device was interrupted (design §6): the owner
 # chose "stop now and hand back", the worker shut down, or the lease lapsed. A failed or
@@ -63,8 +75,13 @@ EXPERIMENTAL_MAX_ATTEMPTS = 2
 DEVICE_INTERRUPTIONS = frozenset({"WORKER_SHUTDOWN", "LEASE_EXPIRED"})
 
 
-def retry_allowed(task: Task, attempt: TaskAttempt, now: datetime, reason: str) -> bool:
-    if attempt.attempt_number >= task.max_attempts or task_deadline_passed(task, now, attempt):
+def retry_allowed(
+    task: Task, attempt: TaskAttempt, now: datetime, reason: str, *, used: int | None = None
+) -> bool:
+    """`used`: attempts that count against `max_attempts` (default: this attempt's number).
+    Experimental tasks count only attempts a device actually started."""
+    used = attempt.attempt_number if used is None else used
+    if used >= task.max_attempts or task_deadline_passed(task, now, attempt):
         return False
     return task.resource_scope != "EXPERIMENTAL_SHARED_SUBSCRIPTION" or (
         reason in DEVICE_INTERRUPTIONS
@@ -455,7 +472,12 @@ class LeaseService:
 
         await close_attempt(session, attempt, "FAILED")
         reason = data.error_code or "ATTEMPT_FAILED"
-        if data.retryable and retry_allowed(task, attempt, now, reason):
+        used = (
+            await started_attempts(session, task.id)
+            if task.resource_scope == "EXPERIMENTAL_SHARED_SUBSCRIPTION"
+            else None
+        )
+        if data.retryable and retry_allowed(task, attempt, now, reason, used=used):
             await transition(
                 session,
                 task,
@@ -522,7 +544,12 @@ class LeaseService:
                 await close_attempt(session, attempt, "EXPIRED")
                 recovered += 1
                 status = TaskStatus(task.status)
-                retry_ok = retry_allowed(task, attempt, now, "LEASE_EXPIRED")
+                experimental = task.resource_scope == "EXPERIMENTAL_SHARED_SUBSCRIPTION"
+                used = await started_attempts(session, task.id) if experimental else None
+                retry_ok = retry_allowed(task, attempt, now, "LEASE_EXPIRED", used=used)
+                if experimental and attempt.started_at is None:
+                    # Reserved but never started: back to the queue, nothing was used up.
+                    retry_ok = not task_deadline_passed(task, now, requeued=bool(used))
                 payload = {"reason": "LEASE_EXPIRED", "attempt_number": attempt.attempt_number}
                 if status == TaskStatus.CANCELLING:
                     await transition(

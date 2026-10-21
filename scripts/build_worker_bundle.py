@@ -22,7 +22,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-WHEEL = "spareagent_worker-0.7.0-py3-none-any.whl"
+WHEEL = "spareagent_worker-0.8.0-py3-none-any.whl"
 
 
 def fetch_dependency_wheels(out: Path) -> None:
@@ -48,6 +48,25 @@ def fetch_dependency_wheels(out: Path) -> None:
         raise SystemExit(f"dependency wheels must be pure Python, got {native}")
 
 
+def parse_network(spec: str) -> dict:
+    """`id:Label=API_URL,DASHBOARD_URL`, e.g. `lan:局域网=https://10.0.0.16:18443,https://10.0.0.16:13443`."""
+    head, _, urls = spec.partition("=")
+    net_id, _, label = head.partition(":")
+    api_url, _, dashboard_url = urls.partition(",")
+    if not (
+        net_id.isidentifier()
+        and api_url.startswith("https://")
+        and dashboard_url.startswith("https://")
+    ):
+        raise SystemExit(f"--network must look like id:Label=https://API,https://DASHBOARD: {spec}")
+    return {
+        "id": net_id,
+        "label": label or net_id,
+        "api_url": api_url,
+        "dashboard_url": dashboard_url,
+    }
+
+
 def write_bundle(out: Path, args: argparse.Namespace) -> None:
     code = Path(args.signup_code_file).read_text(encoding="utf-8").strip()
     if len(code) < 16:
@@ -59,6 +78,11 @@ def write_bundle(out: Path, args: argparse.Namespace) -> None:
         "signup_code": code,
         "ca_pem": Path(args.ca_file).read_text(encoding="utf-8") if args.ca_file else None,
     }
+    if args.network:
+        bundle["networks"] = [parse_network(n) for n in args.network]
+        # The first network stays the default for older apps that read only these two.
+        bundle["api_url"] = bundle["networks"][0]["api_url"]
+        bundle["dashboard_url"] = bundle["networks"][0]["dashboard_url"]
     fd = os.open(out / "bundle.json", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
         json.dump(bundle, fh, indent=2)
@@ -88,12 +112,25 @@ def main():
     p.add_argument("--signup-code-file", help="file holding SELF_SERVE_SIGNUP_CODE")
     p.add_argument("--terms-version", default="2026-10-experimental-v1")
     p.add_argument("--ca-file", help="public CA certificate (ca.pem) for a private HTTPS server")
+    p.add_argument(
+        "--network",
+        action="append",
+        help="a way to reach the server, repeatable; the app lets the owner pick one or "
+        "picks the first that answers: id:Label=https://API,https://DASHBOARD",
+    )
     args = p.parse_args()
+    if args.network and not args.api_url:
+        args.api_url, _, args.dashboard_url = args.network[0].partition("=")[2].partition(",")
     if args.api_url and not (args.signup_code_file and args.dashboard_url):
         p.error("--api-url needs --signup-code-file and --dashboard-url")
 
     out = ROOT / "output" / "worker-bundle"
     out.mkdir(parents=True, exist_ok=True)
+    # setuptools reuses packages/worker/build: stale copies of moved or deleted modules
+    # would otherwise ship in the wheel.
+    shutil.rmtree(ROOT / "packages" / "worker" / "build", ignore_errors=True)
+    for old in out.glob("spareagent_worker-*.whl"):
+        old.unlink()
     subprocess.run(
         [
             sys.executable,

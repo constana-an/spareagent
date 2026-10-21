@@ -58,7 +58,7 @@ from services.experiments.participation import (
 from services.observability import redact
 from services.tasks import kinds as kind_catalog
 from services.tasks import repository as repo
-from services.tasks.progress import task_details
+from services.tasks.progress import device_wait_reasons, task_details
 from services.tasks.service import Principal
 from services.tasks.uploads import TaskKindService, UploadService
 
@@ -94,6 +94,13 @@ async def _task_out(request: Request, view: ExperimentalTaskView) -> Experimenta
         summaries = await repo.result_summaries(session, [t.id])
         uploads = (await UploadService.for_tasks(session, [t.id]))[t.id]
         details = (await task_details(session, [t]))[t.id]
+        waiting = (
+            await device_wait_reasons(
+                session, c.connection_id, get_ctx(request).settings.worker_heartbeat_ttl_seconds
+            )
+            if t.status == "QUEUED"
+            else []
+        )
         verification = (
             await session.execute(
                 select(VerificationResult.status)
@@ -102,6 +109,24 @@ async def _task_out(request: Request, view: ExperimentalTaskView) -> Experimenta
                 .limit(1)
             )
         ).scalar_one_or_none()
+    decision = (
+        None
+        if d is None
+        else DecisionOut(
+            decision=d.decision,
+            reasons=d.reasons,
+            execution_mode=d.execution_mode,
+            created_at=d.created_at,
+        )
+    )
+    if waiting and (decision is None or not set(waiting) <= set(decision.reasons)):
+        # The owner's device is paused or offline right now (no newer decision exists).
+        decision = DecisionOut(
+            decision="DENY",
+            reasons=waiting,
+            execution_mode="LIVE" if t.execution_profile == "CODEX_LIVE" else "SIMULATED",
+            created_at=datetime.now(UTC),
+        )
     return ExperimentalTaskOut(
         id=t.id,
         status=t.status,
@@ -124,14 +149,7 @@ async def _task_out(request: Request, view: ExperimentalTaskView) -> Experimenta
         verification_status=verification or ("PENDING" if t.status == "VERIFYING" else "NOT_RUN"),
         approval_status=c.status,
         approval_source=c.consent_source,
-        last_decision=None
-        if d is None
-        else DecisionOut(
-            decision=d.decision,
-            reasons=d.reasons,
-            execution_mode=d.execution_mode,
-            created_at=d.created_at,
-        ),
+        last_decision=decision,
         created_at=t.created_at,
         result_summary=summaries.get(t.id),
         progress=details["progress"],

@@ -31,7 +31,11 @@ export function allowed(method, path) {
 export async function relay(request, path, env = process.env, fetcher = fetch) {
   if (!allowed(request.method, path))
     return new Response("Not found", { status: 404 });
-  const origin = env.FRIENDS_WEB_ORIGIN || "http://localhost:3000";
+  // The same dashboard may be reached on several networks (LAN, Tailscale).
+  const origins = [
+    env.FRIENDS_WEB_ORIGIN || "http://localhost:3000",
+    ...(env.FRIENDS_WEB_EXTRA_ORIGINS || "").split(",").map((o) => o.trim()),
+  ].filter(Boolean);
   const base = new URL(env.SPAREAGENT_API_URL || "http://127.0.0.1:8000");
   if (
     base.username ||
@@ -47,7 +51,7 @@ export async function relay(request, path, env = process.env, fetcher = fetch) {
   ) {
     return new Response("Invalid upstream configuration", { status: 503 });
   }
-  if (request.method !== "GET" && request.headers.get("origin") !== origin) {
+  if (request.method !== "GET" && !origins.includes(request.headers.get("origin"))) {
     return new Response("Origin rejected", { status: 403 });
   }
   const headers = new Headers();
@@ -68,7 +72,7 @@ export async function relay(request, path, env = process.env, fetcher = fetch) {
     headers.set("x-filename", name); // percent-encoded by the page
     headers.set("content-type", "application/octet-stream");
   }
-  if (request.method !== "GET") headers.set("origin", origin);
+  if (request.method !== "GET") headers.set("origin", request.headers.get("origin"));
   const target = new URL(`/v1/${path}`, base);
   const input = new URL(request.url);
   for (const name of ["group_id", "role", "limit"]) {

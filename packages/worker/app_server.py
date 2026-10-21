@@ -76,6 +76,8 @@ class AppServer:
             c.start_tool_install(str(body.get("tool", "")))
         elif route == "remove-tool":
             c.remove_tool(str(body.get("tool", "")))
+        elif route == "network":
+            await c.set_network(str(body.get("network", "")))
         elif route == "dashboard":
             return {"url": await c.dashboard_link()}
         else:

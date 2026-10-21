@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from packages.worker.lease_client import NodeClient, TransportError, WorkerApiError
 from packages.worker.runtime import (
@@ -77,6 +78,16 @@ class AppError(Exception):
 
 
 # ------------------------------------------------------------------ bundle / local state
+@dataclass(frozen=True)
+class Network:
+    """One way to reach the same server (e.g. the LAN address or the Tailscale one)."""
+
+    id: str
+    label: str
+    api_url: str
+    dashboard_url: str | None = None
+
+
 @dataclass
 class Bundle:
     """Operator-supplied connection details shipped with the worker download."""
@@ -87,10 +98,24 @@ class Bundle:
     ca_pem: str | None = None
     dashboard_url: str | None = None
     allow_insecure_http: bool = False
+    networks: tuple[Network, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.networks:
+            self.networks = (Network("default", "", self.api_url, self.dashboard_url),)
 
     @classmethod
     def load(cls, path: Path) -> Bundle:
         data = json.loads(path.read_text(encoding="utf-8"))
+        networks = tuple(
+            Network(
+                id=str(n["id"]),
+                label=str(n.get("label") or n["id"]),
+                api_url=n["api_url"],
+                dashboard_url=n.get("dashboard_url"),
+            )
+            for n in data.get("networks") or ()
+        )
         return cls(
             api_url=data["api_url"],
             signup_code=data["signup_code"],
@@ -98,7 +123,26 @@ class Bundle:
             ca_pem=data.get("ca_pem"),
             dashboard_url=data.get("dashboard_url"),
             allow_insecure_http=bool(data.get("allow_insecure_http", False)),
+            networks=networks,
         )
+
+
+PROBE_SECONDS = 2.0
+
+
+async def tcp_reachable(url: str) -> bool:
+    """Whether the server's port answers on this network (no request is sent)."""
+    parts = urlsplit(url)
+    port = parts.port or (443 if parts.scheme == "https" else 80)
+    try:
+        async with asyncio.timeout(PROBE_SECONDS):
+            _, writer = await asyncio.open_connection(parts.hostname, port)
+    except (OSError, TimeoutError):
+        return False
+    writer.close()
+    with contextlib.suppress(Exception):
+        await writer.wait_closed()
+    return True
 
 
 def find_bundle(directory: Path, explicit: str | None = None) -> Path | None:
@@ -247,9 +291,13 @@ class Controller:
         agent_factory=None,
         runtime_pins: dict[str, Any] | None = None,
         git_check=git_available,
+        probe=tcp_reachable,
     ) -> None:
         self.directory = directory
         self.bundle = bundle
+        self._probe = probe
+        self._reachable: dict[str, bool] = {}
+        self._network_id: str | None = None  # resolved choice ("auto" picks one)
         managed = (
             ManagedCodex(directory / "runtime", runtime_pins)
             if runtime_pins and runtime_pins.get("codex")
@@ -286,18 +334,61 @@ class Controller:
             write_private(path, self.bundle.ca_pem)
         return str(path)
 
+    # ---------------------------------------------------------------- networks
+    def network_choice(self) -> str:
+        choice = self.app_state.get("network") or "auto"
+        ids = {n.id for n in self.bundle.networks} if self.bundle else set()
+        return choice if choice in ids else "auto"
+
+    def network(self) -> Network | None:
+        if self.bundle is None:
+            return None
+        nets = self.bundle.networks
+        want = self.network_choice()
+        if want == "auto":
+            want = self._network_id or nets[0].id
+        return next((n for n in nets if n.id == want), nets[0])
+
+    async def resolve_network(self) -> None:
+        """Check which networks reach the server; "auto" uses the first that does (in the
+        bundle's order). A changed address drops the cached client so the next call uses
+        the new one - same server, so the device's credentials stay valid."""
+        if self.bundle is None:
+            return
+        before = self.network()
+        nets = self.bundle.networks
+        if len(nets) > 1:
+            results = await asyncio.gather(*(self._probe(n.api_url) for n in nets))
+            self._reachable = {n.id: bool(ok) for n, ok in zip(nets, results, strict=True)}
+            self._network_id = next((n.id for n in nets if self._reachable[n.id]), nets[0].id)
+        if self.network() != before and self._client is not None:
+            with contextlib.suppress(Exception):
+                await self._client.aclose()
+            self._client = None
+
+    async def set_network(self, choice: str) -> None:
+        if self.snap.phase in ("ONLINE", "STARTING", "STOPPING"):
+            raise AppError("network_locked")
+        ids = {n.id for n in self.bundle.networks} if self.bundle else set()
+        if choice != "auto" and choice not in ids:
+            raise AppError("invalid_input", "network")
+        self._save(network=choice)
+        await self.resolve_network()
+        await self.refresh()
+
     def _default_client(self, state: NodeState | None) -> NodeClient:
+        net = self.network()
         if state is not None:
             return NodeClient(
-                state.api_url,
+                net.api_url if net else state.api_url,
                 worker_id=state.worker_id,
                 node_key=state.node_key,
                 ca_file=state.ca_file,
                 allow_insecure_http=state.allow_insecure_http,
             )
-        assert self.bundle is not None  # noqa: S101 - checked by callers
+        assert self.bundle is not None and net is not None  # noqa: S101 - checked by callers
         return NodeClient(
-            self.bundle.api_url,
+            net.api_url,
             ca_file=self._ca_file(),
             allow_insecure_http=self.bundle.allow_insecure_http,
         )
@@ -313,9 +404,12 @@ class Controller:
     def snapshot(self) -> dict[str, Any]:
         s = self.snap
         code = self.app_state.get("invite_code")
-        dashboard = (s.server or {}).get("dashboard_url") or (
-            self.bundle.dashboard_url if self.bundle else None
-        )
+        net = self.network()
+        nets = self.bundle.networks if self.bundle else ()
+        if net and net.dashboard_url and len(nets) > 1:
+            dashboard = net.dashboard_url  # the address that works on this network
+        else:
+            dashboard = (s.server or {}).get("dashboard_url") or (net and net.dashboard_url)
         return {
             "phase": s.phase,
             "step": s.step,
@@ -330,6 +424,17 @@ class Controller:
             "subscription_type": self.app_state.get("subscription_type") or "PLUS",
             "invite_code": code,
             "invite_link": f"{dashboard}/#join={code}" if dashboard and code else None,
+            # Members may sit on another network than the owner: one link per network.
+            "invite_links": [
+                {"id": n.id, "label": n.label, "url": f"{n.dashboard_url}/#join={code}"}
+                for n in nets
+                if n.dashboard_url and code and len(nets) > 1
+            ],
+            "network_choice": self.network_choice(),
+            "network": net.id if net else None,
+            "networks": [
+                {"id": n.id, "label": n.label, "reachable": self._reachable.get(n.id)} for n in nets
+            ],
             "dashboard_url": dashboard,
             "server": s.server,
             "server_error": s.server_error,
@@ -356,6 +461,7 @@ class Controller:
     async def startup(self) -> None:
         """A previous run may have exited without going offline; make the server agree
         that this device is not sharing until the owner clicks again."""
+        await self.resolve_network()
         await self.refresh()
         sharing = (self.snap.server or {}).get("sharing") or {}
         client = self._node_client()
@@ -389,6 +495,7 @@ class Controller:
         async with self._busy:
             self.snap.phase, self.snap.error = "STARTING", None
             try:
+                await self.resolve_network()
                 await self._online_steps(options)
             except AppError as exc:
                 self._fail(exc.code, exc.detail)
@@ -682,7 +789,13 @@ class Controller:
 
     async def dashboard_link(self) -> str:
         data = await self._owner_call("dashboard_login")
-        return f"{data['dashboard_url']}/#login={data['token']}"
+        net = self.network()
+        base = (
+            net.dashboard_url
+            if net and net.dashboard_url and self.bundle and len(self.bundle.networks) > 1
+            else data["dashboard_url"]
+        )
+        return f"{base}/#login={data['token']}"
 
     async def shutdown(self) -> None:
         if self.snap.phase in ("ONLINE", "STARTING"):

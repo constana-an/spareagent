@@ -35,6 +35,9 @@ class Settings(BaseSettings):
 
     friends_auth_enabled: bool = False
     friends_web_origin: str = "http://localhost:3000"
+    # More dashboard origins for the same server on other networks (comma-separated), e.g.
+    # the Tailscale address next to the LAN one. `friends_web_origin` stays the primary.
+    friends_web_extra_origins: str = ""
     friends_session_hours: int = Field(default=12, ge=1, le=24)
 
     database_url: str = "postgresql+asyncpg://spareagent:spareagent@localhost:55432/spareagent"
@@ -100,6 +103,11 @@ class Settings(BaseSettings):
     local_worker_node_ids: str = DEFAULT_LOCAL_WORKER
     mock_chat_resource_id: uuid.UUID = uuid.UUID(DEFAULT_MOCK_CHAT_RESOURCE)
 
+    @property
+    def friends_web_origins(self) -> tuple[str, ...]:
+        extra = (o.strip() for o in self.friends_web_extra_origins.split(","))
+        return (self.friends_web_origin, *(o for o in extra if o and o != self.friends_web_origin))
+
     @field_validator("self_serve_signup_code", "self_serve_authorization_id", mode="before")
     @classmethod
     def _blank_is_unset(cls, value):
@@ -133,18 +141,19 @@ class Settings(BaseSettings):
         if self.friends_auth_enabled:
             from urllib.parse import urlsplit
 
-            origin = urlsplit(self.friends_web_origin)
-            if (
-                origin.scheme not in ("http", "https")
-                or not origin.hostname
-                or origin.username
-                or origin.password
-                or origin.path
-                or origin.query
-                or origin.fragment
-                or (self.app_env != "local" and origin.scheme != "https")
-            ):
-                raise ConfigError("FRIENDS_WEB_ORIGIN must be an origin; HTTPS outside local")
+            for value in self.friends_web_origins:
+                origin = urlsplit(value)
+                if (
+                    origin.scheme not in ("http", "https")
+                    or not origin.hostname
+                    or origin.username
+                    or origin.password
+                    or origin.path
+                    or origin.query
+                    or origin.fragment
+                    or (self.app_env != "local" and origin.scheme != "https")
+                ):
+                    raise ConfigError("FRIENDS_WEB_ORIGIN(S) must be origins; HTTPS outside local")
         if self.self_serve_enabled:
             code = self.self_serve_signup_code
             if code is None or len(code.get_secret_value()) < 16:

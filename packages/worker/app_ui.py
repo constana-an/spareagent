@@ -88,7 +88,9 @@ h3.sub{font-size:14px;margin:16px 0 6px}
     <label><span data-t="plan"></span>
       <select id="plan"><option value="PLUS">ChatGPT Plus</option><option value="PRO">ChatGPT Pro</option></select>
     </label>
+    <label id="net_box" class="hidden"><span data-t="net_label"></span><select id="net"></select></label>
   </div>
+  <p class="muted hidden" id="net_note"></p>
   <p class="muted" data-t="consent_intro"></p>
   <ul id="ack"></ul>
 </section>
@@ -97,6 +99,7 @@ h3.sub{font-size:14px;margin:16px 0 6px}
   <h2 data-t="invite_title"></h2>
   <div class="code" id="code"></div>
   <div class="link muted" id="link"></div>
+  <div class="link muted hidden" id="links"></div>
   <div class="row" style="margin-top:10px">
     <button class="s p" id="copy" type="button" data-t="copy"></button>
     <button class="s" id="rotate" type="button" data-t="rotate"></button>
@@ -184,7 +187,9 @@ zh: {
  open_dashboard:"打开网页控制台",
  live_blocked:"注意：服务器暂未开启真实执行，任务会排队等待，直到运营者开启。",
  footer:"关闭这个页面不会下线；关闭运行它的终端窗口或按 Ctrl-C 会自动下线。",
- e_bundle_missing:"缺少运营者提供的连接配置（bundle.json）。请用运营者给你的安装包重新安装。",
+ e_bundle_missing:"缺少运营者提供的连接配置（bundle.json）。请用运营者给你的安装包重新安装。", net_label:"连接方式", net_auto:"自动（先试可用的）", net_ok:"可连接", net_down:"连不上",
+ net_using:(l)=>`当前使用：${l}`, net_hint:"局域网只在同一个 Wi‑Fi 下可用；不在一起时用 Tailscale（双方都要登录 Tailscale）。下线后才能切换。",
+ e_network_locked:"请先下线，再切换连接方式。", links_title:"其他网络的链接：",
  e_codex_missing:"没有找到 Codex CLI，也没有 npm 或 Homebrew 可以自动安装。请先安装 Node.js（nodejs.org）后重试。",
  e_codex_install_failed:"自动安装 Codex CLI 失败，请检查网络后点「重试上线」。",
  e_git_missing:"需要安装 Apple 命令行工具：请在弹出的窗口点「安装」，完成后（约 5–15 分钟）点「重试上线」。", e_codex_login_failed:"Codex 登录没有完成。",
@@ -209,7 +214,7 @@ zh: {
  queued_n:(n)=>`排队第 ${n} 位`,
  fc_INPUT:"输入不合格", fc_TIMEOUT:"超时", fc_WAIT_TIMEOUT:"等待接单超时", fc_OUTPUT_LIMIT:"结果超出大小上限",
  fc_DEVICE_INTERRUPTED:"设备中断", fc_CHECK_FAILED:"结果未通过检查", fc_AUTHORIZATION:"授权或限额变化",
- fc_LOGIN:"Codex 登录失效", fc_USAGE_LIMIT:"订阅额度已用完", fc_CANCELLED:"已取消", fc_OTHER:"其他原因", r_concurrency:"同时运行的任务数需在 1–3 之间。", r_kinds:"至少选择一种任务。",
+ fc_LOGIN:"Codex 登录失效", fc_USAGE_LIMIT:"订阅额度已用完", fc_CANCELLED:"已取消", fc_REFUSED:"Codex 拒绝执行", fc_OTHER:"其他原因", r_concurrency:"同时运行的任务数需在 1–3 之间。", r_kinds:"至少选择一种任务。",
  kinds_title:"允许的任务种类", tools_title:"本机工具（任务只能使用你允许且已安装的工具）",
  ks_OPEN:"已开放", ks_LIVE_ACCEPTED:"验收通过，待开放", ks_SIMULATED_OK:"模拟通过", ks_DEVELOPING:"开发中，仅模拟", ks_DISABLED:"已停用",
  needs:"需要：", missing_tool:"（本机缺少）",
@@ -266,7 +271,9 @@ en: {
  open_dashboard:"Open web dashboard",
  live_blocked:"Note: real execution is not enabled on the server yet; tasks wait until the operator enables it.",
  footer:"Closing this page does not go offline; closing the Terminal window that runs it, or Ctrl-C, does.",
- e_bundle_missing:"The operator's connection file (bundle.json) is missing. Reinstall from the operator's package.",
+ e_bundle_missing:"The operator's connection file (bundle.json) is missing. Reinstall from the operator's package.", net_label:"Connection", net_auto:"Automatic (first that works)", net_ok:"reachable", net_down:"unreachable",
+ net_using:(l)=>`Using: ${l}`, net_hint:"The LAN address works only on the same Wi-Fi; elsewhere use Tailscale (both people signed in to Tailscale). Switch while offline.",
+ e_network_locked:"Go offline before switching the connection.", links_title:"Links for other networks:",
  e_codex_missing:"Codex CLI not found and neither npm nor Homebrew is available to install it. Install Node.js (nodejs.org) and retry.",
  e_codex_install_failed:"Installing the Codex CLI failed; check the network and retry.",
  e_git_missing:"Apple's command line tools are needed: click Install in the dialog, then Retry when it finishes (about 5–15 minutes).", e_codex_login_failed:"Codex sign-in did not finish.",
@@ -291,7 +298,7 @@ en: {
  queued_n:(n)=>`Queued #${n}`,
  fc_INPUT:"Invalid input", fc_TIMEOUT:"Timed out", fc_WAIT_TIMEOUT:"Not picked up in time", fc_OUTPUT_LIMIT:"Result too large",
  fc_DEVICE_INTERRUPTED:"Device interrupted", fc_CHECK_FAILED:"Result failed its checks", fc_AUTHORIZATION:"Authorization or limits changed",
- fc_LOGIN:"Codex sign-in expired", fc_USAGE_LIMIT:"Plan usage limit reached", fc_CANCELLED:"Cancelled", fc_OTHER:"Other reason", r_concurrency:"Tasks at the same time must be 1–3.", r_kinds:"Choose at least one kind.",
+ fc_LOGIN:"Codex sign-in expired", fc_USAGE_LIMIT:"Plan usage limit reached", fc_CANCELLED:"Cancelled", fc_REFUSED:"Codex declined", fc_OTHER:"Other reason", r_concurrency:"Tasks at the same time must be 1–3.", r_kinds:"Choose at least one kind.",
  kinds_title:"Allowed task kinds", tools_title:"Tools on this device (tasks use only tools you allow and have installed)",
  ks_OPEN:"Open", ks_LIVE_ACCEPTED:"Accepted, not yet open", ks_SIMULATED_OK:"Simulation passed", ks_DEVELOPING:"In development, simulation only", ks_DISABLED:"Disabled",
  needs:"Needs: ", missing_tool:" (missing here)",
@@ -357,6 +364,7 @@ function render(){
   show($("error"),!!err); if(err)$("error").textContent=errText(err);
   show($("consent"),ph!=="ONLINE");
   if(!editing){$("device").value=S.device_label||"";$("plan").value=S.subscription_type||"PLUS"}
+  renderNetworks(ph);
   const srv=S.server;
   show($("invite"),!!srv); show($("settings"),!!srv); show($("members"),!!srv); show($("tasks"),!!srv);
   show($("running"),!!srv);
@@ -365,6 +373,9 @@ function render(){
     $("code").textContent=S.invite_code||"— — —";
     $("link").textContent=S.invite_link||t("invite_lost");
     $("copy").disabled=!S.invite_link;
+    const others=(S.invite_links||[]).filter(l=>l.id!==S.network);
+    show($("links"),others.length>0);
+    $("links").textContent=others.length?t("links_title")+" "+others.map(l=>l.label+": "+l.url).join("  "):"";
     if(!editing){
       $("max_members").value=g.max_members; $("max_members").max=g.member_cap;
       $("max_members").min=Math.max(2,srv.members.length);
@@ -394,6 +405,19 @@ function render(){
   if(S.server_error)notes.push(t("e_server_unreachable")+S.server_error);
   if(!S.bundle_ok)notes.push(t("e_bundle_missing"));
   show($("notice"),notes.length>0); $("notice").textContent=notes.join(" ");
+}
+function renderNetworks(ph){
+  const nets=S.networks||[], sel=$("net");
+  show($("net_box"),nets.length>1); show($("net_note"),nets.length>1);
+  if(nets.length<2)return;
+  const mark=n=>n.reachable===true?" · "+t("net_ok"):n.reachable===false?" · "+t("net_down"):"";
+  if(document.activeElement!==sel){sel.innerHTML="";
+    [["auto",t("net_auto")],...nets.map(n=>[n.id,n.label+mark(n)])].forEach(([v,l])=>{
+      const o=document.createElement("option");o.value=v;o.textContent=l;sel.append(o)});
+    sel.value=S.network_choice||"auto"}
+  sel.disabled=ph==="ONLINE"||ph==="STARTING"||ph==="STOPPING";
+  const cur=nets.find(n=>n.id===S.network);
+  $("net_note").textContent=(cur?t("net_using",cur.label)+" · ":"")+t("net_hint");
 }
 const TOOL_ORDER=["git","python-data","doc","code"];
 function hasTool(srv,x){return x==="code"||x==="doc"||(S.tools&&(x==="git"?S.tools.git:S.tools[x]&&S.tools[x].state==="READY"))}
@@ -458,10 +482,16 @@ function renderRunning(srv){
     td.textContent=t("none_running");tr.append(td);rows.append(tr);return}
   live.forEach(x=>{const tr=document.createElement("tr");
     const el=x.started_at?mmss((Date.now()-Date.parse(x.started_at))/1000)+" / "+mmss(x.max_duration_seconds||0):"—";
-    const pr=x.progress?`${x.progress.percent??"?"}% ${x.progress.message||""}`:label("s_",x.status);
+    const pr=x.progress?`${x.progress.percent??"?"}% ${progressText(x.progress.message)}`:label("s_",x.status);
     [kindLabel(x),el,pr].forEach(v=>{const td=document.createElement("td");td.textContent=v;tr.append(td)});
     rows.append(tr)});
 }
+const PROGRESS_ZH=[[/^Prepared (\d+) attachment/,"已准备 $1 个附件"],[/^Verified local ChatGPT login/,"已确认本机 ChatGPT 登录"],
+ [/^Checked out the pinned commit/,"已取出指定版本的代码"],[/^Checking the result/,"正在检查结果"],[/^Result ready/,"结果已就绪"],
+ [/^Codex run complete/,"Codex 已完成"],[/^Loaded task metadata \(mock/,"模拟：已读取任务信息"],[/^Generated deterministic fixture/,"模拟：已生成占位结果"]];
+function progressText(m){if(!m||lang!=="zh")return m||"";
+  for(const [re,zh] of PROGRESS_ZH){const g=m.match(re);if(g)return zh.replace("$1",g[1]||"")}
+  return "Codex 正在处理…"}
 function runningCount(){return Math.max(S&&S.running_here||0,S&&S.server&&S.server.usage?S.server.usage.running:0)}
 async function act(route, body){
   let ok=true;
@@ -484,6 +514,7 @@ $("oc_finish").onclick=()=>offline("finish");
 $("oc_now").onclick=()=>offline("now");
 $("oc_cancel").onclick=()=>show($("offline_choice"),false);
 $("cancel").onclick=()=>act("cancel");
+$("net").onchange=()=>act("network",{network:$("net").value});
 $("rotate").onclick=()=>act("invite");
 $("copy").onclick=async()=>{try{await navigator.clipboard.writeText(S.invite_link);$("copy").textContent=t("copied");
   setTimeout(()=>$("copy").textContent=t("copy"),1500)}catch(e){}};

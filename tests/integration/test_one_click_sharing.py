@@ -203,7 +203,11 @@ async def test_one_click_online_invite_auto_approve_and_offline(oc, octx):
             json=task_body(status["group"]["id"], target["connection_id"], execution_mode="LIVE"),
             headers={**ORIGIN, "Idempotency-Key": f"oc-{uuid.uuid4().hex}"},
         )
-        assert resp.status_code == 404  # paused devices take no new requests
+        # A paused device runs nothing new, but the request waits and says why (D-93).
+        assert resp.status_code == 202, resp.text
+        waiting = await ok(await bob.get(f"/v1/experimental-tasks/{resp.json()['id']}"))
+        assert waiting["status"] == "QUEUED"
+        assert waiting["last_decision"]["reasons"] == ["OWNER_PAUSED"]
         # One more click brings it back; the invite code is not re-issued.
         again = await go_online(oc, node)
         assert again["sharing"]["state"] == "ENABLED" and again["invite_code"] is None

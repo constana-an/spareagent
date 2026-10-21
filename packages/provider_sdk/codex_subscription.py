@@ -344,10 +344,13 @@ class CodexSubscriptionAdapter:
                 artifacts = recipes.deliverable_artifacts(files)
             except recipes.RecipeError as exc:
                 failed = [c for c in report.checks if not c["ok"]] if report else []
+                code = exc.code if exc.code.isupper() else None
+                if code == "MISSING_OUTPUT" and ws.is_output_empty():
+                    code = "MODEL_DECLINED"  # a clean run that produced nothing at all
                 raise PermanentProviderError(
                     f"Result did not pass the device check: {exc.code} {failed}"[:1000],
                     usage=self._usage(request, run),
-                    detail_code=exc.code if exc.code.isupper() else None,
+                    detail_code=code,
                 ) from exc
             summary = redact(run.final_message or "Codex finished without a final message")
             log_text = redact(

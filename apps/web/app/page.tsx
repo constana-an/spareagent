@@ -155,6 +155,33 @@ type TimelineEvent = {
   created_at?: string;
   payload: { status?: string; message?: string };
 };
+// Fixed device progress lines in Chinese; Codex's own free-text updates are summarised.
+const PROGRESS_ZH: [RegExp, string][] = [
+  [/^Prepared (\d+) attachment/, "已准备 $1 个附件"],
+  [/^Verified local ChatGPT login/, "已确认本机 ChatGPT 登录（凭据只在设备上）"],
+  [/^Checked out the pinned commit/, "已取出指定版本的代码"],
+  [/^Fetching pinned commit/, "正在获取指定版本的代码"],
+  [/^Applying allowlisted modification/, "正在应用改动"],
+  [/^Running trusted tests/, "正在沙箱中运行测试"],
+  [/^Tests finished/, "测试完成，正在打包结果"],
+  [/^Checking the result/, "正在检查结果"],
+  [/^Result ready/, "结果已就绪"],
+  [/^Codex run complete/, "Codex 已完成"],
+  [/^Loaded task metadata \(mock/, "模拟：已读取任务信息"],
+  [/^Generated deterministic fixture/, "模拟：已生成占位结果"],
+];
+function progressText(
+  message: string | null | undefined,
+  lang: string,
+  codexLabel: string,
+): string {
+  if (!message || lang !== "zh") return message || "";
+  for (const [re, zh] of PROGRESS_ZH) {
+    const m = message.match(re);
+    if (m) return zh.replace("$1", m[1] || "");
+  }
+  return codexLabel;
+}
 function resultLabel(t: Task): string {
   if (t.status === "CANCELLED" || t.status === "CANCELLING") return t.status;
   if (t.status === "TIMED_OUT") return "TIMED_OUT";
@@ -259,6 +286,12 @@ export default function Dashboard() {
     document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
   }, [lang]);
   const t = translator(lang);
+  // A code's label when one exists, else the code itself (never a raw "prefix.KEY").
+  const lbl = (prefix: string, value: string) => {
+    const key = `${prefix}.${value}`;
+    const out = t(key as never);
+    return out === key ? value : out;
+  };
   const switchLang = () => {
     const next: Lang = lang === "zh" ? "en" : "zh";
     setLang(next);
@@ -485,7 +518,7 @@ export default function Dashboard() {
     if (["RESERVED", "RUNNING"].includes(x.status)) {
       const p = x.progress;
       return p?.percent != null
-        ? t("st_running_p", { p: p.percent, m: p.message || "" })
+        ? t("st_running_p", { p: p.percent, m: progressText(p.message, lang, t("prog.codex")) })
         : t("st_running");
     }
     if (x.status === "RETRY_PENDING") return t("st_retrying");
@@ -496,7 +529,7 @@ export default function Dashboard() {
       return x.verification_status === "PASSED"
         ? t("st_verified")
         : t("st_done_unverified");
-    return resultLabel(x);
+    return lbl("res", resultLabel(x));
   };
   const taskHistory = Array.from(
     new Map([...tasks, ...incoming].map((t) => [t.id, t])).values(),
@@ -1449,7 +1482,10 @@ export default function Dashboard() {
               <p className="notice">{t("unverified_note")}</p>
             )}
             <p className="muted">
-              {t("exec_verif", { s: selected.status, v: selected.verification_status })}
+              {t("exec_verif", {
+                s: lbl("res", selected.status),
+                v: lbl("ver", selected.verification_status),
+              })}
             </p>
             <p className="muted">{t("verified_explain")}</p>
             {!terminal.has(selected.status) && (
@@ -1492,7 +1528,7 @@ export default function Dashboard() {
                     key={a.id}
                     onClick={() => void act(() => download(a), t("sha_checked"))}
                   >
-                    ↓ {a.kind} <small>{a.source}</small>
+                    ↓ {lbl("art", a.kind)} <small>{lbl("src", a.source)}</small>
                   </button>
                 ))}
             </div>
@@ -1512,7 +1548,9 @@ export default function Dashboard() {
                   <span>
                     {e.payload.status === "CANCELLING"
                       ? t("cancelling_wait")
-                      : e.payload.message}
+                      : e.type === "task.progress"
+                        ? progressText(e.payload.message, lang, t("prog.codex"))
+                        : e.payload.message}
                   </span>
                 </li>
               ))}

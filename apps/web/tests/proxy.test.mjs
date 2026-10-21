@@ -177,3 +177,26 @@ test("JSON bodies stay small; uploads allow 20 MB", async () => {
   const r = await relay(big, "experimental-tasks", env, () => assert.fail("no"));
   assert.equal(r.status, 413);
 });
+test("the dashboard is accepted on each configured network origin, nothing else", async () => {
+  const multi = {
+    ...env,
+    FRIENDS_WEB_EXTRA_ORIGINS: "https://100.64.0.9:13443, https://10.0.0.5:13443",
+  };
+  const send = (origin) =>
+    relay(
+      new Request("https://x/api/friends/login", {
+        method: "POST",
+        headers: { origin, "content-type": "application/json" },
+        body: "{}",
+      }),
+      "friends/login",
+      multi,
+      async (_, opts) => {
+        assert.equal(opts.headers.get("origin"), origin);
+        return new Response("{}");
+      },
+    );
+  for (const ok of ["https://friends.example", "https://100.64.0.9:13443", "https://10.0.0.5:13443"])
+    assert.equal((await send(ok)).status, 200);
+  assert.equal((await send("https://evil.example")).status, 403);
+});

@@ -188,3 +188,13 @@ def test_analysis_keeps_distinct_uploads_that_share_a_name():
             assert f"- in/{name}" in prompt
     finally:
         ws.cleanup()
+
+
+async def test_a_clean_run_that_writes_nothing_is_reported_as_declined(codex_home, tmp_path):  # noqa: F811
+    set_mode(codex_home, "doc_missing")
+    with pytest.raises(PermanentProviderError) as exc:
+        await last(adapter(tmp_path), translate())
+    assert exc.value.detail_code == "MODEL_DECLINED"
+    from services.tasks.progress import failure_category
+
+    assert failure_category("MODEL_DECLINED") == "REFUSED"

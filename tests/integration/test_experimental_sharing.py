@@ -464,11 +464,12 @@ async def test_paused_provider_receives_no_new_tasks(xclient, xctx):
         )
         == 1
     )
-    # New submissions to a paused node are refused.
+    # New submissions to a paused node wait, with the reason (D-93).
     r = await xclient.post(
         "/v1/experimental-tasks", json=task_body(gid, conn), headers=headers(BOB, "exp-paused-1")
     )
-    assert r.status_code == 404
+    assert r.status_code == 202, r.text
+    assert (await get_task(xclient, r.json()["id"]))["last_decision"]["reasons"] == ["OWNER_PAUSED"]
     # Resuming requires fresh consent and then the queued task runs.
     await ok(
         await xclient.post(

@@ -794,7 +794,9 @@ class ExperimentalParticipationService:
                 conn is None
                 or prefs is None
                 or prefs.group_id != group.id
-                or prefs.sharing_state != "ENABLED"
+                # A paused (offline) owner still takes submissions: the task waits and
+                # says why ("the owner paused sharing") until they are back (design §8.5).
+                or prefs.sharing_state not in ("ENABLED", "PAUSED")
             ):
                 raise not_found("NODE_NOT_AVAILABLE", "No opted-in node with that id")
             if group.status != "ACTIVE":

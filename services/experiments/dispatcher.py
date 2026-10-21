@@ -39,7 +39,7 @@ from db.models import (
 )
 from services.context import AppContext
 from services.experiments.participation import STANDING_APPROVAL, current_authorization
-from services.scheduler.lease_service import task_deadline_passed, utcnow
+from services.scheduler.lease_service import started_attempts, task_deadline_passed, utcnow
 from services.subscriptions.policy import (
     EXPERIMENTAL_SCOPE,
     AuthorizationSnapshot,
@@ -286,7 +286,7 @@ class ExperimentalDispatcher:
                 },
             )
             return None
-        if attempts >= task.max_attempts:
+        if await started_attempts(session, task.id) >= task.max_attempts:
             await transition(
                 session,
                 task,

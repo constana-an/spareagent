@@ -315,3 +315,86 @@ async def test_agent_reports_the_device_failure_code():
     payload = await WorkerAgent(object())._run_adapter(req, "lease", asyncio.Event(), Failing())
     assert payload["failure_detail"] == "WRONG_LANGUAGE"
     assert payload["error_code"] == "PERMANENT_PROVIDER_ERROR" and not payload["succeeded"]
+
+
+# ---------------------------------------------------------------- several networks
+def two_network_bundle(tmp_path):
+    path = tmp_path / "bundle.json"
+    path.write_text(
+        json.dumps(
+            {
+                "api_url": "https://10.0.0.16:18443",
+                "dashboard_url": "https://10.0.0.16:13443",
+                "signup_code": "s" * 24,
+                "terms_version": "2026-10-experimental-v1",
+                "networks": [
+                    {
+                        "id": "lan",
+                        "label": "局域网",
+                        "api_url": "https://10.0.0.16:18443",
+                        "dashboard_url": "https://10.0.0.16:13443",
+                    },
+                    {
+                        "id": "tailscale",
+                        "label": "Tailscale",
+                        "api_url": "https://100.87.82.71:18443",
+                        "dashboard_url": "https://100.87.82.71:13443",
+                    },
+                ],
+            }
+        )
+    )
+    return Bundle.load(path)
+
+
+async def test_auto_picks_the_first_reachable_network_and_owner_can_pin_one(tmp_path):
+    up = {"https://10.0.0.16:18443": False, "https://100.87.82.71:18443": True}
+
+    async def probe(url):
+        return up[url]
+
+    c = Controller(
+        tmp_path,
+        two_network_bundle(tmp_path),
+        codex=FakeCodex(),
+        client_factory=lambda state: FakeClient([]),
+        agent_factory=lambda stop: stop.wait(),
+        probe=probe,
+    )
+    await c.resolve_network()
+    assert c.network().id == "tailscale"  # off the home Wi-Fi: LAN is unreachable
+    assert c._default_client(None).api_url == "https://100.87.82.71:18443"
+    snap = c.snapshot()
+    assert snap["network_choice"] == "auto" and snap["network"] == "tailscale"
+    assert [(n["id"], n["reachable"]) for n in snap["networks"]] == [
+        ("lan", False),
+        ("tailscale", True),
+    ]
+    c._save(invite_code="ABCD-EFGH-JKLM")
+    snap = c.snapshot()
+    assert snap["invite_link"] == "https://100.87.82.71:13443/#join=ABCD-EFGH-JKLM"
+    assert [x["url"] for x in snap["invite_links"]] == [
+        "https://10.0.0.16:13443/#join=ABCD-EFGH-JKLM",
+        "https://100.87.82.71:13443/#join=ABCD-EFGH-JKLM",
+    ]
+
+    up["https://10.0.0.16:18443"] = True
+    await c.resolve_network()
+    assert c.network().id == "lan"  # back home: LAN first
+    await c.set_network("tailscale")
+    assert c.network().id == "tailscale" and load_app_state(c.directory)["network"] == "tailscale"
+    with pytest.raises(AppError):
+        await c.set_network("elsewhere")
+    await c.go_online({"device_label": "Alice Mac", "subscription_type": "PLUS"})
+    assert c.snap.phase == "ONLINE", c.snap.error
+    with pytest.raises(AppError) as exc:
+        await c.set_network("lan")
+    assert exc.value.code == "network_locked"
+    await c.go_offline()
+
+
+def test_old_single_address_bundles_still_load(tmp_path):
+    assert [n.api_url for n in BUNDLE.networks] == [BUNDLE.api_url]
+    c, _, _ = make_controller(tmp_path)
+    assert c.snapshot()["networks"] == [{"id": "default", "label": "", "reachable": None}]
+    assert c.snapshot()["invite_links"] == []

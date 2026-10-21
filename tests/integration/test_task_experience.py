@@ -263,3 +263,24 @@ async def test_owner_device_picks_up_simulated_tasks(oc, octx):
         assert (await view(bob, task))["status"] == "SUCCEEDED"
     finally:
         await bob.aclose()
+
+
+async def test_reservation_that_lapses_before_starting_does_not_use_the_rerun(oc, octx):
+    """§6: a task the device never started goes back to the queue for free; it still gets
+    its one re-run after a real interruption later."""
+    from services.scheduler.lease_service import LeaseService
+    from tests.conftest import execute
+
+    node, status, bob = await gt.group_with_member(oc, octx)
+    try:
+        task = await one_click.submit_as(bob, status, status["sharing"]["connection_id"])
+        reserved = (await poll(oc, node)).json()  # reserved, never accepted
+        await execute(octx, "UPDATE task_attempts SET leased_until=now()-interval '1 second'")
+        assert await LeaseService(octx).recover_expired() == 1
+        assert (await view(bob, task))["status"] == "QUEUED"
+        first = await start(oc, node)
+        assert first["attempt_id"] != reserved["attempt_id"]
+        await fail(oc, node, first, error_code="WORKER_SHUTDOWN", retryable=True)
+        assert (await view(bob, task))["status"] == "RETRY_PENDING"
+    finally:
+        await bob.aclose()

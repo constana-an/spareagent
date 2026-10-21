@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select
@@ -18,9 +19,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db.models import (
     ExecutionEvent,
     ExperimentalTaskConsent,
+    SubscriptionConnection,
+    SubscriptionSharingPreference,
     Task,
     TaskAttempt,
     VerificationResult,
+    WorkerNode,
 )
 from services.tasks.repository import TERMINAL_EVENT_TYPES
 
@@ -70,10 +74,16 @@ FAILURE_CATEGORIES: dict[str, tuple[str, ...]] = {
         "SHARED_WORK_REFUSED",
     ),
     "LOGIN": ("SUBSCRIPTION_AUTH_UNAVAILABLE",),
+    # Codex finished normally but wrote nothing at all: it declined the request.
+    "REFUSED": ("MODEL_DECLINED",),
     "USAGE_LIMIT": ("SUBSCRIPTION_USAGE_LIMIT",),
     "CANCELLED": ("CANCELLED_BY_USER", "CANCELLED", "CANCELLED_BEFORE_PUBLICATION"),
 }
 _CATEGORY = {code: cat for cat, codes in FAILURE_CATEGORIES.items() for code in codes}
+
+
+def utcnow() -> datetime:
+    return datetime.now(UTC)
 
 
 def failure_category(code: str | None) -> str:
@@ -155,6 +165,33 @@ async def task_details(session: AsyncSession, tasks: list[Task]) -> dict[uuid.UU
             )
             out[task_id]["failure"] = {"code": code, "category": failure_category(code)}
     return out
+
+
+async def device_wait_reasons(
+    session: AsyncSession, connection_id: uuid.UUID, heartbeat_ttl_seconds: int
+) -> list[str]:
+    """Why a queued task cannot start right now, read from the owner's current state.
+
+    Dispatch decisions are only recorded while the owner's device polls, so a device that
+    is offline never records one; members still need to see why their task waits."""
+    row = (
+        await session.execute(
+            select(SubscriptionSharingPreference.sharing_state, WorkerNode.last_heartbeat)
+            .join(
+                SubscriptionConnection,
+                SubscriptionConnection.id == SubscriptionSharingPreference.connection_id,
+            )
+            .join(WorkerNode, WorkerNode.id == SubscriptionConnection.worker_id)
+            .where(SubscriptionSharingPreference.connection_id == connection_id)
+        )
+    ).one_or_none()
+    if row is None:
+        return []
+    state, beat = row
+    if state == "PAUSED":
+        return ["OWNER_PAUSED"]
+    fresh = beat is not None and beat >= utcnow() - timedelta(seconds=heartbeat_ttl_seconds)
+    return [] if fresh else ["PROVIDER_OFFLINE"]
 
 
 async def _queue_position(session: AsyncSession, task: Task) -> int:
