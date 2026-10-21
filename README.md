@@ -46,7 +46,7 @@ The operator builds `python scripts/build_worker_bundle.py` and privately distri
 reviewed macOS script, small worker wheel and SHA-256. On the friend's Mac:
 
 ```sh
-bash setup-worker-macos.sh ./spareagent_worker-0.9.0-py3-none-any.whl OPERATOR_SHA256
+bash setup-worker-macos.sh ./spareagent_worker-0.10.0-py3-none-any.whl OPERATOR_SHA256
 export PATH="$HOME/.local/share/spareagent-worker/bin:$PATH"
 codex login  # your own ChatGPT Plus login
 spareagent-worker pilot-check
