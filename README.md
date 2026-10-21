@@ -12,7 +12,7 @@ Deviations: `docs/DECISIONS.md`.
 
 ## 一键提供算力 / One-click sharing
 
-新人解压运营者的 `SpareAgent-mac.zip`，双击 `SpareAgent.command`，点一下「上线」即可：自动安装、登录自己的 ChatGPT、创建小组与邀请码、自动批准组员任务；再点一下下线。人数与任务上限随时可调，界面默认中文。See [docs/ONE_CLICK_SHARING.md](docs/ONE_CLICK_SHARING.md) and D-68…D-72.
+新人解压运营者的 `SpareAgent-mac.zip`，双击 `SpareAgent.command`，点一下「上线」即可：自动安装、登录自己的 ChatGPT、创建小组与邀请码、自动批准组员任务；再点一下下线。人数与任务上限随时可调，界面默认中文。See [docs/ONE_CLICK_SHARING.md](docs/ONE_CLICK_SHARING.md) and D-68…D-72; members (browser only) see [docs/MEMBER_GUIDE.md](docs/MEMBER_GUIDE.md).
 
 ## Week 6: friends install the Worker only
 
