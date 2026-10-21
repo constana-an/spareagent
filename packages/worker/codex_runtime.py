@@ -164,14 +164,18 @@ def _toml_path(path: str) -> str:
     return f'"{path}"="read"'
 
 
-def shared_permission_args(sandbox: SandboxMode, read_roots: tuple[str, ...] = ()) -> list[str]:
-    """`read_roots` are extra read-only directories (pinned tool environments)."""
+def shared_permission_args(
+    sandbox: SandboxMode, read_roots: tuple[str, ...] = (), *, network: bool = False
+) -> list[str]:
+    """`read_roots` are extra read-only directories (pinned tool environments). `network`
+    is on only for a task that asked for it on a device whose owner allowed it; file
+    access stays limited to the task's own workspace either way."""
     access = "read" if sandbox == "read-only" else "write"
     extra = "".join("," + _toml_path(p) for p in read_roots)
     profile = (
         'permissions={spareagent={filesystem={":minimal"="read",'
         f'":workspace_roots"="{access}"{extra}'
-        "},network={enabled=false}}}"
+        "},network={enabled=" + ("true" if network else "false") + "}}}"
     )
     return [
         "-c",
@@ -191,7 +195,7 @@ def shared_permission_args(sandbox: SandboxMode, read_roots: tuple[str, ...] = (
         "-c",
         "apps._default.enabled=false",
         "-c",
-        'web_search="disabled"',
+        f'web_search="{"live" if network else "disabled"}"',
     ]
 
 
@@ -209,6 +213,7 @@ class CodexRuntime:
         sandbox: SandboxMode | None = None,
         workdir: Path | None = None,
         read_roots: tuple[str, ...] = (),
+        network: bool = False,
     ) -> list[str]:
         cfg = self.config
         args = [
@@ -225,7 +230,7 @@ class CodexRuntime:
         if sandbox is not None and workdir is not None:
             # Shared prompts get filesystem reads scoped to their checkout, not the owner's
             # home. The Codex parent still uses its own login; its tools cannot read it.
-            args += shared_permission_args(sandbox, read_roots)
+            args += shared_permission_args(sandbox, read_roots, network=network)
         else:
             args += ["--sandbox", cfg.sandbox]
         if cfg.model:
@@ -252,6 +257,7 @@ class CodexRuntime:
         sandbox: SandboxMode | None = None,
         read_roots: tuple[str, ...] = (),
         path_dirs: tuple[str, ...] = (),
+        network: bool = False,
     ) -> AsyncIterator[CodexEvent | CodexRunResult]:
         """Yields CodexEvents, then exactly one CodexRunResult. `sandbox` can only choose
         between Codex's read-only and workspace-write modes (never full access)."""
@@ -267,7 +273,7 @@ class CodexRuntime:
         self._running += 1
         try:
             proc = await asyncio.create_subprocess_exec(
-                *self.argv(sandbox, workdir, read_roots),
+                *self.argv(sandbox, workdir, read_roots, network),
                 cwd=str(workdir),
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,

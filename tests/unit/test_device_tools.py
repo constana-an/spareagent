@@ -72,7 +72,13 @@ async def test_data_tools_install_offline_from_checked_wheels(tmp_path):
     env = DataToolEnv(tmp_path / "runtime", pins_for(name, content))
     assert env.state == "MISSING" and env.access() is None and env.size_bytes() == len(content)
     caps = probe_capabilities(env, lambda: False)
-    assert caps["tools"] == {"code": True, "doc": True, "git": False, DATA_TOOL: False}
+    assert caps["tools"] == {
+        "code": True,
+        "doc": True,
+        "git": False,
+        DATA_TOOL: False,
+        "network": True,
+    }
     assert caps["executor"] == "codex-subscription"
 
     await env.install(transport=serve(content))

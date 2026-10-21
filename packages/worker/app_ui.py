@@ -218,7 +218,9 @@ zh: {
  kinds_title:"允许的任务种类", tools_title:"本机工具（任务只能使用你允许且已安装的工具）",
  ks_OPEN:"已开放", ks_LIVE_ACCEPTED:"验收通过，待开放", ks_SIMULATED_OK:"模拟通过", ks_DEVELOPING:"开发中，仅模拟", ks_DISABLED:"已停用",
  needs:"需要：", missing_tool:"（本机缺少）",
- tool_git:"Git（代码任务）", tool_doc:"文档处理（内置）", tool_code:"Codex 执行（内置）", "tool_python-data":"数据处理（pandas、matplotlib、openpyxl）",
+ tool_git:"Git（代码任务）", tool_doc:"文档处理（内置）", tool_code:"Codex 执行（内置）", tool_network:"允许联网（成员勾选「需要联网」的任务）",
+ network_hint:"默认关闭。开启后这类任务可以搜索和浏览网页；仍然读不到你电脑上的其他文件。",
+ network_confirm:"允许联网后，成员的任务可以访问互联网：网站会看到你的 IP 地址，任务也能访问你家里网络中的其他设备，恶意需求还可能诱导 Codex 把成员上传的材料发给别人（你电脑上的其他文件仍然读不到）。确定允许吗？", "tool_python-data":"数据处理（pandas、matplotlib、openpyxl）",
  installed:"已安装", not_installed:"未安装", installing:"正在安装…", install_failed:"安装失败：",
  install_btn:(n)=>`安装（约 ${n} MB）`, remove_btn:"删除", git_hint:"未安装时仍可上线，只接文档和表格任务；上线时会弹出 Apple 命令行工具安装窗口，装好后自动接代码任务", allow:"允许",
  r_members:(a,b)=>`小组人数需在 ${a}–${b} 之间。`, r_tasks:"每 24 小时任务数需在 1–50 之间。",
@@ -302,7 +304,9 @@ en: {
  kinds_title:"Allowed task kinds", tools_title:"Tools on this device (tasks use only tools you allow and have installed)",
  ks_OPEN:"Open", ks_LIVE_ACCEPTED:"Accepted, not yet open", ks_SIMULATED_OK:"Simulation passed", ks_DEVELOPING:"In development, simulation only", ks_DISABLED:"Disabled",
  needs:"Needs: ", missing_tool:" (missing here)",
- tool_git:"Git (code tasks)", tool_doc:"Documents (built in)", tool_code:"Codex executor (built in)", "tool_python-data":"Data tools (pandas, matplotlib, openpyxl)",
+ tool_git:"Git (code tasks)", tool_doc:"Documents (built in)", tool_code:"Codex executor (built in)", tool_network:"Allow internet (tasks whose member ticked “needs internet”)",
+ network_hint:"Off by default. When on, those tasks can search and read the web; they still cannot read other files on this Mac.",
+ network_confirm:"With internet allowed, members' tasks can reach the internet: websites see your IP address, tasks can reach other devices on your home network, and a malicious request could get Codex to send the member's uploaded files elsewhere (other files on this Mac stay unreadable). Allow it?", "tool_python-data":"Data tools (pandas, matplotlib, openpyxl)",
  installed:"Installed", not_installed:"Not installed", installing:"Installing…", install_failed:"Install failed: ",
  install_btn:(n)=>`Install (~${n} MB)`, remove_btn:"Remove", git_hint:"You can go online without them and take document and table tasks; going online offers the Apple command line tools, and code tasks start once they are installed", allow:"Allow",
  r_members:(a,b)=>`Members must be between ${a} and ${b}.`, r_tasks:"Tasks per 24 hours must be between 1 and 50.",
@@ -419,15 +423,16 @@ function renderNetworks(ph){
   const cur=nets.find(n=>n.id===S.network);
   $("net_note").textContent=(cur?t("net_using",cur.label)+" · ":"")+t("net_hint");
 }
-const TOOL_ORDER=["git","python-data","doc","code"];
-function hasTool(srv,x){return x==="code"||x==="doc"||(S.tools&&(x==="git"?S.tools.git:S.tools[x]&&S.tools[x].state==="READY"))}
+const TOOL_ORDER=["git","python-data","doc","code","network"];
+function hasTool(srv,x){return x==="code"||x==="doc"||x==="network"||(S.tools&&(x==="git"?S.tools.git:S.tools[x]&&S.tools[x].state==="READY"))}
 function renderKinds(srv){
   const box=$("kinds"); box.innerHTML="";
   const allowed=new Set((srv.sharing&&srv.sharing.allowed_task_types)||(srv.kinds||[]).map(k=>k.kind));
   (srv.kinds||[]).filter(k=>k.offered&&k.status!=="DISABLED").forEach(k=>{
     const l=document.createElement("label"); const c=document.createElement("input");
     c.type="checkbox"; c.dataset.kind=k.kind; c.checked=allowed.has(k.kind);
-    c.addEventListener("change",()=>editing=true);
+    c.addEventListener("change",()=>{editing=true;
+      if(tool==="network"&&c.checked&&!confirm(t("network_confirm")))c.checked=false});
     const name=document.createElement("span"); name.textContent=lang==="zh"?k.name_zh:k.name_en;
     const st=document.createElement("small"); st.textContent=t("ks_"+k.status);
     const need=k.required_tools.filter(x=>x!=="code"&&x!=="doc");
@@ -438,7 +443,8 @@ function renderKinds(srv){
 }
 function renderTools(srv){
   const box=$("tools"); box.innerHTML="";
-  const allowed=new Set((srv.sharing&&srv.sharing.allowed_tools)||TOOL_ORDER);
+  // Internet is never on unless the owner switched it on.
+  const allowed=new Set((srv.sharing&&srv.sharing.allowed_tools)||TOOL_ORDER.filter(x=>x!=="network"));
   TOOL_ORDER.forEach(tool=>{
     const l=document.createElement("label"); const c=document.createElement("input");
     c.type="checkbox"; c.dataset.tool=tool; c.checked=allowed.has(tool); c.title=t("allow");
@@ -452,6 +458,7 @@ function renderTools(srv){
 }
 function renderToolStates(){
   if(!S||!S.tools)return;
+  const n=$("tool_state_network"); if(n)n.textContent=t("network_hint");
   const g=$("tool_state_git"); if(g)g.textContent=S.tools.git?t("installed"):t("not_installed")+" · "+t("git_hint");
   const d=S.tools["python-data"], st=$("tool_state_python-data"), b=$("tool_btn");
   if(!st||!b)return;

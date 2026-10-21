@@ -72,6 +72,8 @@ class LeaseTask(BaseModel):
     deliverable: dict[str, str] | None = None
     parameters: dict[str, str] = Field(default_factory=dict)
     inputs: list[LeaseInput] = Field(default_factory=list)
+    # The member asked for internet and this device's owner allows it (checked at dispatch).
+    network_access: bool = False
 
 
 class LeaseAssignment(BaseModel):

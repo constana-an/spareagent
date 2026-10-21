@@ -161,6 +161,8 @@ def probe_capabilities(data_env: DataToolEnv, git_check) -> dict[str, Any]:
             "doc": True,
             "git": bool(git_check()),
             DATA_TOOL: data_env.ready(),
+            # Any device can go online; whether shared tasks may is the owner's choice.
+            "network": True,
         },
         "os": f"{platform.system().lower()}-{platform.release()}-{platform.machine()}",
         "cpu_count": os.cpu_count() or 1,

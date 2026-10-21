@@ -252,3 +252,30 @@ def test_general_check_needs_an_answer_and_well_formed_files():
     assert d.check_general(bad_json).reason == "MALFORMED_OUTPUT"
     html = [d.FileIn("answer.md", b"x" * 40), d.FileIn("page.html", b"<p>")]
     assert d.check_general(html).reason == "FILE_TYPE_NOT_ALLOWED"
+
+
+# ------------------------------------------------------------------ internet access
+async def test_internet_is_off_unless_the_task_asks_and_then_only_for_that_run(
+    codex_home,  # noqa: F811
+    tmp_path,
+):
+    import dataclasses
+
+    from tests.unit.test_codex_subscription import calls
+
+    set_mode(codex_home, "chatgpt")
+    await last(adapter(tmp_path), req("GENERAL", []))
+    off = [c for c in calls(codex_home) if "exec" in c["argv"]][-1]["argv"]
+    assert any("network={enabled=false}" in a for a in off)
+    assert 'web_search="disabled"' in off
+    assert "Do not use the network" in (codex_home / "last_prompt.txt").read_text()
+
+    online = dataclasses.replace(req("GENERAL", []), network_access=True)
+    await last(adapter(tmp_path), online)
+    on = [c for c in calls(codex_home) if "exec" in c["argv"]][-1]["argv"]
+    assert any("network={enabled=true}" in a for a in on)
+    assert 'web_search="live"' in on
+    assert any('":minimal"="read"' in a for a in on)  # files stay limited to the workspace
+    prompt = (codex_home / "last_prompt.txt").read_text()
+    assert prompt.startswith("Internet access is ON")
+    assert "Do not use the network" not in prompt and "List the URLs" in prompt

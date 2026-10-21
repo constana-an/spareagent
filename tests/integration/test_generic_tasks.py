@@ -606,3 +606,57 @@ async def test_live_general_task_without_an_answer_fails(oc, octx):
         assert view["failure"]["category"] == "CHECK_FAILED"
     finally:
         await bob.aclose()
+
+
+async def test_internet_tasks_wait_for_an_owner_who_allows_internet(oc, octx):
+    node, status, bob = await group_with_member(oc, octx)
+    await set_kind(oc, "GENERAL", "OPEN", report="reports/test-acceptance.json")
+    try:
+        resp = await oc.post(
+            f"/v1/workers/{node['worker_id']}/heartbeat",
+            json={
+                "state": "ONLINE",
+                "capabilities": {
+                    "executor": "codex-subscription",
+                    "tools": {**ALL_TOOLS, "network": True},
+                },
+            },
+            headers=bearer(node["access_token"]),
+        )
+        assert resp.status_code == 204, resp.text
+        task = await submit(
+            bob,
+            generic(
+                status,
+                kind="GENERAL",
+                requirement="今天的东京天气如何？",
+                network_access=True,
+                execution_mode="LIVE",
+            ),
+        )
+        assert task["network_access"] is True
+        # Off by default: the owner has not allowed internet on this device.
+        assert (await poll(oc, node)).status_code == 204
+        view = await ok(await bob.get(f"/v1/experimental-tasks/{task['id']}"))
+        assert view["status"] == "QUEUED"
+        assert "TOOL_NOT_ALLOWED" in view["last_decision"]["reasons"]
+
+        prefs = (await ok(await one_click.owner(oc, node, "GET", "")))["sharing"]
+        assert "network" not in prefs["allowed_tools"]
+        await ok(
+            await one_click.owner(
+                oc,
+                node,
+                "PUT",
+                "/settings",
+                json={"allowed_tools": [*prefs["allowed_tools"], "network"]},
+            )
+        )
+        lease = (await poll(oc, node)).json()
+        assert lease["task"]["task_id"] == task["id"]
+        assert lease["task"]["network_access"] is True
+
+        plain = await submit(bob, generic(status, kind="GENERAL", requirement="Say hi"))
+        assert plain["network_access"] is False
+    finally:
+        await bob.aclose()

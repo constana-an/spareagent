@@ -36,6 +36,8 @@ class ExecutionRequest:
     parameters: dict[str, str] = field(default_factory=dict)
     deliverable: dict[str, str] | None = None
     inputs: tuple[InputFile, ...] = ()
+    # The member asked for internet access and the owner allowed it (server-checked).
+    network_access: bool = False
 
 
 @dataclass(frozen=True)

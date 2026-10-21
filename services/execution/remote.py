@@ -63,6 +63,7 @@ def assignment(
             "max_budget_cents": task.max_budget_cents,
             "deliverable": (task.spec or {}).get("deliverable"),
             "parameters": (task.spec or {}).get("parameters") or {},
+            "network_access": bool((task.spec or {}).get("network_access")),
             "inputs": [
                 {
                     "input_id": str(u.id),

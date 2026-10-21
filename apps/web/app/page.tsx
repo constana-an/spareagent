@@ -1220,7 +1220,7 @@ export default function Dashboard() {
             <h2>{t("submit_review")}</h2>
             {(() => {
               const kind =
-                kinds.find((k) => k.kind === kindSel) || kinds[0] || null;
+                kinds.find((k) => k.kind === (kindSel || "GENERAL")) || kinds[0] || null;
               const kindName = (k: TaskKind) =>
                 lang === "zh" ? k.name_zh : k.name_en;
               return (
@@ -1247,6 +1247,7 @@ export default function Dashboard() {
                           requirement: f.get("prompt"),
                           max_duration_seconds: Number(f.get("timeout")),
                           execution_mode: f.get("mode"),
+                          ...(f.get("network") === "on" ? { network_access: true } : {}),
                           attachments: ids,
                           parameters: target ? { target_language: target } : {},
                           ...(fmt ? { deliverable: { format: fmt } } : {}),
@@ -1347,6 +1348,13 @@ export default function Dashboard() {
                       </small>
                     </label>
                   )}
+                  <label className="check">
+                    <input type="checkbox" name="network" />
+                    <span>
+                      {t("needs_network")}
+                      <small> {t("needs_network_hint")}</small>
+                    </span>
+                  </label>
                   {kind?.required_parameters.includes("target_language") && (
                     <label>
                       {t("target_language")}

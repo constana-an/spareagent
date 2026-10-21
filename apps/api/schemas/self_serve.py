@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field, StrictBool, StrictInt, StrictStr
 
 from apps.api.schemas.experiments import Strict, TaskType
 
-Tool = Literal["code", "doc", "git", "python-data"]  # services.tasks.kinds.TOOLS
+Tool = Literal["code", "doc", "git", "python-data", "network"]  # services.tasks.kinds.TOOLS
 
 Acks = dict[str, StrictBool]
 

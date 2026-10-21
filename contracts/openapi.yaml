@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SpareAgent MVP API
-  version: 1.11.0
+  version: 1.12.0
   description: 'W1: Tasks, Events, Models, Chat nonstream, health. W2: remote worker enrollment, node credentials and lease protocol.'
 servers:
   - url: http://localhost:8000
@@ -1353,7 +1353,7 @@ paths:
                 auto_approve_members: {anyOf: [{type: boolean}, {type: 'null'}]}
                 max_concurrent_tasks: {anyOf: [{type: integer, minimum: 1, maximum: 3}, {type: 'null'}]}
                 allowed_task_types: {anyOf: [{type: array, minItems: 1, items: {type: string}}, {type: 'null'}]}
-                allowed_tools: {anyOf: [{type: array, items: {type: string, enum: [code, doc, git, python-data]}}, {type: 'null'}]}
+                allowed_tools: {anyOf: [{type: array, items: {type: string, enum: [code, doc, git, python-data, network]}}, {type: 'null'}]}
       responses:
         '200':
           description: Settings saved
@@ -1673,6 +1673,7 @@ components:
             max_budget_cents: {type: integer}
             deliverable: {anyOf: [{type: object, additionalProperties: {type: string}}, {type: 'null'}]}
             parameters: {type: object, additionalProperties: {type: string}}
+            network_access: {type: boolean, default: false, description: 'run Codex with internet access (owner allowed "network")'}
             inputs:
               type: array
               description: 'attachments; fetch each with GET /v1/leases/{lease_id}/inputs/{input_id}'
@@ -2497,6 +2498,7 @@ components:
             - {type: 'null'}
         max_duration_seconds: {type: integer, minimum: 10, maximum: 3600}
         execution_mode: {type: string, enum: [SIMULATED, LIVE], default: SIMULATED}
+        network_access: {type: boolean, default: false, description: 'needs internet; dispatched only to a device whose owner allows "network"'}
     Attachment:
       type: object
       required: [id, filename, size_bytes, media_type, sha256]
@@ -2602,6 +2604,8 @@ components:
           - type: object
             additionalProperties: {type: string}
           - type: 'null'
+        network_access:
+          type: boolean
         max_duration_seconds:
           type: integer
           title: Max Duration Seconds

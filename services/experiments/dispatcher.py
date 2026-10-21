@@ -186,7 +186,7 @@ class ExperimentalDispatcher:
             no_purchased_credits=conn.no_purchased_credits_at is not None,
             node_executor=(worker.capabilities or {}).get("executor"),
             kind_status=(await session.get(TaskKind, task.task_type)).status,
-            required_tools=frozenset(kind_catalog.get(task.task_type).capabilities),
+            required_tools=kind_catalog.required_tools(task.task_type, getattr(task, "spec", None)),
             node_tools=declared_tools(worker.capabilities),
             owner_allowed_tools=frozenset(prefs.allowed_tools if prefs else ()),
         )

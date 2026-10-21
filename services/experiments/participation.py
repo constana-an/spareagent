@@ -1011,7 +1011,10 @@ async def _check_kind(session: AsyncSession, body: dict[str, Any]) -> tuple[Kind
         raise conflict("TASK_KIND_DISABLED", "This kind of task is switched off")
     if body.get("execution_mode") == "LIVE" and status != "OPEN":
         raise conflict("TASK_KIND_NOT_OPEN", "This kind of task is not open for live execution")
-    return kind, {"deliverable": deliverable, "parameters": params}
+    spec = {"deliverable": deliverable, "parameters": params}
+    if body.get("network_access"):
+        spec["network_access"] = True
+    return kind, spec
 
 
 async def current_authorization(

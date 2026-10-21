@@ -145,6 +145,7 @@ async def _task_out(request: Request, view: ExperimentalTaskView) -> Experimenta
         attachments=[AttachmentOut.model_validate(u, from_attributes=True) for u in uploads],
         parameters=(t.spec or {}).get("parameters") or {},
         deliverable=(t.spec or {}).get("deliverable"),
+        network_access=bool((t.spec or {}).get("network_access")),
         max_duration_seconds=t.max_duration_seconds,
         verification_status=verification or ("PENDING" if t.status == "VERIFYING" else "NOT_RUN"),
         approval_status=c.status,

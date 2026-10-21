@@ -269,7 +269,13 @@ async def test_capability_settings_and_tool_state_reach_the_page(tmp_path):
     assert snap["tools"]["git"] is True
     assert snap["tools"]["python-data"]["state"] == "UNAVAILABLE"  # no pins in this bundle
     caps = c.capabilities()
-    assert caps["tools"] == {"code": True, "doc": True, "git": True, "python-data": False}
+    assert caps["tools"] == {
+        "code": True,
+        "doc": True,
+        "git": True,
+        "python-data": False,
+        "network": True,
+    }
     assert c.tool_access("python-data") is None
     c.start_tool_install("python-data")
     await asyncio.sleep(0.05)

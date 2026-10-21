@@ -66,7 +66,19 @@ UPLOAD_TYPES.update({ext: ("text/plain", None) for ext in CODE_TEXT_EXTENSIONS})
 TEXT_EXTENSIONS = frozenset({"txt", "md", "csv", "json"}) | CODE_TEXT_EXTENSIONS
 
 # Tools a device can declare (from its own probes) and an owner can allow (design §5).
-TOOLS = ("code", "doc", "git", "python-data")
+TOOLS = ("code", "doc", "git", "python-data", "network")
+# Not a kind's capability: a task needs it when the member asked for internet access.
+NETWORK_TOOL = "network"
+
+
+def required_tools(kind_name: str, spec: dict | None) -> frozenset[str]:
+    """What a device must declare and its owner allow to run this task."""
+    tools = set(get(kind_name).capabilities)
+    if (spec or {}).get("network_access"):
+        tools.add(NETWORK_TOOL)
+    return frozenset(tools)
+
+
 # Nodes registered before step C declare no tools; they have always run code kinds.
 LEGACY_NODE_TOOLS = frozenset({"code", "git"})
 

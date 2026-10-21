@@ -255,6 +255,7 @@ class WorkerAgent:
             parameters=dict(task.get("parameters") or {}),
             deliverable=task.get("deliverable"),
             inputs=inputs,
+            network_access=bool(task.get("network_access")),
         )
         adapter = self.adapters.get(a.get("execution_profile", "MOCK"))
         if adapter is None:

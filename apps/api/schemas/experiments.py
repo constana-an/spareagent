@@ -327,6 +327,8 @@ class ExperimentalTaskCreate(Strict):
     connection_id: uuid.UUID
     # LIVE runs on the owner's own Codex CLI and needs every Milestone D gate.
     execution_mode: Literal["SIMULATED", "LIVE"] = "SIMULATED"
+    # Internet access for this task; runs only on a device whose owner allows "network".
+    network_access: StrictBool = False
 
     @model_validator(mode="after")
     def _normalize(self):
@@ -363,6 +365,8 @@ class ExperimentalTaskCreate(Strict):
             "group_id": self.group_id,
             "connection_id": self.connection_id,
             "execution_mode": self.execution_mode,
+            # Only when asked, so idempotency digests of other requests are unchanged.
+            **({"network_access": True} if self.network_access else {}),
         }
 
 
@@ -431,6 +435,7 @@ class ExperimentalTaskOut(BaseModel):
     attachments: list[AttachmentOut] = Field(default_factory=list)
     parameters: dict[str, str] = Field(default_factory=dict)
     deliverable: dict[str, str] | None = None
+    network_access: bool = False
     max_duration_seconds: int
     verification_status: str = "NOT_RUN"
     approval_status: str

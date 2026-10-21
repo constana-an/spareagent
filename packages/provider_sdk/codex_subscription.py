@@ -246,6 +246,9 @@ class CodexSubscriptionAdapter:
         prompt = SHARED_PREAMBLE + request.prompt if shared else request.prompt
         if shared and request.task_type == "CODE_CHANGE":
             prompt += recipes.CODE_CHANGE_SUFFIX
+        network = shared and request.network_access
+        if network:
+            prompt = recipes.with_network(prompt)
         run: CodexRunResult | None = None
         try:
             percent = 10
@@ -255,6 +258,7 @@ class CodexSubscriptionAdapter:
                 workdir,
                 timeout_seconds=request.max_duration_seconds,
                 sandbox=sandbox if shared else None,
+                network=network,
             ):
                 if isinstance(item, CodexRunResult):
                     run = item
@@ -318,6 +322,8 @@ class CodexSubscriptionAdapter:
                     expected = 0
             except recipes.RecipeError as exc:
                 raise PermanentProviderError(f"{exc.code}: {exc}", detail_code=exc.code) from exc
+            if request.network_access:
+                prompt = recipes.with_network(prompt)
             yield ProgressEvent(f"Prepared {len(request.inputs)} attachment(s)", 10)
             run: CodexRunResult | None = None
             percent = 12
@@ -329,6 +335,7 @@ class CodexSubscriptionAdapter:
                 sandbox="workspace-write",
                 read_roots=access.read_roots if access else (),
                 path_dirs=access.path_dirs if access else (),
+                network=request.network_access,
             ):
                 if isinstance(item, CodexRunResult):
                     run = item
