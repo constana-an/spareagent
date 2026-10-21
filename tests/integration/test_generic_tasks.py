@@ -608,7 +608,7 @@ async def test_live_general_task_without_an_answer_fails(oc, octx):
         await bob.aclose()
 
 
-async def test_internet_tasks_wait_for_an_owner_who_allows_internet(oc, octx):
+async def test_internet_is_allowed_by_default_and_the_owner_can_switch_it_off(oc, octx):
     node, status, bob = await group_with_member(oc, octx)
     await set_kind(oc, "GENERAL", "OPEN", report="reports/test-acceptance.json")
     try:
@@ -624,38 +624,35 @@ async def test_internet_tasks_wait_for_an_owner_who_allows_internet(oc, octx):
             headers=bearer(node["access_token"]),
         )
         assert resp.status_code == 204, resp.text
-        task = await submit(
-            bob,
-            generic(
+        prefs = (await ok(await one_click.owner(oc, node, "GET", "")))["sharing"]
+        assert "network" in prefs["allowed_tools"]  # D-97: on by default
+
+        def online_task(text):
+            return generic(
                 status,
                 kind="GENERAL",
-                requirement="今天的东京天气如何？",
+                requirement=text,
                 network_access=True,
                 execution_mode="LIVE",
-            ),
+            )
+
+        first = await submit(bob, online_task("今天的东京天气如何？"))
+        assert first["network_access"] is True
+        lease = (await poll(oc, node)).json()
+        assert lease["task"]["task_id"] == first["id"]
+        assert lease["task"]["network_access"] is True
+        await complete_with(
+            oc, node, [("answer.md", "text/markdown", "东京今天晴。来源：example.org\n".encode())]
         )
-        assert task["network_access"] is True
-        # Off by default: the owner has not allowed internet on this device.
+
+        # The owner switches internet off: the next internet task waits and says why.
+        off = [t for t in prefs["allowed_tools"] if t != "network"]
+        await ok(await one_click.owner(oc, node, "PUT", "/settings", json={"allowed_tools": off}))
+        second = await submit(bob, online_task("再查一下大阪"))
         assert (await poll(oc, node)).status_code == 204
-        view = await ok(await bob.get(f"/v1/experimental-tasks/{task['id']}"))
+        view = await ok(await bob.get(f"/v1/experimental-tasks/{second['id']}"))
         assert view["status"] == "QUEUED"
         assert "TOOL_NOT_ALLOWED" in view["last_decision"]["reasons"]
-
-        prefs = (await ok(await one_click.owner(oc, node, "GET", "")))["sharing"]
-        assert "network" not in prefs["allowed_tools"]
-        await ok(
-            await one_click.owner(
-                oc,
-                node,
-                "PUT",
-                "/settings",
-                json={"allowed_tools": [*prefs["allowed_tools"], "network"]},
-            )
-        )
-        lease = (await poll(oc, node)).json()
-        assert lease["task"]["task_id"] == task["id"]
-        assert lease["task"]["network_access"] is True
-
         plain = await submit(bob, generic(status, kind="GENERAL", requirement="Say hi"))
         assert plain["network_access"] is False
     finally:

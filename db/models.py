@@ -388,7 +388,9 @@ class SubscriptionSharingPreference(Base):
         Integer, nullable=False, server_default=text("900")
     )
     allowed_task_types: Mapped[list[str]] = _jsonb('["CODE_REVIEW","WRITE_TESTS","CODE_FIX"]')
-    allowed_tools: Mapped[list[str]] = _jsonb('["code","doc","git","python-data"]')  # 0013
+    allowed_tools: Mapped[list[str]] = _jsonb(
+        '["code","doc","git","network","python-data"]'
+    )  # 0015
     require_owner_approval: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("true")
     )

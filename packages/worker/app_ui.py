@@ -173,6 +173,7 @@ zh: {
  ack_5:"上线时会用我的额度运行一次很短的自检提示。",
  ack_6:"我可以随时调整人数和任务上限、移除成员、关闭自动批准或下线。",
  ack_7:"服务器运营者设置的总上限（例如小组最多人数）仍然适用。",
+ ack_8:"默认允许成员的任务联网（勾选了「需要联网」的任务）：网站会看到你的 IP，任务能访问你家里网络中的设备。不想要可以在「本机工具」里取消「允许联网」。",
  invite_title:"小组邀请码", copy:"复制邀请链接", copied:"已复制", rotate:"换一个邀请码",
  invite_help:"把邀请链接或邀请码私下发给你信任的人。他们打开链接、勾选同意后即可加入并提交任务。换码后旧码立即失效。",
  invite_lost:"邀请码只在生成时显示一次。点「换一个邀请码」生成新的。",
@@ -219,7 +220,7 @@ zh: {
  ks_OPEN:"已开放", ks_LIVE_ACCEPTED:"验收通过，待开放", ks_SIMULATED_OK:"模拟通过", ks_DEVELOPING:"开发中，仅模拟", ks_DISABLED:"已停用",
  needs:"需要：", missing_tool:"（本机缺少）",
  tool_git:"Git（代码任务）", tool_doc:"文档处理（内置）", tool_code:"Codex 执行（内置）", tool_network:"允许联网（成员勾选「需要联网」的任务）",
- network_hint:"默认关闭。开启后这类任务可以搜索和浏览网页；仍然读不到你电脑上的其他文件。",
+ network_hint:"默认开启。这类任务可以搜索和浏览网页；仍然读不到你电脑上的其他文件。不想要就取消勾选并保存。",
  network_confirm:"允许联网后，成员的任务可以访问互联网：网站会看到你的 IP 地址，任务也能访问你家里网络中的其他设备，恶意需求还可能诱导 Codex 把成员上传的材料发给别人（你电脑上的其他文件仍然读不到）。确定允许吗？", "tool_python-data":"数据处理（pandas、matplotlib、openpyxl）",
  installed:"已安装", not_installed:"未安装", installing:"正在安装…", install_failed:"安装失败：",
  install_btn:(n)=>`安装（约 ${n} MB）`, remove_btn:"删除", git_hint:"未安装时仍可上线，只接文档和表格任务；上线时会弹出 Apple 命令行工具安装窗口，装好后自动接代码任务", allow:"允许",
@@ -259,6 +260,7 @@ en: {
  ack_5:"Going online runs one very short self-check prompt on my plan.",
  ack_6:"I can change member and task limits, remove members, switch off automatic approval or go offline at any time.",
  ack_7:"The server operator's overall caps (such as the maximum group size) still apply.",
+ ack_8:"Members' tasks may use the internet by default (those marked \u201cneeds internet\u201d): websites see your IP and tasks can reach devices on your home network. Untick \u201cAllow internet\u201d under device tools to turn it off.",
  invite_title:"Group invite code", copy:"Copy invite link", copied:"Copied", rotate:"New invite code",
  invite_help:"Send the link or code privately to people you trust. They open it, accept the terms and can submit tasks. A new code immediately invalidates the old one.",
  invite_lost:"The code is shown only when it is created. Click “New invite code” to issue another.",
@@ -305,7 +307,7 @@ en: {
  ks_OPEN:"Open", ks_LIVE_ACCEPTED:"Accepted, not yet open", ks_SIMULATED_OK:"Simulation passed", ks_DEVELOPING:"In development, simulation only", ks_DISABLED:"Disabled",
  needs:"Needs: ", missing_tool:" (missing here)",
  tool_git:"Git (code tasks)", tool_doc:"Documents (built in)", tool_code:"Codex executor (built in)", tool_network:"Allow internet (tasks whose member ticked “needs internet”)",
- network_hint:"Off by default. When on, those tasks can search and read the web; they still cannot read other files on this Mac.",
+ network_hint:"On by default. Those tasks can search and read the web; they still cannot read other files on this Mac. Untick and save to turn it off.",
  network_confirm:"With internet allowed, members' tasks can reach the internet: websites see your IP address, tasks can reach other devices on your home network, and a malicious request could get Codex to send the member's uploaded files elsewhere (other files on this Mac stay unreadable). Allow it?", "tool_python-data":"Data tools (pandas, matplotlib, openpyxl)",
  installed:"Installed", not_installed:"Not installed", installing:"Installing…", install_failed:"Install failed: ",
  install_btn:(n)=>`Install (~${n} MB)`, remove_btn:"Remove", git_hint:"You can go online without them and take document and table tasks; going online offers the Apple command line tools, and code tasks start once they are installed", allow:"Allow",
@@ -347,7 +349,7 @@ function applyStatic(){
   document.querySelectorAll("[data-t]").forEach(el=>{el.textContent=t(el.dataset.t)});
   $("lang").textContent=t("lang");
   $("ack").innerHTML="";
-  for(let i=1;i<=7;i++){const li=document.createElement("li");li.textContent=t("ack_"+i);$("ack").appendChild(li)}
+  for(let i=1;i<=8;i++){const li=document.createElement("li");li.textContent=t("ack_"+i);$("ack").appendChild(li)}
 }
 function render(){
   if(!S){if(localErr){show($("error"),true);$("error").textContent=errText(localErr)}return}
@@ -443,8 +445,7 @@ function renderKinds(srv){
 }
 function renderTools(srv){
   const box=$("tools"); box.innerHTML="";
-  // Internet is never on unless the owner switched it on.
-  const allowed=new Set((srv.sharing&&srv.sharing.allowed_tools)||TOOL_ORDER.filter(x=>x!=="network"));
+  const allowed=new Set((srv.sharing&&srv.sharing.allowed_tools)||TOOL_ORDER);
   TOOL_ORDER.forEach(tool=>{
     const l=document.createElement("label"); const c=document.createElement("input");
     c.type="checkbox"; c.dataset.tool=tool; c.checked=allowed.has(tool); c.title=t("allow");

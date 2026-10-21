@@ -165,7 +165,9 @@ class DispatchSnapshot:
     # declares none and is treated as code-capable) and tools the owner allows.
     required_tools: frozenset[str] = frozenset()
     node_tools: frozenset[str] | None = None
-    owner_allowed_tools: frozenset[str] = frozenset({"code", "doc", "git", "python-data"})
+    owner_allowed_tools: frozenset[str] = frozenset(
+        {"code", "doc", "git", "network", "python-data"}
+    )
 
 
 @dataclass(frozen=True)
