@@ -22,7 +22,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-WHEEL = "spareagent_worker-0.8.0-py3-none-any.whl"
+WHEEL = "spareagent_worker-0.9.0-py3-none-any.whl"
 
 
 def fetch_dependency_wheels(out: Path) -> None:
