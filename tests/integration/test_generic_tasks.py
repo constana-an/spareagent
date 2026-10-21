@@ -549,3 +549,60 @@ async def test_submission_gate_refuses_disallowed_deliverable_types(oc, octx):
         assert "disallowed type" in (view["result_summary"] or "")
     finally:
         await bob.aclose()
+
+
+async def test_live_general_task_is_checked_and_downloadable(oc, octx):
+    """A general task with no attachments: answer.md plus a picture, structure-checked."""
+    from services.verification.service import VerificationService
+
+    node, status, bob = await group_with_member(oc, octx)
+    await set_kind(oc, "GENERAL", "OPEN", report="reports/test-acceptance.json")
+    try:
+        task = await submit(
+            bob,
+            generic(
+                status,
+                kind="GENERAL",
+                requirement="解释一下 TCP 三次握手，并画一张示意图",
+                execution_mode="LIVE",
+            ),
+        )
+        assert task["deliverable"] == {"format": "md", "filename": "answer.md"}
+        svg = b'<svg xmlns="http://www.w3.org/2000/svg"><circle r="4"/></svg>'
+        answer = "# TCP 三次握手\n\nSYN、SYN-ACK、ACK。见 handshake.svg。\n".encode()
+        await complete_with(
+            oc,
+            node,
+            [("answer.md", "text/markdown", answer), ("handshake.svg", "image/svg+xml", svg)],
+        )
+        assert await VerificationService(octx, None, None).run_once() == "SUCCEEDED"
+        arts = (await ok(await bob.get(f"/v1/tasks/{task['id']}/artifacts")))["items"]
+        names = sorted(a["name"] for a in arts if a["kind"] == "DELIVERABLE")
+        assert names == ["answer.md", "handshake.svg"]
+    finally:
+        await bob.aclose()
+
+
+async def test_live_general_task_without_an_answer_fails(oc, octx):
+    from services.verification.service import VerificationService
+
+    node, status, bob = await group_with_member(oc, octx)
+    await set_kind(oc, "GENERAL", "OPEN", report="reports/test-acceptance.json")
+    try:
+        code = await upload(bob, "app.py", b"print('hi')\n")
+        task = await submit(
+            bob,
+            generic(
+                status,
+                kind="GENERAL",
+                requirement="Add a --verbose flag",
+                attachments=[code["id"]],
+                execution_mode="LIVE",
+            ),
+        )
+        await complete_with(oc, node, [("app.py", "text/plain", b"print('hi')\n")])
+        assert await VerificationService(octx, None, None).run_once() == "FAILED"
+        view = await ok(await bob.get(f"/v1/experimental-tasks/{task['id']}"))
+        assert view["failure"]["category"] == "CHECK_FAILED"
+    finally:
+        await bob.aclose()

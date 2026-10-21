@@ -38,12 +38,48 @@ MEDIA_TYPES = {
     "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "png": "image/png",
     "svg": "image/svg+xml",
+    "pdf": "application/pdf",
+    "patch": "text/x-diff",
 }
+# Source files a general task may hand back (edited copies of what the member uploaded).
+# HTML is accepted as input only: a deliverable never carries active content (as for SVG).
+CODE_OUTPUTS = frozenset(
+    {
+        "py",
+        "js",
+        "ts",
+        "tsx",
+        "jsx",
+        "css",
+        "java",
+        "go",
+        "rs",
+        "c",
+        "h",
+        "cpp",
+        "hpp",
+        "rb",
+        "php",
+        "swift",
+        "kt",
+        "sql",
+        "sh",
+        "yaml",
+        "yml",
+        "toml",
+        "diff",
+    }
+)
+MEDIA_TYPES.update({ext: "text/plain" for ext in CODE_OUTPUTS})
 # File types a device may return per kind (anything else in out/ is dropped and logged).
 KIND_OUTPUTS: dict[str, frozenset[str]] = {
     "TRANSLATE_DOCUMENT": frozenset({"docx", "md", "txt"}),
     "ANALYZE_SPREADSHEET": frozenset({"md", "png", "svg", "csv", "xlsx"}),
+    "GENERAL": frozenset(
+        {"md", "txt", "csv", "json", "docx", "xlsx", "png", "svg", "pdf", "patch"} | CODE_OUTPUTS
+    ),
 }
+GENERAL_ANSWER = "answer.md"
 DOCUMENT_KINDS = frozenset(KIND_OUTPUTS)
 
 _SAFE = re.compile(r"[^A-Za-z0-9._-]+")
@@ -526,6 +562,59 @@ def check_analysis(files: list[FileIn], input_names: list[str]) -> CheckReport:
                 xlsx_sheets(f.content)
             elif ext == "md":
                 f.content.decode("utf-8")
+            report.check(f"valid:{f.name}", True)
+        except (DocumentError, UnicodeDecodeError, csv.Error) as exc:
+            report.check(f"valid:{f.name}", False, str(exc)[:200], "MALFORMED_OUTPUT")
+    return report
+
+
+def _check_file(f: FileIn) -> None:
+    """Raise DocumentError/UnicodeDecodeError/csv.Error unless `f` is well-formed."""
+    ext = extension(f.name)
+    if ext == "png":
+        png_size(f.content)
+    elif ext == "svg":
+        check_svg(f.content)
+    elif ext == "csv":
+        if not list(csv.reader(io.StringIO(f.content.decode("utf-8")))):
+            raise DocumentError("empty CSV")
+    elif ext == "xlsx":
+        xlsx_sheets(f.content)
+    elif ext == "docx":
+        docx_paragraphs(f.content)
+    elif ext == "json":
+        try:
+            json.loads(f.content.decode("utf-8"))
+        except json.JSONDecodeError as exc:
+            raise DocumentError("JSON is not well-formed") from exc
+    elif ext == "pdf":
+        if not f.content.startswith(b"%PDF-") or b"%%EOF" not in f.content[-2048:]:
+            raise DocumentError("not a complete PDF")
+    else:  # md, txt, patch and source files are UTF-8 text
+        f.content.decode("utf-8")
+
+
+def check_general(files: list[FileIn]) -> CheckReport:
+    """A general task always answers in answer.md; any other file must be well-formed.
+    Nothing here judges whether the answer is right."""
+    report = CheckReport()
+    _common("GENERAL", files, report)
+    if not report.ok:
+        return report
+    main = next((f for f in files if f.name == GENERAL_ANSWER), None)
+    if not report.check("expected_file", main is not None, GENERAL_ANSWER, "MISSING_OUTPUT"):
+        return report
+    try:
+        text = main.content.decode("utf-8")
+    except UnicodeDecodeError:
+        report.check("well_formed", False, "answer.md is not UTF-8", "MALFORMED_OUTPUT")
+        return report
+    report.check("answer_length", len(text.strip()) >= 20, len(text.strip()), "EMPTY_OUTPUT")
+    for f in files:
+        if f is main:
+            continue
+        try:
+            _check_file(f)
             report.check(f"valid:{f.name}", True)
         except (DocumentError, UnicodeDecodeError, csv.Error) as exc:
             report.check(f"valid:{f.name}", False, str(exc)[:200], "MALFORMED_OUTPUT")

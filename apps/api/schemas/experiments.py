@@ -36,6 +36,7 @@ TaskType = Literal[
     "CODE_CHANGE",
     "TRANSLATE_DOCUMENT",
     "ANALYZE_SPREADSHEET",
+    "GENERAL",
 ]
 Limit = Annotated[StrictInt, Field(ge=1)]
 

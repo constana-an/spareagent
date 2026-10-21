@@ -73,7 +73,21 @@ if sandbox == "workspace-write" and mode == "chatgpt" and not os.path.isdir("in"
 
 # Document tasks (packages/worker/recipes.py): in/ holds inputs, results go to out/.
 if os.path.isdir("in") and os.path.isdir("out") and mode.startswith(("chatgpt", "doc_")):
-    if os.path.exists("in/paragraphs.json"):
+    if "./out/answer.md (required)" in prompt:  # general task
+        if mode != "doc_missing":
+            with open("out/answer.md", "w") as fh:
+                fh.write("# 回答\n\n这是对成员问题的回答，并附上一张示意图 diagram.svg。\n")
+            with open("out/diagram.svg", "w") as fh:
+                fh.write('<svg xmlns="http://www.w3.org/2000/svg"><circle r="4"/></svg>')
+            if os.path.exists("in/app.py"):
+                with open("out/app.py", "w") as fh:
+                    fh.write(open("in/app.py").read() + "\nprint('verbose')\n")
+            with open("out/page.html", "w") as fh:
+                fh.write("<script>dropped</script>")
+            if mode == "doc_active_svg":
+                with open("out/diagram.svg", "w") as fh:
+                    fh.write('<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>')
+    elif os.path.exists("in/paragraphs.json"):
         source = json.load(open("in/paragraphs.json"))
         if mode == "doc_untranslated":
             texts = source

@@ -5,7 +5,8 @@ long poll, local opt-in, attachment download, finalization) with its in-process 
 executor, talking to the API in-process. No model, no Codex, no Docker socket.
 
 1. The owner's device is online with an invite code; Bob joins.
-2-3. Bob submits a .docx translation, an .xlsx analysis and a code change; all three are
+2-3. Bob submits a .docx translation, an .xlsx analysis, a code change and two general
+     tasks (a question, and an uploaded file to change); all of them are
      approved by the standing approval, run on the device, pass the platform checks and
      download by name with matching SHA-256.
 4. The owner lowers "tasks per 24 hours" to what is used: the next task waits with
@@ -176,6 +177,21 @@ async def test_acceptance_script_in_simulation(oc, octx, tmp_path):
                 ),
             ),
         ]
+        source = await gt.upload(bob, "app.py", b"print('hi')\n")
+        tasks += [
+            await gt.submit(
+                bob, gt.generic(status, kind="GENERAL", requirement="讨论：如何学习 Rust？")
+            ),
+            await gt.submit(
+                bob,
+                gt.generic(
+                    status,
+                    kind="GENERAL",
+                    requirement="Add a --verbose flag and draw a diagram",
+                    attachments=[source["id"]],
+                ),
+            ),
+        ]
         for task in tasks:
             done = await wait_for(bob, task, ("SUCCEEDED", "FAILED", "TIMED_OUT"))
             assert done["status"] == "SUCCEEDED", done
@@ -183,12 +199,14 @@ async def test_acceptance_script_in_simulation(oc, octx, tmp_path):
         assert set(await deliverables(bob, tasks[1])) == {"report.md"}
         code_items = (await ok(await bob.get(f"/v1/tasks/{tasks[2]['id']}/artifacts")))["items"]
         assert "PATCH" in {a["kind"] for a in code_items}
+        assert set(await deliverables(bob, tasks[3])) == {"answer.md"}
+        assert set(await deliverables(bob, tasks[4])) == {"answer.md"}
 
         # ---- 4: the daily limit holds the next task, raising it releases the task
         used = (await ok(await one_click.owner(oc, node, "GET", "")))["usage"][
             "tasks_started_last_24h"
         ]
-        assert used == 3
+        assert used == 5
         await ok(
             await one_click.owner(oc, node, "PUT", "/settings", json={"max_tasks_per_day": used})
         )
@@ -198,7 +216,7 @@ async def test_acceptance_script_in_simulation(oc, octx, tmp_path):
         assert held["status"] == "QUEUED"
         assert "DAILY_LIMIT" in held["last_decision"]["reasons"]
         await ok(
-            await one_click.owner(oc, node, "PUT", "/settings", json={"max_tasks_per_day": 10})
+            await one_click.owner(oc, node, "PUT", "/settings", json={"max_tasks_per_day": 20})
         )
         assert (await wait_for(bob, fourth, ("SUCCEEDED", "FAILED")))["status"] == "SUCCEEDED"
 

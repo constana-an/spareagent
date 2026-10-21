@@ -198,3 +198,57 @@ async def test_a_clean_run_that_writes_nothing_is_reported_as_declined(codex_hom
     from services.tasks.progress import failure_category
 
     assert failure_category("MODEL_DECLINED") == "REFUSED"
+
+
+# ------------------------------------------------------------------ general tasks
+async def test_general_task_without_attachments_answers_and_draws(codex_home, tmp_path):  # noqa: F811
+    set_mode(codex_home, "chatgpt")
+    result = await last(adapter(tmp_path), req("GENERAL", []))
+    names = sorted(a.name for a in result.artifacts if a.kind == "DELIVERABLE")
+    assert names == ["answer.md", "diagram.svg"]  # page.html is never delivered
+    prompt = (codex_home / "last_prompt.txt").read_text()
+    assert "No attachments." in prompt and "Never install packages or use the network" in prompt
+
+
+async def test_general_task_reads_office_files_and_returns_edited_code(codex_home, tmp_path):  # noqa: F811
+    set_mode(codex_home, "chatgpt")
+    r = req(
+        "GENERAL",
+        [("app.py", b"print('hi')\n"), ("notes.docx", make_docx()), ("t.xlsx", make_xlsx())],
+    )
+    result = await last(adapter(tmp_path), r)
+    files = {a.name: a for a in result.artifacts if a.kind == "DELIVERABLE"}
+    assert set(files) == {"answer.md", "diagram.svg", "app.py"}
+    assert files["app.py"].content.endswith(b"print('verbose')\n")
+    assert files["app.py"].media_type == "text/plain"
+    prompt = (codex_home / "last_prompt.txt").read_text()
+    assert "in/notes__text.txt (text of notes.docx)" in prompt
+    assert "in/t__Sales.csv (sheet 'Sales' of t.xlsx)" in prompt
+
+
+@pytest.mark.parametrize(
+    ("mode", "code"), [("doc_missing", "MODEL_DECLINED"), ("doc_active_svg", "MALFORMED_OUTPUT")]
+)
+async def test_general_task_failures(codex_home, tmp_path, mode, code):  # noqa: F811
+    set_mode(codex_home, mode)
+    with pytest.raises(PermanentProviderError) as exc:
+        await last(adapter(tmp_path), req("GENERAL", []))
+    assert exc.value.detail_code == code
+
+
+def test_general_check_needs_an_answer_and_well_formed_files():
+    ok = d.check_general(
+        [
+            d.FileIn("answer.md", "这是一个足够长的回答，用来说明结果。".encode() * 2),
+            d.FileIn("chart.svg", b'<svg xmlns="http://www.w3.org/2000/svg"/>'),
+            d.FileIn("data.json", b'{"a": 1}'),
+            d.FileIn("main.go", b"package main\n"),
+        ]
+    )
+    assert ok.ok, ok.checks
+    assert d.check_general([d.FileIn("chart.svg", b"<svg/>")]).reason == "MISSING_OUTPUT"
+    assert d.check_general([d.FileIn("answer.md", b"ok")]).reason == "EMPTY_OUTPUT"
+    bad_json = [d.FileIn("answer.md", b"x" * 40), d.FileIn("a.json", b"{")]
+    assert d.check_general(bad_json).reason == "MALFORMED_OUTPUT"
+    html = [d.FileIn("answer.md", b"x" * 40), d.FileIn("page.html", b"<p>")]
+    assert d.check_general(html).reason == "FILE_TYPE_NOT_ALLOWED"

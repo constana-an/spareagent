@@ -54,11 +54,15 @@ TABLES = (
 )
 
 
-def _task_kind_seed() -> str:
-    """The catalogue rows exactly as migration 0011 seeds them (restored after TRUNCATE)."""
-    sql = (Path(__file__).resolve().parents[1] / "db/migrations/0011_generic_tasks.sql").read_text()
-    start = sql.index("INSERT INTO task_kinds")
-    return sql[start : sql.index(";", start)]
+def _task_kind_seed() -> tuple[str, ...]:
+    """The catalogue rows exactly as the migrations seed them (restored after TRUNCATE)."""
+    statements = []
+    for path in sorted((Path(__file__).resolve().parents[1] / "db/migrations").glob("0*.sql")):
+        sql = path.read_text()
+        start = sql.find("INSERT INTO task_kinds")
+        if start != -1:
+            statements.append(sql[start : sql.index(";", start)])
+    return tuple(statements)
 
 
 TASK_KIND_SEED = _task_kind_seed()
@@ -119,7 +123,8 @@ def settings(tmp_path) -> Settings:
 async def seed_fixtures(ctx: AppContext) -> None:
     async with ctx.engine.begin() as conn:
         await conn.execute(text(f"TRUNCATE {TABLES} RESTART IDENTITY CASCADE"))
-        await conn.execute(text(TASK_KIND_SEED))
+        for statement in TASK_KIND_SEED:
+            await conn.execute(text(statement))
         await conn.execute(
             text(
                 "INSERT INTO users(id,email,role) VALUES "

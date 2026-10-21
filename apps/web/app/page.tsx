@@ -1343,6 +1343,7 @@ export default function Dashboard() {
                           types: kind.extensions.map((x) => "." + x).join(" "),
                           n: kind.max_attachments,
                         })}
+                        {kind.min_attachments === 0 ? t("attachments_optional") : ""}
                       </small>
                     </label>
                   )}

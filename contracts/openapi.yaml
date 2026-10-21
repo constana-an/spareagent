@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SpareAgent MVP API
-  version: 1.10.0
+  version: 1.11.0
   description: 'W1: Tasks, Events, Models, Chat nonstream, health. W2: remote worker enrollment, node credentials and lease protocol.'
 servers:
   - url: http://localhost:8000
@@ -2471,8 +2471,8 @@ components:
       properties:
         group_id: {type: string, format: uuid}
         connection_id: {type: string, format: uuid}
-        kind: {anyOf: [{type: string, enum: [CODE_REVIEW, CODE_FIX, WRITE_TESTS, CODE_CHANGE, TRANSLATE_DOCUMENT, ANALYZE_SPREADSHEET]}, {type: 'null'}]}
-        task_type: {anyOf: [{type: string, enum: [CODE_REVIEW, CODE_FIX, WRITE_TESTS, CODE_CHANGE, TRANSLATE_DOCUMENT, ANALYZE_SPREADSHEET]}, {type: 'null'}], description: legacy alias of kind}
+        kind: {anyOf: [{type: string, enum: [CODE_REVIEW, CODE_FIX, WRITE_TESTS, CODE_CHANGE, TRANSLATE_DOCUMENT, ANALYZE_SPREADSHEET, GENERAL]}, {type: 'null'}]}
+        task_type: {anyOf: [{type: string, enum: [CODE_REVIEW, CODE_FIX, WRITE_TESTS, CODE_CHANGE, TRANSLATE_DOCUMENT, ANALYZE_SPREADSHEET, GENERAL]}, {type: 'null'}], description: legacy alias of kind}
         requirement: {anyOf: [{type: string, minLength: 1, maxLength: 12000}, {type: 'null'}]}
         prompt: {anyOf: [{type: string, minLength: 1, maxLength: 12000}, {type: 'null'}], description: legacy alias of requirement}
         repository:
@@ -2518,7 +2518,7 @@ components:
       required: [kind, category, name_zh, name_en, description_zh, status, needs_repository, min_attachments, max_attachments, extensions, parameters, required_parameters, deliverable_format, deliverable_formats, capabilities, live_available]
       properties:
         kind: {type: string}
-        category: {type: string, enum: [WRITING, INFORMATION, RESEARCH, DATA, CODE, FILE_TOOLS]}
+        category: {type: string, enum: [WRITING, INFORMATION, RESEARCH, DATA, CODE, FILE_TOOLS, GENERAL]}
         name_zh: {type: string}
         name_en: {type: string}
         description_zh: {type: string}
@@ -2645,7 +2645,7 @@ components:
           - type: object
             properties:
               code: {type: [string, 'null']}
-              category: {type: [string, 'null'], enum: [INPUT, TIMEOUT, WAIT_TIMEOUT, OUTPUT_LIMIT, DEVICE_INTERRUPTED, CHECK_FAILED, AUTHORIZATION, LOGIN, USAGE_LIMIT, CANCELLED, OTHER, null]}
+              category: {type: [string, 'null'], enum: [INPUT, TIMEOUT, WAIT_TIMEOUT, OUTPUT_LIMIT, DEVICE_INTERRUPTED, CHECK_FAILED, AUTHORIZATION, LOGIN, USAGE_LIMIT, REFUSED, CANCELLED, OTHER, null]}
           - type: 'null'
       type: object
       required:

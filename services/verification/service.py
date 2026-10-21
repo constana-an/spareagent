@@ -233,6 +233,8 @@ class VerificationService:
                 (spec.get("parameters") or {}).get("target_language", ""),
                 spec.get("deliverable") or {"format": "docx", "filename": "translation.docx"},
             )
+        elif job.task_type == "GENERAL":
+            report = d.check_general(delivered)
         else:
             report = d.check_analysis(delivered, [i.name for i in inputs])
         for c in report.checks:

@@ -24,7 +24,7 @@ from packages.common import deliverables as d
 from packages.common.observability import redact
 from packages.provider_sdk.types import ArtifactPayload, ExecutionRequest
 
-TEXT_OUTPUTS = frozenset({"md", "txt", "csv", "svg", "json"})
+TEXT_OUTPUTS = frozenset({"md", "txt", "csv", "svg", "json", "patch"}) | d.CODE_OUTPUTS
 
 DOCUMENT_PREAMBLE = """\
 You are running a task submitted by another member of a small, non-commercial SpareAgent
@@ -212,6 +212,56 @@ def finish_analysis(request: ExecutionRequest, ws: Workspace):
     files, _dropped = ws.collect(d.KIND_OUTPUTS["ANALYZE_SPREADSHEET"])
     report = d.check_analysis(files, [i.name for i in request.inputs])
     return files, report
+
+
+# ------------------------------------------------------------------ general task
+def prepare_general(request: ExecutionRequest, ws: Workspace, *, data_tools: bool = False) -> str:
+    """Any request, with 0-5 attachments. Word and Excel files also get plain-text / CSV
+    copies so Codex can read them without extra libraries."""
+    listing = []
+    for item in request.inputs:
+        path = ws.add_input(item.name, item.content)
+        listing.append(f"- in/{path.name}")
+        ext = d.extension(item.name)
+        stem = path.name.rsplit(".", 1)[0]
+        try:
+            if ext == "xlsx":
+                for sheet, rows in d.xlsx_sheets(item.content).items():
+                    csv_path = ws.add_input(f"{stem}__{sheet}.csv", d.rows_to_csv(rows))
+                    listing.append(f"- in/{csv_path.name} (sheet '{sheet}' of {path.name})")
+            elif ext == "docx":
+                text = "\n\n".join(d.docx_paragraphs(item.content)).encode()
+                txt_path = ws.add_input(f"{stem}__text.txt", text)
+                listing.append(f"- in/{txt_path.name} (text of {path.name})")
+        except d.DocumentError as exc:
+            raise RecipeError("INPUT_INVALID", f"Cannot read {item.name}: {exc}") from exc
+    allowed = ", ".join(sorted(d.KIND_OUTPUTS["GENERAL"]))
+    return (
+        DOCUMENT_PREAMBLE
+        + "Task: do what the member asks below. It may be a question to discuss, writing, "
+        "a translation, work on a table, a change to an uploaded file, or a picture.\n"
+        + ("Attachments:\n" + "\n".join(listing) + "\n" if listing else "No attachments.\n")
+        + "\nDeliverables:\n"
+        f"- ./out/{d.GENERAL_ANSWER} (required): your answer in Markdown, in the language "
+        "of the member's request. Explain what you did and list every other file you made.\n"
+        "- Up to 5 more files in ./out when they help: e.g. a translated or rewritten "
+        "document (.docx/.md/.txt), tables (.csv/.xlsx), edited copies of uploaded source "
+        "files (same names), a unified diff (changes.patch), or pictures.\n"
+        f"- Allowed file types: {allowed}. Anything else is discarded.\n"
+        "- Pictures are drawn with code: write SVG by hand"
+        + (
+            ", or use `python3` (matplotlib with the Agg backend, Pillow) for PNG. "
+            if data_tools
+            else ". PNG needs libraries that may be missing; prefer SVG. "
+        )
+        + "No scripts or event handlers in SVG.\n"
+        "Never install packages or use the network.\n\n" + _request_block(request.prompt)
+    )
+
+
+def finish_general(request: ExecutionRequest, ws: Workspace):
+    files, _dropped = ws.collect(d.KIND_OUTPUTS["GENERAL"])
+    return files, d.check_general(files)
 
 
 # ------------------------------------------------------------------ code change

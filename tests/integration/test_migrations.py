@@ -34,6 +34,7 @@ async def test_migration_applied_once_and_rerun_is_noop(migrated_database):
         "0011_generic_tasks",
         "0012_deliverables",
         "0013_device_capabilities",
+        "0014_general_tasks",
     ]
 
 
@@ -49,6 +50,7 @@ def test_seed_files_are_not_schema_migrations():
         "0011_generic_tasks",
         "0012_deliverables",
         "0013_device_capabilities",
+        "0014_general_tasks",
     ]
     assert [m.version for m in discover(include_seed=True)] == [
         "0002_seed_dev",

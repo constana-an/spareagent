@@ -69,6 +69,7 @@ ALLOWED_TASK_TYPES = frozenset(
         "CODE_CHANGE",
         "TRANSLATE_DOCUMENT",
         "ANALYZE_SPREADSHEET",
+        "GENERAL",
     }
 )
 
@@ -184,7 +185,7 @@ class CodexSubscriptionAdapter:
         if request.task_type in DOCUMENT_KINDS:
             if request.repository_url or request.commit_sha:
                 raise SharedWorkRefused("Document tasks never check out a repository")
-            if not request.inputs:
+            if not request.inputs and request.task_type != "GENERAL":
                 raise SharedWorkRefused("Document tasks need their attachments")
         elif not request.repository_url or not request.commit_sha:
             raise SharedWorkRefused("Shared tasks must name a pinned repository commit")
@@ -300,13 +301,17 @@ class CodexSubscriptionAdapter:
     async def _execute_document(
         self, request: ExecutionRequest
     ) -> AsyncIterator[ProgressEvent | ExecutionResult]:
-        """Translation / analysis in a fresh workspace (packages/worker/recipes.py)."""
+        """Translation / analysis / general tasks in a fresh workspace (recipes.py)."""
         ws = recipes.Workspace.create()
         access = None
         try:
             try:
                 if request.task_type == "TRANSLATE_DOCUMENT":
                     prompt, expected = recipes.prepare_translation(request, ws)
+                elif request.task_type == "GENERAL":
+                    access = self.tools("python-data") if self.tools else None
+                    prompt = recipes.prepare_general(request, ws, data_tools=access is not None)
+                    expected = 0
                 else:
                     access = self.tools("python-data") if self.tools else None
                     prompt = recipes.prepare_analysis(request, ws, data_tools=access is not None)
@@ -337,6 +342,8 @@ class CodexSubscriptionAdapter:
             try:
                 if request.task_type == "TRANSLATE_DOCUMENT":
                     files, report = recipes.finish_translation(request, ws, expected)
+                elif request.task_type == "GENERAL":
+                    files, report = recipes.finish_general(request, ws)
                 else:
                     files, report = recipes.finish_analysis(request, ws)
                 if not report.ok:
@@ -345,7 +352,7 @@ class CodexSubscriptionAdapter:
             except recipes.RecipeError as exc:
                 failed = [c for c in report.checks if not c["ok"]] if report else []
                 code = exc.code if exc.code.isupper() else None
-                if code == "MISSING_OUTPUT" and ws.is_output_empty():
+                if code in ("MISSING_OUTPUT", "NO_DELIVERABLE") and ws.is_output_empty():
                     code = "MODEL_DECLINED"  # a clean run that produced nothing at all
                 raise PermanentProviderError(
                     f"Result did not pass the device check: {exc.code} {failed}"[:1000],

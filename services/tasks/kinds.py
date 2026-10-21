@@ -32,7 +32,38 @@ UPLOAD_TYPES: dict[str, tuple[str, tuple[bytes, ...] | None]] = {
     "jpg": ("image/jpeg", (b"\xff\xd8\xff",)),
     "jpeg": ("image/jpeg", (b"\xff\xd8\xff",)),
 }
-TEXT_EXTENSIONS = frozenset({"txt", "md", "csv", "json"})
+# Source code and config as UTF-8 text, for general tasks ("change this file").
+CODE_TEXT_EXTENSIONS = frozenset(
+    {
+        "py",
+        "js",
+        "ts",
+        "tsx",
+        "jsx",
+        "html",
+        "css",
+        "java",
+        "go",
+        "rs",
+        "c",
+        "h",
+        "cpp",
+        "hpp",
+        "rb",
+        "php",
+        "swift",
+        "kt",
+        "sql",
+        "sh",
+        "yaml",
+        "yml",
+        "toml",
+        "patch",
+        "diff",
+    }
+)
+UPLOAD_TYPES.update({ext: ("text/plain", None) for ext in CODE_TEXT_EXTENSIONS})
+TEXT_EXTENSIONS = frozenset({"txt", "md", "csv", "json"}) | CODE_TEXT_EXTENSIONS
 
 # Tools a device can declare (from its own probes) and an owner can allow (design §5).
 TOOLS = ("code", "doc", "git", "python-data")
@@ -144,6 +175,20 @@ CATALOG: dict[str, Kind] = {
             extensions=frozenset({"docx", "md", "txt"}),
             params=(Param("target_language", True, LANGUAGE, 16),),
             deliverable_formats=frozenset({"docx", "md", "txt"}),
+        ),
+        Kind(
+            "GENERAL",
+            "GENERAL",
+            "通用任务",
+            "General task",
+            "讨论问题、写作、翻译、整理表格、修改代码文件、用代码画图（SVG/PNG 图表、示意图）等。"
+            "不联网，只能使用你上传的材料。",
+            needs_repository=False,
+            capabilities=("doc",),
+            deliverable=Deliverable("md", "answer.md"),
+            min_attachments=0,
+            max_attachments=MAX_ATTACHMENTS,
+            extensions=frozenset(UPLOAD_TYPES),
         ),
         Kind(
             "ANALYZE_SPREADSHEET",

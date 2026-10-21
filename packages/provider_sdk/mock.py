@@ -160,6 +160,12 @@ class MockProviderAdapter:
                 else ("\n\n".join(texts) + "\n").encode()
             )
             files = [(spec["filename"], content)]
+        elif request.task_type == "GENERAL":
+            answer = (
+                f"# Mock answer {short}\n\nNo model was used and no attachment was read; "
+                "this placeholder only exercises the delivery flow.\n"
+            )
+            files = [("answer.md", answer.encode())]
         else:
             report = (
                 f"# Mock analysis {short}\n\nNo table was read and nothing was computed; "
