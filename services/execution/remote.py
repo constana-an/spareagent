@@ -177,7 +177,8 @@ class RemoteWorkerService:
         return upload, await self.ctx.artifacts.get(upload.storage_key)
 
     async def _claimer(self, worker_id: uuid.UUID):
-        """A personal (owner's own) device claims only LIVE experimental tasks through the
+        """A personal (owner's own) device claims experimental tasks - LIVE and simulated
+        (MOCK, run by the worker's in-process mock executor, no model call) - through the
         separate ExperimentalDispatcher; every other node uses the public Dispatcher, which
         never selects personal resources (unchanged)."""
         async with self.ctx.sessionmaker() as session:
@@ -192,7 +193,7 @@ class RemoteWorkerService:
             from services.experiments.dispatcher import ExperimentalDispatcher
 
             experimental = ExperimentalDispatcher(self.ctx)
-            return lambda: experimental.dispatch_once((worker_id,), profiles=("CODEX_LIVE",))
+            return lambda: experimental.dispatch_once((worker_id,), profiles=("CODEX_LIVE", "MOCK"))
         return lambda: self.dispatcher.dispatch_once((worker_id,))
 
     async def poll(self, node: NodePrincipal, wait_seconds: float, is_disconnected) -> dict | None:

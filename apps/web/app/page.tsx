@@ -488,6 +488,7 @@ export default function Dashboard() {
         ? t("st_running_p", { p: p.percent, m: p.message || "" })
         : t("st_running");
     }
+    if (x.status === "RETRY_PENDING") return t("st_retrying");
     if (x.status === "VERIFYING") return t("st_verifying");
     if (x.failure && ["FAILED", "TIMED_OUT"].includes(x.status))
       return `${t(`fail.${x.failure.category || "OTHER"}` as never)}${x.failure.code ? ` (${x.failure.code})` : ""}`;

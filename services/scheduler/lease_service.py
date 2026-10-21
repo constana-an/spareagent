@@ -37,15 +37,38 @@ def utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-def task_deadline_passed(task: Task, now: datetime, attempt: TaskAttempt | None = None) -> bool:
-    """Experimental tasks wait up to 10 minutes, then get their full execution limit."""
+def task_deadline_passed(
+    task: Task, now: datetime, attempt: TaskAttempt | None = None, *, requeued: bool = False
+) -> bool:
+    """Experimental tasks wait up to 10 minutes, then get their full execution limit.
+
+    A task handed back to the queue after an interrupted attempt (``requeued``) gets a
+    fresh waiting window from the moment it re-entered the queue (its last transition)."""
     start, seconds = task.created_at, task.max_duration_seconds
     if task.resource_scope == "EXPERIMENTAL_SHARED_SUBSCRIPTION":
         if attempt is not None and attempt.started_at is not None:
             start = attempt.started_at
         else:
             seconds = 600
+            if requeued:
+                start = max(task.created_at, task.updated_at)
     return now >= start + timedelta(seconds=seconds)
+
+
+# Experimental tasks run on one owner's device and use the owner's own plan, so they are
+# retried at most once and only when the device was interrupted (design §6): the owner
+# chose "stop now and hand back", the worker shut down, or the lease lapsed. A failed or
+# rejected run is never repeated automatically.
+EXPERIMENTAL_MAX_ATTEMPTS = 2
+DEVICE_INTERRUPTIONS = frozenset({"WORKER_SHUTDOWN", "LEASE_EXPIRED"})
+
+
+def retry_allowed(task: Task, attempt: TaskAttempt, now: datetime, reason: str) -> bool:
+    if attempt.attempt_number >= task.max_attempts or task_deadline_passed(task, now, attempt):
+        return False
+    return task.resource_scope != "EXPERIMENTAL_SHARED_SUBSCRIPTION" or (
+        reason in DEVICE_INTERRUPTIONS
+    )
 
 
 async def release_worker(session: AsyncSession, worker_id: uuid.UUID) -> None:
@@ -432,11 +455,7 @@ class LeaseService:
 
         await close_attempt(session, attempt, "FAILED")
         reason = data.error_code or "ATTEMPT_FAILED"
-        if (
-            data.retryable
-            and attempt.attempt_number < task.max_attempts
-            and not task_deadline_passed(task, now, attempt)
-        ):
+        if data.retryable and retry_allowed(task, attempt, now, reason):
             await transition(
                 session,
                 task,
@@ -503,9 +522,7 @@ class LeaseService:
                 await close_attempt(session, attempt, "EXPIRED")
                 recovered += 1
                 status = TaskStatus(task.status)
-                retry_ok = attempt.attempt_number < task.max_attempts and not task_deadline_passed(
-                    task, now, attempt
-                )
+                retry_ok = retry_allowed(task, attempt, now, "LEASE_EXPIRED")
                 payload = {"reason": "LEASE_EXPIRED", "attempt_number": attempt.attempt_number}
                 if status == TaskStatus.CANCELLING:
                     await transition(

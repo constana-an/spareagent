@@ -70,7 +70,19 @@ class Workspace:
         return cls(root)
 
     def add_input(self, name: str, content: bytes) -> Path:
-        path = self.inputs / d.safe_name(name)
+        """Write a read-only input under a unique flat name. Distinct uploads can share a
+        name (two folders' ``sales.csv``, or non-ASCII names that flatten alike), so a
+        taken name gets ``-2``, ``-3`` ... before the extension; the caller lists the
+        returned path's name to Codex."""
+        flat = d.safe_name(name)
+        stem, dot, ext = flat.rpartition(".")
+        if not dot:
+            stem, ext = flat, ""
+        path = self.inputs / flat
+        n = 1
+        while path.exists():
+            n += 1
+            path = self.inputs / (f"{stem}-{n}.{ext}" if ext else f"{stem}-{n}")
         path.write_bytes(content)
         path.chmod(stat.S_IRUSR)
         return path

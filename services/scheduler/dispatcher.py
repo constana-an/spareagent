@@ -148,7 +148,7 @@ class Dispatcher:
                 )
                 ready = None
                 for task, n, done in (await session.execute(stmt)).all():
-                    if task_deadline_passed(task, now):
+                    if task_deadline_passed(task, now, requeued=True):
                         ready = (task, "timeout")
                         break
                     wait = timedelta(seconds=base * (2 ** max(0, (n or 1) - 1)))

@@ -3,6 +3,8 @@ waits, runs and ends. Protocol-level; no real execution."""
 
 import base64
 
+from packages.provider_sdk.mock import MockProviderAdapter
+from packages.provider_sdk.types import ExecutionRequest, ExecutionResult
 from tests.conftest import bearer
 from tests.integration import test_generic_tasks as gt
 from tests.integration import test_one_click_sharing as one_click
@@ -124,7 +126,8 @@ async def test_shutdown_and_verification_failures_are_categorised(oc, octx):
         lease = await start(oc, node)
         await fail(oc, node, lease, error_code="WORKER_SHUTDOWN", retryable=True)
         out = await view(bob, task)
-        assert out["failure"]["category"] == "DEVICE_INTERRUPTED"
+        # Handed back, not failed: the final interruption is covered below.
+        assert out["status"] == "RETRY_PENDING" and out["failure"] is None
     finally:
         await bob.aclose()
 
@@ -166,5 +169,97 @@ async def test_progress_payload_is_redacted_and_bounded(oc, octx):
             )
         )
         assert secret not in (await view(bob, task))["progress"]["message"]
+    finally:
+        await bob.aclose()
+
+
+async def test_stop_and_hand_back_requeues_the_task_once(oc, octx):
+    """§6: "stop now and hand back" re-runs the task once on the owner's device; a second
+    interruption ends it, so one task never re-runs without limit."""
+    from services.scheduler.dispatcher import Dispatcher
+
+    node, status, bob = await gt.group_with_member(oc, octx)
+    try:
+        task = await one_click.submit_as(bob, status, status["sharing"]["connection_id"])
+        first = await start(oc, node)
+        await fail(oc, node, first, error_code="WORKER_SHUTDOWN", retryable=True)
+        assert (await view(bob, task))["status"] == "RETRY_PENDING"
+        assert await Dispatcher(octx).promote_retries() == 1
+        assert (await view(bob, task))["status"] == "QUEUED"
+        second = await start(oc, node)
+        assert second["attempt_id"] != first["attempt_id"]
+        await fail(oc, node, second, error_code="WORKER_SHUTDOWN", retryable=True)
+        out = await view(bob, task)
+        assert out["status"] == "FAILED"
+        assert out["failure"]["category"] == "DEVICE_INTERRUPTED"
+    finally:
+        await bob.aclose()
+
+
+async def test_a_failed_run_is_not_repeated(oc, octx):
+    node, status, bob = await gt.group_with_member(oc, octx)
+    try:
+        task = await one_click.submit_as(bob, status, status["sharing"]["connection_id"])
+        lease = await start(oc, node)
+        await fail(oc, node, lease, error_code="EXECUTION_ERROR", retryable=True)
+        assert (await view(bob, task))["status"] == "FAILED"
+    finally:
+        await bob.aclose()
+
+
+async def test_owner_device_picks_up_simulated_tasks(oc, octx):
+    """The web form's default SIMULATED mode runs on the owner's normal worker (its
+    in-process mock executor) without any operator step."""
+    node, status, bob = await gt.group_with_member(oc, octx)
+    try:
+        task = await one_click.submit_as(
+            bob, status, status["sharing"]["connection_id"], mode="SIMULATED"
+        )
+        resp = await poll(oc, node)
+        assert resp.status_code == 200, resp.text
+        lease = resp.json()
+        assert lease["task"]["task_id"] == task["id"]
+        assert lease["execution_profile"] == "MOCK"
+        auth = bearer(node["access_token"])
+        assert (
+            await oc.post(f"/v1/leases/{lease['lease_id']}/accept", headers=auth)
+        ).status_code == 204
+        # What the worker's MOCK executor returns for this lease, finalized the same way.
+        t = lease["task"]
+        request = ExecutionRequest(
+            task_id=t["task_id"],
+            attempt_id=lease["attempt_id"],
+            user_id="redacted",
+            resource_scope=lease["resource_scope"],
+            prompt=t["prompt"],
+            repository_url=t["repository_url"],
+            commit_sha=t["commit_sha"],
+            max_duration_seconds=t["max_duration_seconds"],
+            max_budget_cents=t["max_budget_cents"],
+            task_type=t["task_type"],
+        )
+        result = [i async for i in MockProviderAdapter().execute(request)][-1]
+        assert isinstance(result, ExecutionResult)
+        await ok(
+            await oc.post(
+                f"/v1/leases/{lease['lease_id']}/complete",
+                json={
+                    "finalization_key": f"fin-{lease['attempt_id']}",
+                    "succeeded": True,
+                    "result_summary": result.summary,
+                    "artifacts": [
+                        {
+                            "kind": a.kind,
+                            "name": a.name,
+                            "media_type": a.media_type,
+                            "content_base64": base64.b64encode(a.content).decode(),
+                        }
+                        for a in result.artifacts
+                    ],
+                },
+                headers=auth,
+            )
+        )
+        assert (await view(bob, task))["status"] == "SUCCEEDED"
     finally:
         await bob.aclose()

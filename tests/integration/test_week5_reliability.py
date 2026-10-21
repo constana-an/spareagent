@@ -89,7 +89,8 @@ async def test_disconnect_lease_expiry_survives_server_restart(lclient, lctx):
     await execute(lctx, "UPDATE task_attempts SET leased_until=now()-interval '1 second'")
     # A new service instance recovers persisted leases; no in-memory execution ownership.
     assert await LeaseService(lctx).recover_expired() == 1
-    assert (await get_task(lclient, task["id"]))["status"] == "FAILED"
+    # A lost device is an interruption: one re-run is allowed (D-90); the stale lease is dead.
+    assert (await get_task(lclient, task["id"]))["status"] == "RETRY_PENDING"
     r = await lclient.post(
         f"/v1/leases/{lease['lease_id']}/complete",
         json={"finalization_key": f"fin-{lease['attempt_id']}", "succeeded": True},

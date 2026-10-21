@@ -268,7 +268,12 @@ class ExperimentalDispatcher:
         self, session: AsyncSession, task: Task, consent: ExperimentalTaskConsent
     ) -> tuple[uuid.UUID, uuid.UUID] | None:
         now = utcnow()
-        if task_deadline_passed(task, now):
+        attempts = (
+            await session.execute(
+                select(func.count()).select_from(TaskAttempt).where(TaskAttempt.task_id == task.id)
+            )
+        ).scalar_one()
+        if task_deadline_passed(task, now, requeued=attempts > 0):
             await transition(
                 session,
                 task,
@@ -281,11 +286,6 @@ class ExperimentalDispatcher:
                 },
             )
             return None
-        attempts = (
-            await session.execute(
-                select(func.count()).select_from(TaskAttempt).where(TaskAttempt.task_id == task.id)
-            )
-        ).scalar_one()
         if attempts >= task.max_attempts:
             await transition(
                 session,

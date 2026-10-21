@@ -45,8 +45,8 @@ from services.execution.test_report import ReportInvalid, build_report, validate
 from services.experiments.safety import enforce_live_authority
 from services.scheduler.lease_service import (
     close_attempt,
+    retry_allowed,
     store_artifacts,
-    task_deadline_passed,
     utcnow,
 )
 from services.tasks import repository as repo
@@ -512,9 +512,7 @@ class VerificationService:
                 )
                 return "SUCCEEDED"
             await close_attempt(session, attempt, "FAILED", release=False)
-            if attempt.attempt_number < task.max_attempts and not task_deadline_passed(
-                task, now, attempt
-            ):
+            if retry_allowed(task, attempt, now, "VERIFICATION_FAILED"):
                 await transition(
                     session,
                     task,

@@ -397,7 +397,9 @@ async def test_device_without_codex_executor_gets_nothing(lclient):
     assert t["status"] == "QUEUED" and t["last_decision"]["reasons"] == ["NODE_NOT_CODEX_CAPABLE"]
 
 
-async def test_personal_device_never_receives_public_or_simulated_work(lclient, lctx):
+async def test_personal_device_never_receives_public_work_but_runs_approved_simulations(
+    lclient, lctx
+):
     gid, conn, node, _ = await live_world(lclient)
     await execute(
         lctx, "UPDATE worker_nodes SET status='OFFLINE' WHERE resource_id=:r", r=PUBLIC_RESOURCE
@@ -409,9 +411,14 @@ async def test_personal_device_never_receives_public_or_simulated_work(lclient, 
         ),
         202,
     )
+    assert (await poll(lclient, node)).status_code == 204  # not approved yet
     await approve(lclient, simulated["id"])
-    assert (await poll(lclient, node)).status_code == 204
-    assert await fetch_val(lctx, "SELECT count(*) FROM task_attempts") == 0
+    # The owner's worker runs approved SIMULATED tasks with its in-process mock executor.
+    lease = await ok(await poll(lclient, node))
+    assert lease["execution_profile"] == "MOCK"
+    assert lease["task"]["task_id"] == simulated["id"]
+    # Only the simulated task was placed; the public task never reaches this device.
+    assert await fetch_val(lctx, "SELECT count(*) FROM task_attempts") == 1
     assert public["status"] == "QUEUED"
 
 

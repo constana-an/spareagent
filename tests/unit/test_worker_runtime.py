@@ -100,7 +100,7 @@ async def test_codex_tools_prefer_path_then_managed_download(tmp_path, monkeypat
     assert exc.value.code == "codex_install_failed"
 
 
-async def test_missing_git_stops_before_login_and_asks_for_apple_tools(tmp_path, monkeypatch):
+async def test_missing_git_offers_apple_tools_but_still_goes_online(tmp_path, monkeypatch):
     asked = []
     import packages.worker.app as app_mod
 
@@ -116,5 +116,9 @@ async def test_missing_git_stops_before_login_and_asks_for_apple_tools(tmp_path,
         git_check=lambda: False,
     )
     await c.go_online({"device_label": "Fresh Mac", "subscription_type": "PLUS"})
-    assert c.snap.phase == "ERROR" and c.snap.error["code"] == "git_missing"
-    assert asked == [True] and codex.calls == [] and log == []
+    # Document and table tasks do not need git: going online continues, and the device
+    # declares git=false so the server holds code tasks back until it is installed.
+    assert asked == [True]
+    assert not (c.snap.phase == "ERROR" and c.snap.error["code"] == "git_missing")
+    assert c.snap.step != "git_check"
+    assert c.capabilities()["tools"]["git"] is False

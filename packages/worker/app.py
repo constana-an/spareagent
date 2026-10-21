@@ -424,11 +424,13 @@ class Controller:
         if not self.codex.installed():
             await self.codex.install()
 
-        # Code tasks clone repositories; a fresh Mac needs Apple's command line tools.
+        # Only code tasks need git (they clone repositories). Without it the device still
+        # goes online: it declares git=false, so the server sends it document and table
+        # tasks only, and code tasks open up once Apple's command line tools are installed.
         self.snap.step = "git_check"
         if not self._git_check():
             request_git_install()
-            raise AppError("git_missing")
+            self.snap.notices.append("git missing: code tasks stay off until it is installed")
 
         self.snap.step = "codex_login"
         if not await self.codex.logged_in():

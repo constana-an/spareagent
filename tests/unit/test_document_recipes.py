@@ -159,3 +159,32 @@ async def test_mock_runs_produce_kind_shaped_deliverables_that_pass_the_gate():
         assert names == [expected]
         assert verify(result.artifacts, kind).ok
         assert not verify(result.artifacts, "CODE_FIX").ok  # code kinds still need a patch
+
+
+def test_analysis_keeps_distinct_uploads_that_share_a_name():
+    from packages.worker.recipes import Workspace, prepare_analysis
+
+    request = req(
+        "ANALYZE_SPREADSHEET",
+        [
+            ("sales.csv", b"x\n1\n"),
+            ("sales.csv", b"x\n2\n"),
+            ("销售.csv", b"x\n3\n"),
+            ("成本.csv", b"x\n4\n"),
+        ],
+    )
+    ws = Workspace.create()
+    try:
+        prompt = prepare_analysis(request, ws)
+        names = sorted(p.name for p in ws.inputs.iterdir())
+        assert names == ["file-2.csv", "file.csv", "sales-2.csv", "sales.csv"]
+        assert sorted(p.read_bytes() for p in ws.inputs.iterdir()) == [
+            b"x\n1\n",
+            b"x\n2\n",
+            b"x\n3\n",
+            b"x\n4\n",
+        ]
+        for name in names:
+            assert f"- in/{name}" in prompt
+    finally:
+        ws.cleanup()

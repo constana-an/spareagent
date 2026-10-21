@@ -762,7 +762,8 @@ async def test_interrupted_task_does_not_succeed(xclient, xctx):
     )
     await LeaseService(xctx).recover_expired()
     t = await get_task(xclient, task["id"])
-    assert t["status"] == "FAILED"  # max_attempts=1 for experimental tasks
+    # A lost device is an interruption: re-run once (design §6), never published as done.
+    assert t["status"] == "RETRY_PENDING"
     assert (
         await fetch_val(
             xctx, "SELECT count(*) FROM artifacts WHERE task_id=:t", t=uuid.UUID(task["id"])

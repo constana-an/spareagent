@@ -826,7 +826,7 @@ class ExperimentalParticipationService:
                         status=TaskStatus.CREATED.value,
                         max_budget_cents=1,  # no money is involved; the column requires >= 1
                         max_duration_seconds=body["max_duration_seconds"],
-                        max_attempts=1,
+                        max_attempts=lease_service.EXPERIMENTAL_MAX_ATTEMPTS,
                         execution_profile="CODEX_LIVE" if live else "MOCK",
                     )
                     .on_conflict_do_nothing(constraint="uniq_consumer_idempotency")
