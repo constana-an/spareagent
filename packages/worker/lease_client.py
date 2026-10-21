@@ -201,5 +201,47 @@ class NodeClient:
     async def renew(self, lease_id: str) -> dict[str, Any]:
         return (await self.call("POST", f"/v1/leases/{lease_id}/renew")).json()
 
+    async def lease_input(self, lease_id: str, input_id: str, sha256: str) -> bytes:
+        """A task attachment; refused unless its bytes match the lease's SHA-256."""
+        import hashlib
+
+        resp = await self.call("GET", f"/v1/leases/{lease_id}/inputs/{input_id}")
+        if hashlib.sha256(resp.content).hexdigest() != sha256:
+            raise WorkerApiError(422, "INPUT_CHECKSUM_MISMATCH", "Attachment checksum mismatch")
+        return resp.content
+
     async def complete(self, lease_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         return (await self.call("POST", f"/v1/leases/{lease_id}/complete", json=payload)).json()
+
+    # ---------------------------------------------------------------- one-click sharing
+    async def signup(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Create a provider account and group with the operator's bundle signup code."""
+        resp = await self._send("POST", "/v1/self-serve/signup", None, json=body)
+        if resp.status_code != 201:
+            raise _error(resp)
+        return resp.json()
+
+    async def sharing_status(self) -> dict[str, Any]:
+        return (await self.call("GET", "/v1/workers/me/sharing")).json()
+
+    async def sharing_online(self, body: dict[str, Any]) -> dict[str, Any]:
+        return (await self.call("POST", "/v1/workers/me/sharing/online", json=body)).json()
+
+    async def sharing_offline(self) -> dict[str, Any]:
+        return (await self.call("POST", "/v1/workers/me/sharing/offline")).json()
+
+    async def sharing_settings(self, body: dict[str, Any]) -> dict[str, Any]:
+        return (await self.call("PUT", "/v1/workers/me/sharing/settings", json=body)).json()
+
+    async def rotate_invite_code(self) -> dict[str, Any]:
+        return (await self.call("POST", "/v1/workers/me/sharing/invite-code")).json()
+
+    async def set_member_limits(self, user_id: str, limits: dict[str, Any]) -> dict[str, Any]:
+        path = f"/v1/workers/me/sharing/members/{user_id}/limits"
+        return (await self.call("PUT", path, json=limits)).json()
+
+    async def remove_member(self, user_id: str) -> dict[str, Any]:
+        return (await self.call("DELETE", f"/v1/workers/me/sharing/members/{user_id}")).json()
+
+    async def dashboard_login(self) -> dict[str, Any]:
+        return (await self.call("POST", "/v1/workers/me/sharing/dashboard-login")).json()

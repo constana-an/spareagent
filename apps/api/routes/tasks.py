@@ -102,6 +102,7 @@ async def list_artifacts(
                 sha256=a.sha256.strip(),
                 media_type=a.media_type,
                 source=a.source,
+                name=a.name,
             )
             for a in items
         ]
@@ -129,7 +130,12 @@ async def artifact_content(
         # Served as an attachment with nosniff: artifact bytes are never rendered as HTML.
         media_type=artifact.media_type,
         headers={
-            "Content-Disposition": f'attachment; filename="{artifact.kind.lower()}-{artifact.id}"',
+            # Deliverable names match ^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$ (DB constraint).
+            "Content-Disposition": (
+                f'attachment; filename="{artifact.name}"'
+                if artifact.name
+                else f'attachment; filename="{artifact.kind.lower()}-{artifact.id}"'
+            ),
             "X-Content-Type-Options": "nosniff",
             "X-Artifact-SHA256": artifact.sha256.strip(),
         },

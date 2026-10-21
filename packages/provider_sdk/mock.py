@@ -16,6 +16,12 @@ import json
 import uuid
 from collections.abc import AsyncIterator
 
+from packages.common.deliverables import (
+    DOCUMENT_KINDS,
+    MEDIA_TYPES,
+    docx_from_paragraphs,
+    extension,
+)
 from packages.common.estimator import estimate_tokens
 from packages.common.observability import redact
 from packages.provider_sdk.base import PermanentProviderError, TransientProviderError
@@ -85,10 +91,14 @@ class MockProviderAdapter:
                 "Mock transient failure on first attempt", usage=self._usage(request, 0)
             )
 
+        seed = _digest(request.task_id, request.prompt)
+        if request.task_type in DOCUMENT_KINDS:
+            yield self._document_result(request, seed[:12])
+            return
+
         yield ProgressEvent("Generated deterministic fixture patch", 75)
         await asyncio.sleep(self._step_delay)
 
-        seed = _digest(request.task_id, request.prompt)
         short = seed[:12]
         if "[mock:bad-patch]" in request.prompt:
             patch = b"this is not a unified diff\n"
@@ -136,6 +146,43 @@ class MockProviderAdapter:
                 ArtifactPayload("LOG", "execution.log", "text/plain", log),
             ),
             usage=self._usage(request, output_tokens),
+        )
+
+    def _document_result(self, request: ExecutionRequest, short: str) -> ExecutionResult:
+        """Kind-shaped placeholder deliverables (no model, no inputs read)."""
+        if request.task_type == "TRANSLATE_DOCUMENT":
+            spec = request.deliverable or {"format": "docx", "filename": "translation.docx"}
+            lang = request.parameters.get("target_language", "?")
+            texts = [f"[mock translation to {lang}] {short}", "No document was translated."]
+            content = (
+                docx_from_paragraphs(texts)
+                if spec["format"] == "docx"
+                else ("\n\n".join(texts) + "\n").encode()
+            )
+            files = [(spec["filename"], content)]
+        elif request.task_type == "GENERAL":
+            answer = (
+                f"# Mock answer {short}\n\nNo model was used and no attachment was read; "
+                "this placeholder only exercises the delivery flow.\n"
+            )
+            files = [("answer.md", answer.encode())]
+        else:
+            report = (
+                f"# Mock analysis {short}\n\nNo table was read and nothing was computed; "
+                "this placeholder only exercises the delivery flow.\n"
+            )
+            files = [("report.md", report.encode())]
+        summary = f"Mock {request.task_type} result {short} (no model was used)."
+        return ExecutionResult(
+            summary=summary,
+            artifacts=(
+                ArtifactPayload("SUMMARY", "summary.txt", "text/plain", summary.encode()),
+                *(
+                    ArtifactPayload("DELIVERABLE", name, MEDIA_TYPES[extension(name)], body)
+                    for name, body in files
+                ),
+            ),
+            usage=self._usage(request, estimate_tokens(summary)),
         )
 
     async def cancel(self, attempt_id: str) -> None:

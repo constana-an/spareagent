@@ -14,13 +14,19 @@ import contextlib
 import logging
 import random
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from packages.provider_sdk.base import ProviderAdapter, ProviderError
 from packages.provider_sdk.mock import MockProviderAdapter
-from packages.provider_sdk.types import ExecutionRequest, ExecutionResult, ProgressEvent
+from packages.provider_sdk.types import (
+    ExecutionRequest,
+    ExecutionResult,
+    InputFile,
+    ProgressEvent,
+)
 from packages.worker.lease_client import NodeClient, TransportError, WorkerApiError
 from packages.worker.local_controls import LocalSharingControl
 
@@ -43,6 +49,8 @@ class AgentConfig:
     shutdown_grace_seconds: float = 20.0
     completion_retries: int = 8
     capabilities: dict[str, Any] = field(default_factory=dict)
+    # Re-evaluated on every heartbeat (tools can be installed while online).
+    capabilities_provider: Callable[[], dict[str, Any]] | None = None
 
 
 class Backoff:
@@ -92,6 +100,7 @@ class WorkerAgent:
         self.fatal: WorkerApiError | None = None
         self.completed: list[tuple[str, str]] = []  # (attempt_id, task_status)
         self.claimed: list[str] = []
+        self.active = 0  # leases being executed right now (shown while going offline)
 
     # ---------------------------------------------------------------- lifecycle
     async def run(self, stop: asyncio.Event, node_key_expires_at: str | None = None) -> None:
@@ -119,7 +128,12 @@ class WorkerAgent:
     async def _heartbeat_loop(self, stop: asyncio.Event) -> None:
         while not stop.is_set():
             try:
-                await self.client.heartbeat("ONLINE", self.config.capabilities or None)
+                caps = (
+                    self.config.capabilities_provider()
+                    if self.config.capabilities_provider
+                    else self.config.capabilities
+                )
+                await self.client.heartbeat("ONLINE", caps or None)
             except WorkerApiError as exc:
                 if exc.status == 401 and exc.code in FATAL_AUTH_CODES:
                     self.fatal = exc
@@ -185,6 +199,13 @@ class WorkerAgent:
 
     # ---------------------------------------------------------------- one lease
     async def execute(self, a: dict[str, Any]) -> str | None:
+        self.active += 1
+        try:
+            return await self._execute(a)
+        finally:
+            self.active -= 1
+
+    async def _execute(self, a: dict[str, Any]) -> str | None:
         lease_id, attempt_id = a["lease_id"], a["attempt_id"]
         task = a["task"]
         scope = a.get("resource_scope") or "PUBLIC_MARKETPLACE"
@@ -205,6 +226,19 @@ class WorkerAgent:
                 return None
             raise
         self.claimed.append(attempt_id)
+        try:
+            inputs = await self._fetch_inputs(lease_id, task.get("inputs") or [])
+        except (WorkerApiError, TransportError) as exc:
+            return await self._finalize(
+                lease_id,
+                attempt_id,
+                {
+                    "succeeded": False,
+                    "retryable": True,
+                    "error_code": "TRANSIENT_PROVIDER_ERROR",
+                    "result_summary": f"Could not fetch the task's attachments: {exc}"[:2000],
+                },
+            )
         request = ExecutionRequest(
             task_id=task["task_id"],
             attempt_id=attempt_id,
@@ -218,6 +252,10 @@ class WorkerAgent:
             attempt_number=a["attempt_number"],
             task_type=task["task_type"],
             authorization_ref=a.get("authorization_ref"),
+            parameters=dict(task.get("parameters") or {}),
+            deliverable=task.get("deliverable"),
+            inputs=inputs,
+            network_access=bool(task.get("network_access")),
         )
         adapter = self.adapters.get(a.get("execution_profile", "MOCK"))
         if adapter is None:
@@ -255,6 +293,13 @@ class WorkerAgent:
                 await renewer
         return await self._finalize(lease_id, attempt_id, payload)
 
+    async def _fetch_inputs(self, lease_id: str, specs: list[dict]) -> tuple[InputFile, ...]:
+        out = []
+        for spec in specs:
+            content = await self.client.lease_input(lease_id, spec["input_id"], spec["sha256"])
+            out.append(InputFile(spec["filename"], content, spec["sha256"]))
+        return tuple(out)
+
     async def _run_adapter(
         self,
         request: ExecutionRequest,
@@ -289,6 +334,9 @@ class WorkerAgent:
                 "retryable": exc.retryable,
                 "error_code": exc.code,
                 "result_summary": f"Provider error: {exc}"[:2000],
+                **(
+                    {"failure_detail": exc.detail_code} if getattr(exc, "detail_code", None) else {}
+                ),
                 **({"reset_hint": exc.reset_hint} if getattr(exc, "reset_hint", None) else {}),
             }
         except TimeoutError:

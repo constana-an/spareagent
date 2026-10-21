@@ -47,11 +47,13 @@ def execution_request(task: Task, attempt_id: uuid.UUID, attempt_number: int) ->
         resource_scope=task.resource_scope,  # type: ignore[arg-type]
         prompt=task.prompt,
         repository_url=task.repository_url,
-        commit_sha=task.commit_sha.strip(),
+        commit_sha=task.commit_sha.strip() if task.commit_sha else None,
         max_duration_seconds=task.max_duration_seconds,
         max_budget_cents=task.max_budget_cents,
         attempt_number=attempt_number,
         task_type=task.task_type,
+        parameters=dict((task.spec or {}).get("parameters") or {}),
+        deliverable=(task.spec or {}).get("deliverable"),
     )
 
 
@@ -146,7 +148,7 @@ class Dispatcher:
                 )
                 ready = None
                 for task, n, done in (await session.execute(stmt)).all():
-                    if task_deadline_passed(task, now):
+                    if task_deadline_passed(task, now, requeued=True):
                         ready = (task, "timeout")
                         break
                     wait = timedelta(seconds=base * (2 ** max(0, (n or 1) - 1)))

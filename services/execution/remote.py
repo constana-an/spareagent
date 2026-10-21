@@ -14,7 +14,7 @@ from typing import Any
 
 from sqlalchemy import select
 
-from db.models import Resource, Task, TaskAttempt, WorkerNode
+from db.models import Resource, Task, TaskAttempt, TaskUpload, WorkerNode
 from packages.provider_sdk.mock import CODE_MODEL, PROVIDER_NAME
 from packages.provider_sdk.types import ArtifactPayload, UsageReport
 from services.context import AppContext
@@ -23,7 +23,8 @@ from services.metering.estimator import estimate_tokens
 from services.observability import redact
 from services.registry.node_auth import NodePrincipal
 from services.scheduler.dispatcher import Dispatcher, execution_request
-from services.scheduler.lease_service import utcnow
+from services.scheduler.lease_service import ACTIVE_ATTEMPT_STATUSES, utcnow
+from services.tasks.uploads import UploadService
 
 NODE_STATES = {"ONLINE", "DRAINING", "OFFLINE"}
 
@@ -38,7 +39,9 @@ def assert_path_scope(node: NodePrincipal, worker_id: str) -> None:
         raise forbidden("NODE_SCOPE_MISMATCH", "Credential is not valid for this worker")
 
 
-def assignment(task: Task, attempt: TaskAttempt, lease_seconds: int) -> dict[str, Any]:
+def assignment(
+    task: Task, attempt: TaskAttempt, lease_seconds: int, inputs: list | tuple = ()
+) -> dict[str, Any]:
     # Prompts are redacted before leaving the trust zone: a remote node never receives
     # credentials a consumer pasted by mistake, nor the consumer's identity.
     return {
@@ -52,11 +55,25 @@ def assignment(task: Task, attempt: TaskAttempt, lease_seconds: int) -> dict[str
         "task": {
             "task_id": str(task.id),
             "task_type": task.task_type,
+            "kind": task.task_type,
             "repository_url": task.repository_url,
-            "commit_sha": task.commit_sha.strip(),
+            "commit_sha": task.commit_sha.strip() if task.commit_sha else None,
             "prompt": redact(task.prompt),
             "max_duration_seconds": task.max_duration_seconds,
             "max_budget_cents": task.max_budget_cents,
+            "deliverable": (task.spec or {}).get("deliverable"),
+            "parameters": (task.spec or {}).get("parameters") or {},
+            "network_access": bool((task.spec or {}).get("network_access")),
+            "inputs": [
+                {
+                    "input_id": str(u.id),
+                    "filename": u.filename,
+                    "size_bytes": u.size_bytes,
+                    "sha256": u.sha256,
+                    "media_type": u.media_type,
+                }
+                for u in inputs
+            ],
         },
     }
 
@@ -125,7 +142,8 @@ class RemoteWorkerService:
             if row is None:
                 return None
             attempt, task = row
-            out = assignment(task, attempt, self.ctx.settings.lease_seconds)
+            inputs = (await UploadService.for_tasks(session, [task.id]))[task.id]
+            out = assignment(task, attempt, self.ctx.settings.lease_seconds, inputs)
             if task.resource_scope == "EXPERIMENTAL_SHARED_SUBSCRIPTION":
                 from db.models import ExperimentalDispatchAudit
 
@@ -142,8 +160,26 @@ class RemoteWorkerService:
                 out["authorization_ref"] = str(auth_id) if auth_id else None
         return out
 
+    async def read_input(
+        self, node: NodePrincipal, lease_id: uuid.UUID, input_id: uuid.UUID
+    ) -> tuple[TaskUpload, bytes]:
+        """An attachment of the leased task, only for the node holding a live lease."""
+        async with self.ctx.sessionmaker() as session:
+            attempt = (
+                await session.execute(select(TaskAttempt).where(TaskAttempt.lease_id == lease_id))
+            ).scalar_one_or_none()
+            if attempt is None or attempt.worker_id != node.worker_id:
+                raise not_found("LEASE_NOT_FOUND", "Lease not found")
+            if attempt.status not in ACTIVE_ATTEMPT_STATUSES or attempt.leased_until <= utcnow():
+                raise DomainError(409, "LEASE_NOT_ACTIVE", "The lease is no longer active")
+            upload = await session.get(TaskUpload, input_id)
+            if upload is None or upload.task_id != attempt.task_id:
+                raise not_found("INPUT_NOT_FOUND", "Input not found")
+        return upload, await self.ctx.artifacts.get(upload.storage_key)
+
     async def _claimer(self, worker_id: uuid.UUID):
-        """A personal (owner's own) device claims only LIVE experimental tasks through the
+        """A personal (owner's own) device claims experimental tasks - LIVE and simulated
+        (MOCK, run by the worker's in-process mock executor, no model call) - through the
         separate ExperimentalDispatcher; every other node uses the public Dispatcher, which
         never selects personal resources (unchanged)."""
         async with self.ctx.sessionmaker() as session:
@@ -158,7 +194,7 @@ class RemoteWorkerService:
             from services.experiments.dispatcher import ExperimentalDispatcher
 
             experimental = ExperimentalDispatcher(self.ctx)
-            return lambda: experimental.dispatch_once((worker_id,), profiles=("CODEX_LIVE",))
+            return lambda: experimental.dispatch_once((worker_id,), profiles=("CODEX_LIVE", "MOCK"))
         return lambda: self.dispatcher.dispatch_once((worker_id,))
 
     async def poll(self, node: NodePrincipal, wait_seconds: float, is_disconnected) -> dict | None:

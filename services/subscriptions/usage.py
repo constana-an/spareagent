@@ -144,6 +144,58 @@ class SubscriptionUsageMonitor:
         return (await session.execute(stmt)).scalar_one()
 
     @staticmethod
+    async def member_usage_last_24h(
+        session: AsyncSession,
+        connection_id: uuid.UUID,
+        now: datetime,
+        *,
+        requester_id: uuid.UUID | None = None,
+        exclude_task_id: uuid.UUID | None = None,
+    ) -> dict[uuid.UUID, dict[str, float]]:
+        """Per requester on this device, rolling 24 h: `tasks` placed (same count as the
+        device's daily limit) and `minutes` of execution (time inside the window)."""
+        since = now - timedelta(hours=24)
+        placed = (
+            select(ExperimentalTaskConsent.requester_id, func.count())
+            .select_from(ExperimentalDispatchAudit)
+            .join(
+                ExperimentalTaskConsent,
+                ExperimentalTaskConsent.task_id == ExperimentalDispatchAudit.task_id,
+            )
+            .where(
+                ExperimentalDispatchAudit.connection_id == connection_id,
+                ExperimentalDispatchAudit.decision == "ALLOW",
+                ExperimentalDispatchAudit.created_at >= since,
+            )
+            .group_by(ExperimentalTaskConsent.requester_id)
+        )
+        ran = (
+            select(
+                ExperimentalTaskConsent.requester_id,
+                TaskAttempt.started_at,
+                TaskAttempt.completed_at,
+            )
+            .join(ExperimentalTaskConsent, ExperimentalTaskConsent.task_id == TaskAttempt.task_id)
+            .where(
+                ExperimentalTaskConsent.connection_id == connection_id,
+                TaskAttempt.started_at.is_not(None),
+                func.coalesce(TaskAttempt.completed_at, now) > since,
+            )
+        )
+        if requester_id is not None:
+            placed = placed.where(ExperimentalTaskConsent.requester_id == requester_id)
+            ran = ran.where(ExperimentalTaskConsent.requester_id == requester_id)
+        if exclude_task_id is not None:
+            placed = placed.where(ExperimentalDispatchAudit.task_id != exclude_task_id)
+        out: dict[uuid.UUID, dict[str, float]] = {}
+        for user, n in (await session.execute(placed)).all():
+            out.setdefault(user, {"tasks": 0, "minutes": 0.0})["tasks"] = n
+        for user, start, end in (await session.execute(ran)).all():
+            row = out.setdefault(user, {"tasks": 0, "minutes": 0.0})
+            row["minutes"] += max(0.0, ((end or now) - max(start, since)).total_seconds()) / 60
+        return out
+
+    @staticmethod
     async def rate_limited_until(
         session: AsyncSession, connection_id: uuid.UUID
     ) -> datetime | None:

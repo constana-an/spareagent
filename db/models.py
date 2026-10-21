@@ -76,8 +76,8 @@ class Task(Base):
     idempotency_key: Mapped[str] = mapped_column(Text, nullable=False)
     request_digest: Mapped[str] = mapped_column(CHAR(64), nullable=False)
     task_type: Mapped[str] = mapped_column(Text, nullable=False)
-    repository_url: Mapped[str] = mapped_column(Text, nullable=False)
-    commit_sha: Mapped[str] = mapped_column(CHAR(40), nullable=False)
+    repository_url: Mapped[str | None] = mapped_column(Text)  # 0011: code kinds only
+    commit_sha: Mapped[str | None] = mapped_column(CHAR(40))
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     resource_scope: Mapped[str] = mapped_column(
         Text, nullable=False, server_default=text("'PUBLIC_MARKETPLACE'")
@@ -91,6 +91,10 @@ class Task(Base):
     execution_profile: Mapped[str] = mapped_column(  # 0005
         Text, nullable=False, server_default=text("'MOCK'")
     )
+    spec: Mapped[dict[str, Any]] = mapped_column(  # 0011
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    kind_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
 
 
 class TaskAttempt(Base):
@@ -148,6 +152,7 @@ class Artifact(Base):
         Text, nullable=False, server_default=text("'WORKER'")
     )
     published: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    name: Mapped[str | None] = mapped_column(Text)  # 0012: DELIVERABLE file name
 
 
 class UsageRecord(Base):
@@ -247,7 +252,7 @@ class VerificationResult(Base):
     )
     status: Mapped[str] = mapped_column(Text, nullable=False)
     reason: Mapped[str | None] = mapped_column(Text)
-    base_commit_sha: Mapped[str] = mapped_column(CHAR(40), nullable=False)
+    base_commit_sha: Mapped[str | None] = mapped_column(CHAR(40))  # 0012: null for documents
     patch_sha256: Mapped[str | None] = mapped_column(CHAR(64))
     worker_reported: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, server_default=text("'{}'::jsonb")
@@ -297,6 +302,10 @@ class ExperimentalGroup(Base):
     allowed_task_types: Mapped[list[str]] = _jsonb('["CODE_REVIEW","WRITE_TESTS","CODE_FIX"]')
     created_at: Mapped[datetime] = _created()
     disabled_at: Mapped[datetime | None] = mapped_column(TZ)
+    # 0010: self-serve groups are owned by one provider and joined with an invite code.
+    owner_id: Mapped[uuid.UUID | None] = _fk("users.id", nullable=True)
+    invite_code_digest: Mapped[str | None] = mapped_column(CHAR(64), unique=True)
+    invite_code_rotated_at: Mapped[datetime | None] = mapped_column(TZ)
 
 
 class ExperimentalGroupMember(Base):
@@ -311,6 +320,9 @@ class ExperimentalGroupMember(Base):
     removed_at: Mapped[datetime | None] = mapped_column(TZ)
     terms_version: Mapped[str | None] = mapped_column(Text)
     acknowledgements: Mapped[dict[str, Any]] = _jsonb("{}")
+    # 0016: owner-set caps for this member per rolling 24 h (NULL = group/device caps only)
+    max_tasks_per_day: Mapped[int | None] = mapped_column(Integer)
+    max_minutes_per_day: Mapped[int | None] = mapped_column(Integer)
 
 
 class ExperimentalAuthorization(Base):
@@ -379,10 +391,17 @@ class SubscriptionSharingPreference(Base):
         Integer, nullable=False, server_default=text("900")
     )
     allowed_task_types: Mapped[list[str]] = _jsonb('["CODE_REVIEW","WRITE_TESTS","CODE_FIX"]')
+    allowed_tools: Mapped[list[str]] = _jsonb(
+        '["code","doc","git","network","python-data"]'
+    )  # 0015
     require_owner_approval: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("true")
     )
     advance_consent_requester_ids: Mapped[list[str]] = _jsonb("[]")
+    # 0010: standing approval for tasks from active members of the owner's group.
+    auto_approve_members: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
     allow_paid_credits: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )
@@ -458,6 +477,33 @@ class FriendsSession(Base):
     expires_at: Mapped[datetime] = mapped_column(TZ, nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(TZ)
     created_at: Mapped[datetime] = _created()
+
+
+class TaskKind(Base):  # 0011
+    __tablename__ = "task_kinds"
+    kind: Mapped[str] = mapped_column(Text, primary_key=True)
+    category: Mapped[str] = mapped_column(Text, nullable=False)
+    needs_repository: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'DEVELOPING'"))
+    acceptance_report: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = _created()
+    updated_by: Mapped[uuid.UUID | None] = _fk("users.id", nullable=True)
+
+
+class TaskUpload(Base):  # 0011
+    __tablename__ = "task_uploads"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), **UUID_PK)
+    owner_id: Mapped[uuid.UUID] = _fk("users.id")
+    storage_key: Mapped[str] = mapped_column(Text, nullable=False)
+    sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    filename: Mapped[str] = mapped_column(Text, nullable=False)
+    extension: Mapped[str] = mapped_column(Text, nullable=False)
+    media_type: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = _created()
+    expires_at: Mapped[datetime] = mapped_column(TZ, nullable=False)
+    task_id: Mapped[uuid.UUID | None] = _fk("tasks.id", nullable=True)
+    position: Mapped[int | None] = mapped_column(Integer)
 
 
 ALL_TABLES = [m.__table__ for m in Base.__subclasses__()]

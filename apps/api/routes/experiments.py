@@ -12,6 +12,7 @@ from sqlalchemy import select
 from apps.api.dependencies import get_ctx, parse_uuid_or_404
 from apps.api.middleware.auth import get_principal
 from apps.api.schemas.experiments import (
+    AttachmentOut,
     AuditOut,
     AuthorizationCreate,
     AuthorizationOut,
@@ -40,6 +41,10 @@ from apps.api.schemas.experiments import (
     SubscriptionConnect,
     SubscriptionStatus,
     SubscriptionStatusItem,
+    TaskKindList,
+    TaskKindOut,
+    TaskKindStatusIn,
+    UploadOut,
     UsageList,
     UsageOut,
 )
@@ -51,8 +56,11 @@ from services.experiments.participation import (
     ExperimentalTaskView,
 )
 from services.observability import redact
+from services.tasks import kinds as kind_catalog
 from services.tasks import repository as repo
+from services.tasks.progress import device_wait_reasons, task_details
 from services.tasks.service import Principal
+from services.tasks.uploads import TaskKindService, UploadService
 
 router = APIRouter(prefix="/v1", tags=["experiments"])
 
@@ -84,6 +92,15 @@ async def _task_out(request: Request, view: ExperimentalTaskView) -> Experimenta
     t, c, d = view.task, view.consent, view.last_decision
     async with get_ctx(request).sessionmaker() as session:
         summaries = await repo.result_summaries(session, [t.id])
+        uploads = (await UploadService.for_tasks(session, [t.id]))[t.id]
+        details = (await task_details(session, [t]))[t.id]
+        waiting = (
+            await device_wait_reasons(
+                session, c.connection_id, get_ctx(request).settings.worker_heartbeat_ttl_seconds
+            )
+            if t.status == "QUEUED"
+            else []
+        )
         verification = (
             await session.execute(
                 select(VerificationResult.status)
@@ -92,10 +109,29 @@ async def _task_out(request: Request, view: ExperimentalTaskView) -> Experimenta
                 .limit(1)
             )
         ).scalar_one_or_none()
+    decision = (
+        None
+        if d is None
+        else DecisionOut(
+            decision=d.decision,
+            reasons=d.reasons,
+            execution_mode=d.execution_mode,
+            created_at=d.created_at,
+        )
+    )
+    if waiting and (decision is None or not set(waiting) <= set(decision.reasons)):
+        # The owner's device is paused or offline right now (no newer decision exists).
+        decision = DecisionOut(
+            decision="DENY",
+            reasons=waiting,
+            execution_mode="LIVE" if t.execution_profile == "CODEX_LIVE" else "SIMULATED",
+            created_at=datetime.now(UTC),
+        )
     return ExperimentalTaskOut(
         id=t.id,
         status=t.status,
         task_type=t.task_type,
+        kind=t.task_type,
         resource_scope=t.resource_scope,
         execution_mode="LIVE" if t.execution_profile == "CODEX_LIVE" else "SIMULATED",
         group_id=c.group_id,
@@ -103,22 +139,24 @@ async def _task_out(request: Request, view: ExperimentalTaskView) -> Experimenta
         requester_id=c.requester_id,
         owner_id=c.owner_id,
         repository_url=t.repository_url,
-        commit_sha=t.commit_sha.strip(),
+        commit_sha=t.commit_sha.strip() if t.commit_sha else None,
         prompt=redact(t.prompt),
+        requirement=redact(t.prompt),
+        attachments=[AttachmentOut.model_validate(u, from_attributes=True) for u in uploads],
+        parameters=(t.spec or {}).get("parameters") or {},
+        deliverable=(t.spec or {}).get("deliverable"),
+        network_access=bool((t.spec or {}).get("network_access")),
         max_duration_seconds=t.max_duration_seconds,
         verification_status=verification or ("PENDING" if t.status == "VERIFYING" else "NOT_RUN"),
         approval_status=c.status,
         approval_source=c.consent_source,
-        last_decision=None
-        if d is None
-        else DecisionOut(
-            decision=d.decision,
-            reasons=d.reasons,
-            execution_mode=d.execution_mode,
-            created_at=d.created_at,
-        ),
+        last_decision=decision,
         created_at=t.created_at,
         result_summary=summaries.get(t.id),
+        progress=details["progress"],
+        queue_position=details["queue_position"],
+        started_at=details["started_at"],
+        failure=details["failure"],
     )
 
 
@@ -398,6 +436,100 @@ async def revoke(
     return _prefs_out(await svc(request).revoke(principal, body.connection_id))
 
 
+# ------------------------------------------------------------------ task kinds / uploads
+def _kind_out(kind: kind_catalog.Kind, status: str, live_enabled: bool) -> TaskKindOut:
+    return TaskKindOut(
+        kind=kind.kind,
+        category=kind.category,
+        name_zh=kind.name_zh,
+        name_en=kind.name_en,
+        description_zh=kind.description_zh,
+        status=status,
+        needs_repository=kind.needs_repository,
+        min_attachments=kind.min_attachments,
+        max_attachments=kind.max_attachments,
+        extensions=sorted(kind.extensions),
+        parameters=[p.name for p in kind.params],
+        required_parameters=[p.name for p in kind.params if p.required],
+        deliverable_format=kind.deliverable.format,
+        deliverable_formats=sorted({kind.deliverable.format, *kind.deliverable_formats}),
+        capabilities=list(kind.capabilities),
+        live_available=live_enabled and status == "OPEN",
+    )
+
+
+@router.get("/task-kinds", operation_id="listTaskKinds", response_model=TaskKindList)
+async def list_task_kinds(
+    request: Request, principal: Principal = Depends(get_principal)
+) -> TaskKindList:
+    ctx = get_ctx(request)
+    rows = await TaskKindService(ctx).list()
+    live = ctx.settings.experiment_live_enabled
+    return TaskKindList(items=[_kind_out(k, status, live) for k, status in rows])
+
+
+@router.put(
+    "/task-kinds/{kind}/status", operation_id="setTaskKindStatus", response_model=TaskKindOut
+)
+async def set_task_kind_status(
+    kind: str,
+    body: TaskKindStatusIn,
+    request: Request,
+    principal: Principal = Depends(get_principal),
+) -> TaskKindOut:
+    ctx = get_ctx(request)
+    row = await TaskKindService(ctx).set_status(
+        principal, kind, body.status, body.acceptance_report
+    )
+    return _kind_out(kind_catalog.get(row.kind), row.status, ctx.settings.experiment_live_enabled)
+
+
+@router.post(
+    "/experimental-uploads",
+    operation_id="uploadTaskAttachment",
+    status_code=201,
+    response_model=UploadOut,
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {"application/octet-stream": {"schema": {"type": "string"}}},
+        },
+        "parameters": [
+            {
+                "name": "X-Filename",
+                "in": "header",
+                "required": True,
+                "description": "UTF-8 file name, percent-encoded",
+                "schema": {"type": "string", "maxLength": 600},
+            }
+        ],
+    },
+)
+async def upload_attachment(
+    request: Request, principal: Principal = Depends(get_principal)
+) -> UploadOut:
+    from urllib.parse import unquote
+
+    raw_name = request.headers.get("x-filename")
+    if not raw_name or len(raw_name) > 600:
+        raise DomainError(422, "UPLOAD_NAME_INVALID", "X-Filename header is required")
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > kind_catalog.MAX_UPLOAD_BYTES:
+        raise DomainError(413, "UPLOAD_TOO_LARGE", "The file is larger than 20 MB")
+    chunks, size = [], 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > kind_catalog.MAX_UPLOAD_BYTES:
+            raise DomainError(413, "UPLOAD_TOO_LARGE", "The file is larger than 20 MB")
+        chunks.append(chunk)
+    try:
+        filename = unquote(raw_name, errors="strict")
+    except UnicodeDecodeError:
+        raise DomainError(422, "UPLOAD_NAME_INVALID", "X-Filename must be UTF-8") from None
+    row = await UploadService(get_ctx(request)).create(principal, filename, b"".join(chunks))
+    return UploadOut.model_validate(row, from_attributes=True)
+
+
 # ------------------------------------------------------------------ experimental tasks
 @router.get(
     "/experimental-tasks/nodes", operation_id="listExperimentalNodes", response_model=NodeList
@@ -429,9 +561,7 @@ async def create_task(
         raise DomainError(
             400, "IDEMPOTENCY_KEY_INVALID", "Idempotency-Key must be 8-128 chars of [A-Za-z0-9._:-]"
         )
-    view, _ = await svc(request).create_task(
-        principal, idempotency_key, body.model_dump(exclude={"max_budget_cents"})
-    )
+    view, _ = await svc(request).create_task(principal, idempotency_key, body.normalized())
     return await _task_out(request, view)
 
 

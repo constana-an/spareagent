@@ -50,14 +50,30 @@ class WorkerSelf(BaseModel):
     last_heartbeat: datetime | None
 
 
+class LeaseInput(BaseModel):
+    """An attachment the node fetches with GET /v1/leases/{lease_id}/inputs/{input_id}."""
+
+    input_id: uuid.UUID
+    filename: str
+    size_bytes: int
+    sha256: str
+    media_type: str
+
+
 class LeaseTask(BaseModel):
     task_id: uuid.UUID
     task_type: str
-    repository_url: str
-    commit_sha: str
+    kind: str
+    repository_url: str | None
+    commit_sha: str | None
     prompt: str
     max_duration_seconds: int
     max_budget_cents: int
+    deliverable: dict[str, str] | None = None
+    parameters: dict[str, str] = Field(default_factory=dict)
+    inputs: list[LeaseInput] = Field(default_factory=list)
+    # The member asked for internet and this device's owner allows it (checked at dispatch).
+    network_access: bool = False
 
 
 class LeaseAssignment(BaseModel):
@@ -91,9 +107,20 @@ class ArtifactIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     # VERIFICATION_REPORT is platform-only and can never be submitted by a node.
-    kind: Literal["PATCH", "TEST_REPORT", "LOG", "SUMMARY", "EXECUTION_LOG"]
+    kind: Literal["PATCH", "TEST_REPORT", "LOG", "SUMMARY", "EXECUTION_LOG", "DELIVERABLE"]
     name: SafeName
-    media_type: Literal["text/plain", "text/x-diff", "application/json"]
+    # Deliverable types are listed in packages/common/deliverables.py MEDIA_TYPES.
+    media_type: Literal[
+        "text/plain",
+        "text/x-diff",
+        "application/json",
+        "text/markdown",
+        "text/csv",
+        "image/png",
+        "image/svg+xml",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ]
     content_base64: Annotated[StrictStr, Field(max_length=8 * 1024 * 1024)]
 
 
@@ -134,6 +161,7 @@ class LeaseCompletion(BaseModel):
     artifacts: Annotated[list[ArtifactIn], Field(max_length=8)] = []
     observed_usage: ObservedCodexUsage | None = None
     reset_hint: Annotated[StrictStr, Field(max_length=80)] | None = None
+    failure_detail: Annotated[StrictStr, Field(pattern=r"^[A-Z][A-Z_]{1,39}$")] | None = None
 
 
 class CompletionOut(BaseModel):

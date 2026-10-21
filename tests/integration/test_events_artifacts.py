@@ -101,7 +101,8 @@ async def test_task_001_success_has_result_summary_and_artifacts(client, ctx):
     arts = (await client.get(f"/v1/tasks/{task_id}/artifacts", headers=headers(USER_A))).json()
     assert sorted(a["kind"] for a in arts["items"]) == ["LOG", "PATCH", "SUMMARY", "TEST_REPORT"]
     for art in arts["items"]:
-        assert set(art) == {"id", "kind", "sha256", "media_type", "source"}
+        assert set(art) == {"id", "kind", "sha256", "media_type", "source", "name"}
+        assert art["name"] is None  # only DELIVERABLE artifacts carry a file name
         content = await client.get(
             f"/v1/tasks/{task_id}/artifacts/{art['id']}/content", headers=headers(USER_A)
         )

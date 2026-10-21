@@ -24,7 +24,7 @@ def check_origin(request: Request, ctx: AppContext) -> None:
     # Browser writes must come through the configured same-origin dashboard. Requiring
     # Origin also prevents form/CSRF login attacks; operator scripts must supply it.
     if request.method not in ("GET", "HEAD", "OPTIONS"):
-        if request.headers.get("origin") != ctx.settings.friends_web_origin:
+        if request.headers.get("origin") not in ctx.settings.friends_web_origins:
             raise DomainError(403, "ORIGIN_REJECTED", "Dashboard origin required")
 
 

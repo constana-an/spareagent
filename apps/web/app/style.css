@@ -649,3 +649,14 @@ footer {
   margin: 8px 0 0;
   font-weight: 600;
 }
+.tabs {
+  display: flex;
+  gap: 8px;
+  margin: 18px 0 4px;
+}
+.tabs button {
+  flex: 1;
+}
+.login .lang {
+  margin-top: 14px;
+}

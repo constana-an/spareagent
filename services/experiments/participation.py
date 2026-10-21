@@ -40,9 +40,12 @@ from services.errors import DomainError, conflict, forbidden, not_found
 from services.scheduler import lease_service
 from services.subscriptions.policy import EXPERIMENTAL_SCOPE
 from services.subscriptions.usage import SubscriptionUsageMonitor
+from services.tasks import kinds as kind_catalog
 from services.tasks import repository as repo
+from services.tasks.kinds import Kind
 from services.tasks.service import Principal
 from services.tasks.state_machine import TaskStatus, append_event, is_terminal, transition
+from services.tasks.uploads import TaskKindService, UploadService
 
 # What a member accepts on joining the group.
 JOIN_ACKNOWLEDGEMENTS = (
@@ -60,7 +63,9 @@ SHARING_ACKNOWLEDGEMENTS = (
     "owner_controls_local_credentials",
     "owner_may_add_restrictions",
 )
-TASK_TYPES = ("CODE_REVIEW", "WRITE_TESTS", "CODE_FIX")
+TASK_TYPES = tuple(kind_catalog.experimental_kinds())
+# Consent source of tasks approved by the owner's standing (one-click) approval.
+STANDING_APPROVAL = "OWNER_STANDING_APPROVAL"
 LIMIT_FIELDS = ("max_concurrent_tasks", "max_tasks_per_day", "max_task_duration_seconds")
 
 
@@ -292,12 +297,25 @@ class ExperimentalParticipationService:
             if auth is None:
                 raise not_found("AUTHORIZATION_NOT_FOUND", "Authorization not found")
             auth.revoked_at = auth.revoked_at or utcnow()
+            # Self-serve groups run on per-group copies of an operator template; revoking
+            # the template must stop every copy, because dispatch and the database trigger
+            # only ever look at the group's own record.
+            copies = await session.execute(
+                update(ExperimentalAuthorization)
+                .where(
+                    ExperimentalAuthorization.authorization_scope["self_serve_template_id"].astext
+                    == str(auth.id),
+                    ExperimentalAuthorization.revoked_at.is_(None),
+                )
+                .values(revoked_at=auth.revoked_at)
+            )
             _audit(
                 session,
                 principal.user_id,
                 "experiment.authorization.revoke",
                 "authorization",
                 auth.id,
+                cascaded_copies=copies.rowcount,
             )
         return auth
 
@@ -679,6 +697,8 @@ class ExperimentalParticipationService:
     ) -> list[dict[str, Any]]:
         async with self.ctx.sessionmaker() as session:
             await self._require_active_member(session, group_id, principal.user_id)
+            me = await self._membership(session, group_id, principal.user_id)
+            now = utcnow()
             rows = (
                 await session.execute(
                     select(SubscriptionConnection, SubscriptionSharingPreference, WorkerNode)
@@ -689,25 +709,45 @@ class ExperimentalParticipationService:
                     .join(WorkerNode, WorkerNode.id == SubscriptionConnection.worker_id)
                     .where(
                         SubscriptionSharingPreference.group_id == group_id,
-                        SubscriptionSharingPreference.sharing_state == "ENABLED",
+                        # A paused owner still takes requests (D-93); shown as offline.
+                        SubscriptionSharingPreference.sharing_state.in_(("ENABLED", "PAUSED")),
                         SubscriptionConnection.status == "CONNECTED",
                     )
                     .order_by(SubscriptionConnection.created_at)
                 )
             ).all()
+            usage = {
+                c.id: (
+                    await SubscriptionUsageMonitor.member_usage_last_24h(
+                        session, c.id, now, requester_id=principal.user_id
+                    )
+                ).get(principal.user_id, {"tasks": 0, "minutes": 0.0})
+                for c, _, _ in rows
+            }
             return [
                 {
                     "connection_id": c.id,
                     "owner_id": c.owner_id,
                     "device_label": c.device_label,
                     "auth_state": c.auth_state,
-                    "online": w.revoked_at is None and w.status != "OFFLINE",
+                    "online": w.revoked_at is None
+                    and w.status != "OFFLINE"
+                    and p.sharing_state == "ENABLED",
                     "allowed_task_types": p.allowed_task_types,
                     "max_task_duration_seconds": p.max_task_duration_seconds,
                     "requires_approval": not (
-                        not p.require_owner_approval
-                        and str(principal.user_id) in p.advance_consent_requester_ids
+                        p.auto_approve_members
+                        or (
+                            not p.require_owner_approval
+                            and str(principal.user_id) in p.advance_consent_requester_ids
+                        )
                     ),
+                    # D-98: what I used on this device in 24 h, and the caps that apply to me.
+                    "my_tasks_last_24h": int(usage[c.id]["tasks"]),
+                    "my_minutes_last_24h": round(usage[c.id]["minutes"], 1),
+                    "my_max_tasks_per_day": me.max_tasks_per_day if me else None,
+                    "my_max_minutes_per_day": me.max_minutes_per_day if me else None,
+                    "device_max_tasks_per_day": p.max_tasks_per_day,
                 }
                 for c, p, w in rows
             ]
@@ -773,13 +813,16 @@ class ExperimentalParticipationService:
                 conn is None
                 or prefs is None
                 or prefs.group_id != group.id
-                or prefs.sharing_state != "ENABLED"
+                # A paused (offline) owner still takes submissions: the task waits and
+                # says why ("the owner paused sharing") until they are back (design §8.5).
+                or prefs.sharing_state not in ("ENABLED", "PAUSED")
             ):
                 raise not_found("NODE_NOT_AVAILABLE", "No opted-in node with that id")
             if group.status != "ACTIVE":
                 raise conflict("GROUP_DISABLED", "Group is disabled")
+            kind, spec = await _check_kind(session, body)
             allowed = set(group.allowed_task_types) & set(prefs.allowed_task_types)
-            if body["task_type"] not in allowed:
+            if kind.kind not in allowed:
                 raise DomainError(422, "TASK_TYPE_NOT_ALLOWED", "Task type not allowed")
             if body["max_duration_seconds"] > min(
                 group.max_task_duration_seconds, prefs.max_task_duration_seconds
@@ -795,15 +838,16 @@ class ExperimentalParticipationService:
                         consumer_id=principal.user_id,
                         idempotency_key=idempotency_key,
                         request_digest=digest,
-                        task_type=body["task_type"],
+                        task_type=kind.kind,
                         repository_url=body["repository_url"],
                         commit_sha=body["commit_sha"],
-                        prompt=body["prompt"],
+                        prompt=body["requirement"],
+                        spec=spec,
                         resource_scope=EXPERIMENTAL_SCOPE,
                         status=TaskStatus.CREATED.value,
                         max_budget_cents=1,  # no money is involved; the column requires >= 1
                         max_duration_seconds=body["max_duration_seconds"],
-                        max_attempts=1,
+                        max_attempts=lease_service.EXPERIMENTAL_MAX_ATTEMPTS,
                         execution_profile="CODEX_LIVE" if live else "MOCK",
                     )
                     .on_conflict_do_nothing(constraint="uniq_consumer_idempotency")
@@ -827,10 +871,18 @@ class ExperimentalParticipationService:
                 return await self._view(session, existing), False
             task = await repo.lock_task(session, new_id)
             assert task is not None  # noqa: S101 - inserted in this transaction
+            await UploadService.claim(session, task, principal.user_id, body["attachments"], kind)
             advance = (
                 not live
                 and not prefs.require_owner_approval
                 and str(principal.user_id) in prefs.advance_consent_requester_ids
+            )
+            # One-click sharing: the owner's standing approval covers every active member
+            # of the group (membership was checked above), LIVE included.
+            source = (
+                STANDING_APPROVAL
+                if prefs.auto_approve_members
+                else ("ADVANCE_CONSENT" if advance else None)
             )
             consent = ExperimentalTaskConsent(
                 task_id=task.id,
@@ -838,9 +890,9 @@ class ExperimentalParticipationService:
                 requester_id=principal.user_id,
                 connection_id=conn.id,
                 owner_id=conn.owner_id,
-                status="APPROVED" if advance else "PENDING",
-                consent_source="ADVANCE_CONSENT" if advance else None,
-                decided_at=utcnow() if advance else None,
+                status="APPROVED" if source else "PENDING",
+                consent_source=source,
+                decided_at=utcnow() if source else None,
             )
             session.add(consent)
             await append_event(
@@ -921,7 +973,10 @@ class ExperimentalParticipationService:
             # Only the owner whose subscription would run the task can decide.
             if task is None or consent is None or consent.owner_id != principal.user_id:
                 raise not_found("TASK_NOT_FOUND", "Task not found")
-            if consent.status != "PENDING":
+            # A standing approval stays overridable: the owner may still reject the task, or
+            # confirm it individually (e.g. after switching automatic approval off).
+            standing = consent.status == "APPROVED" and consent.consent_source == STANDING_APPROVAL
+            if consent.status != "PENDING" and not standing:
                 if consent.status == ("APPROVED" if approve else "REJECTED"):
                     return await self._view(session, task)  # idempotent
                 raise conflict("ALREADY_DECIDED", f"Task was already {consent.status}")
@@ -955,6 +1010,30 @@ class ExperimentalParticipationService:
             view = await self._view(session, task)
         await self.ctx.publisher.wake(f"task:{task_id}")
         return view
+
+
+async def _check_kind(session: AsyncSession, body: dict[str, Any]) -> tuple[Kind, dict]:
+    """Validate the request against its kind (design §1-§2) and return the task spec."""
+    try:
+        kind = kind_catalog.get(body["kind"])
+        params = kind_catalog.validate_params(kind, body["parameters"])
+        deliverable = kind_catalog.resolve_deliverable(kind, body["deliverable"])
+    except kind_catalog.KindError as exc:
+        raise DomainError(422, exc.code, str(exc)) from None
+    has_repo = body["repository_url"] is not None
+    if kind.needs_repository and not has_repo:
+        raise DomainError(422, "REPOSITORY_REQUIRED", "This kind works on a repository")
+    if has_repo and not kind.needs_repository:
+        raise DomainError(422, "REPOSITORY_NOT_ACCEPTED", "This kind takes no repository")
+    status = (await TaskKindService.statuses(session)).get(kind.kind, "DEVELOPING")
+    if status == "DISABLED":
+        raise conflict("TASK_KIND_DISABLED", "This kind of task is switched off")
+    if body.get("execution_mode") == "LIVE" and status != "OPEN":
+        raise conflict("TASK_KIND_NOT_OPEN", "This kind of task is not open for live execution")
+    spec = {"deliverable": deliverable, "parameters": params}
+    if body.get("network_access"):
+        spec["network_access"] = True
+    return kind, spec
 
 
 async def current_authorization(

@@ -12,7 +12,7 @@ import uuid
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,15 +37,55 @@ def utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-def task_deadline_passed(task: Task, now: datetime, attempt: TaskAttempt | None = None) -> bool:
-    """Experimental tasks wait up to 10 minutes, then get their full execution limit."""
+def task_deadline_passed(
+    task: Task, now: datetime, attempt: TaskAttempt | None = None, *, requeued: bool = False
+) -> bool:
+    """Experimental tasks wait up to 10 minutes, then get their full execution limit.
+
+    A task handed back to the queue after an interrupted attempt (``requeued``) gets a
+    fresh waiting window from the moment it re-entered the queue (its last transition)."""
     start, seconds = task.created_at, task.max_duration_seconds
     if task.resource_scope == "EXPERIMENTAL_SHARED_SUBSCRIPTION":
         if attempt is not None and attempt.started_at is not None:
             start = attempt.started_at
         else:
             seconds = 600
+            if requeued:
+                start = max(task.created_at, task.updated_at)
     return now >= start + timedelta(seconds=seconds)
+
+
+async def started_attempts(session: AsyncSession, task_id: uuid.UUID) -> int:
+    """Attempts a device accepted. A reservation that lapsed before the device started
+    it did no work, so it never uses up an experimental task's re-run."""
+    return (
+        await session.execute(
+            select(func.count())
+            .select_from(TaskAttempt)
+            .where(TaskAttempt.task_id == task_id, TaskAttempt.started_at.is_not(None))
+        )
+    ).scalar_one()
+
+
+# Experimental tasks run on one owner's device and use the owner's own plan, so they are
+# retried at most once and only when the device was interrupted (design §6): the owner
+# chose "stop now and hand back", the worker shut down, or the lease lapsed. A failed or
+# rejected run is never repeated automatically.
+EXPERIMENTAL_MAX_ATTEMPTS = 2
+DEVICE_INTERRUPTIONS = frozenset({"WORKER_SHUTDOWN", "LEASE_EXPIRED"})
+
+
+def retry_allowed(
+    task: Task, attempt: TaskAttempt, now: datetime, reason: str, *, used: int | None = None
+) -> bool:
+    """`used`: attempts that count against `max_attempts` (default: this attempt's number).
+    Experimental tasks count only attempts a device actually started."""
+    used = attempt.attempt_number if used is None else used
+    if used >= task.max_attempts or task_deadline_passed(task, now, attempt):
+        return False
+    return task.resource_scope != "EXPERIMENTAL_SHARED_SUBSCRIPTION" or (
+        reason in DEVICE_INTERRUPTIONS
+    )
 
 
 async def release_worker(session: AsyncSession, worker_id: uuid.UUID) -> None:
@@ -83,6 +123,8 @@ class CompletionInput:
     usage: UsageReport | None = None
     observed_usage: dict[str, int] | None = None
     reset_hint: str | None = None
+    # 0013 step D: the device's most specific failure code (e.g. WRONG_LANGUAGE)
+    failure_detail: str | None = None
 
 
 @dataclass(frozen=True)
@@ -114,11 +156,17 @@ async def store_artifacts(
             media_type=item.media_type,
             source=source,
             published=published,
+            name=item.name if item.kind == "DELIVERABLE" else None,
         )
         await session.execute(
             stmt.on_conflict_do_update(
                 index_elements=["storage_key"],
-                set_={"attempt_id": attempt_id, "kind": item.kind, "published": published},
+                set_={
+                    "attempt_id": attempt_id,
+                    "kind": item.kind,
+                    "published": published,
+                    "name": stmt.excluded.name,
+                },
                 where=Artifact.published.is_(False),
             )
         )
@@ -189,12 +237,27 @@ class LeaseService:
                     tasks_started_last_24h=await SubscriptionUsageMonitor.started_last_24h(
                         session, conn.id, now, exclude_task_id=task.id
                     ),
+                    member_tasks_started_last_24h=int(
+                        (
+                            await SubscriptionUsageMonitor.member_usage_last_24h(
+                                session,
+                                conn.id,
+                                now,
+                                requester_id=consent.requester_id,
+                                exclude_task_id=task.id,
+                            )
+                        )
+                        .get(consent.requester_id, {})
+                        .get("tasks", 0)
+                    ),
                     node_online=(
                         worker.status in ONLINE_STATUSES
                         and worker.last_heartbeat is not None
                         and worker.last_heartbeat
                         >= now - timedelta(seconds=self.ctx.settings.worker_heartbeat_ttl_seconds)
                     ),
+                    # This reservation already counts in active_tasks; discount it.
+                    node_at_capacity=max(0, worker.active_tasks - 1) >= worker.max_concurrency,
                 )
                 decision = ExperimentalSharingPolicy.evaluate(snap, mode=Mode.LIVE)
                 if not decision.allowed:
@@ -391,7 +454,7 @@ class LeaseService:
             if task.execution_profile == "CODEX_LIVE":
                 report = verifier.verify_codex_live(task.task_type, data.artifacts)
             else:
-                report = verifier.verify(data.artifacts)
+                report = verifier.verify(data.artifacts, task.task_type)
             if report.ok:
                 await self._store_artifacts(session, task, attempt, data.artifacts)
                 await close_attempt(session, attempt, "SUCCEEDED")
@@ -422,16 +485,21 @@ class LeaseService:
 
         await close_attempt(session, attempt, "FAILED")
         reason = data.error_code or "ATTEMPT_FAILED"
-        if (
-            data.retryable
-            and attempt.attempt_number < task.max_attempts
-            and not task_deadline_passed(task, now, attempt)
-        ):
+        used = (
+            await started_attempts(session, task.id)
+            if task.resource_scope == "EXPERIMENTAL_SHARED_SUBSCRIPTION"
+            else None
+        )
+        if data.retryable and retry_allowed(task, attempt, now, reason, used=used):
             await transition(
                 session,
                 task,
                 TaskStatus.RETRY_PENDING,
-                payload={"reason": reason, "attempt_number": attempt.attempt_number},
+                payload={
+                    "reason": reason,
+                    "attempt_number": attempt.attempt_number,
+                    **({"detail": data.failure_detail} if data.failure_detail else {}),
+                },
                 attempt_id=attempt.id,
             )
         else:
@@ -442,6 +510,7 @@ class LeaseService:
                 payload={
                     "reason": reason,
                     "result_summary": redact(data.result_summary or f"Failed: {reason}")[:2000],
+                    **({"detail": data.failure_detail} if data.failure_detail else {}),
                 },
                 attempt_id=attempt.id,
             )
@@ -488,9 +557,12 @@ class LeaseService:
                 await close_attempt(session, attempt, "EXPIRED")
                 recovered += 1
                 status = TaskStatus(task.status)
-                retry_ok = attempt.attempt_number < task.max_attempts and not task_deadline_passed(
-                    task, now, attempt
-                )
+                experimental = task.resource_scope == "EXPERIMENTAL_SHARED_SUBSCRIPTION"
+                used = await started_attempts(session, task.id) if experimental else None
+                retry_ok = retry_allowed(task, attempt, now, "LEASE_EXPIRED", used=used)
+                if experimental and attempt.started_at is None:
+                    # Reserved but never started: back to the queue, nothing was used up.
+                    retry_ok = not task_deadline_passed(task, now, requeued=bool(used))
                 payload = {"reason": "LEASE_EXPIRED", "attempt_number": attempt.attempt_number}
                 if status == TaskStatus.CANCELLING:
                     await transition(

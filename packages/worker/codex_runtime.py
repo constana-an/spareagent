@@ -154,14 +154,28 @@ class CodexRuntimeConfig:
     sandbox: SandboxMode = "read-only"
     model: str | None = None
     extra_env: dict[str, str] | None = None  # test hook; still passed through sanitization
+    # The owner's concurrency setting (1-3): runs beyond it are refused, never queued here.
+    max_parallel: int = 1
 
 
-def shared_permission_args(sandbox: SandboxMode) -> list[str]:
+def _toml_path(path: str) -> str:
+    if not path.startswith("/") or any(c in path for c in '"\\\n\r\t') or "/../" in path:
+        raise ValueError(f"unsafe tool path {path!r}")
+    return f'"{path}"="read"'
+
+
+def shared_permission_args(
+    sandbox: SandboxMode, read_roots: tuple[str, ...] = (), *, network: bool = False
+) -> list[str]:
+    """`read_roots` are extra read-only directories (pinned tool environments). `network`
+    is on only for a task that asked for it on a device whose owner allowed it; file
+    access stays limited to the task's own workspace either way."""
     access = "read" if sandbox == "read-only" else "write"
+    extra = "".join("," + _toml_path(p) for p in read_roots)
     profile = (
         'permissions={spareagent={filesystem={":minimal"="read",'
-        f'":workspace_roots"="{access}"'
-        "},network={enabled=false}}}"
+        f'":workspace_roots"="{access}"{extra}'
+        "},network={enabled=" + ("true" if network else "false") + "}}}"
     )
     return [
         "-c",
@@ -181,7 +195,7 @@ def shared_permission_args(sandbox: SandboxMode) -> list[str]:
         "-c",
         "apps._default.enabled=false",
         "-c",
-        'web_search="disabled"',
+        f'web_search="{"live" if network else "disabled"}"',
     ]
 
 
@@ -192,9 +206,15 @@ class CodexRuntime:
         self.config = config or CodexRuntimeConfig()
         self._procs: dict[str, asyncio.subprocess.Process] = {}
         self._cancelled: set[str] = set()
-        self._busy = False
+        self._running = 0
 
-    def argv(self, sandbox: SandboxMode | None = None, workdir: Path | None = None) -> list[str]:
+    def argv(
+        self,
+        sandbox: SandboxMode | None = None,
+        workdir: Path | None = None,
+        read_roots: tuple[str, ...] = (),
+        network: bool = False,
+    ) -> list[str]:
         cfg = self.config
         args = [
             cfg.codex_bin,
@@ -210,7 +230,7 @@ class CodexRuntime:
         if sandbox is not None and workdir is not None:
             # Shared prompts get filesystem reads scoped to their checkout, not the owner's
             # home. The Codex parent still uses its own login; its tools cannot read it.
-            args += shared_permission_args(sandbox)
+            args += shared_permission_args(sandbox, read_roots, network=network)
         else:
             args += ["--sandbox", cfg.sandbox]
         if cfg.model:
@@ -218,11 +238,14 @@ class CodexRuntime:
         args.append("-")  # prompt is read from stdin, never interpolated into argv
         return args
 
-    def _env(self) -> dict[str, str]:
+    def _env(self, path_dirs: tuple[str, ...] = ()) -> dict[str, str]:
         base = dict(os.environ)
         if self.config.extra_env:
             base.update(self.config.extra_env)
-        return sanitized_env(base)
+        env = sanitized_env(base)
+        if path_dirs:
+            env["PATH"] = os.pathsep.join([*path_dirs, env.get("PATH", "")])
+        return env
 
     async def run(
         self,
@@ -232,11 +255,14 @@ class CodexRuntime:
         *,
         timeout_seconds: float,
         sandbox: SandboxMode | None = None,
+        read_roots: tuple[str, ...] = (),
+        path_dirs: tuple[str, ...] = (),
+        network: bool = False,
     ) -> AsyncIterator[CodexEvent | CodexRunResult]:
         """Yields CodexEvents, then exactly one CodexRunResult. `sandbox` can only choose
         between Codex's read-only and workspace-write modes (never full access)."""
         result = CodexRunResult()
-        if self._busy:
+        if self._running >= max(1, self.config.max_parallel):
             result.error_class, result.error_message = "RUNTIME", "Codex runtime is already busy"
             yield result
             return
@@ -244,20 +270,20 @@ class CodexRuntime:
             result.error_class, result.error_message = "RUNTIME", "Invalid task timeout"
             yield result
             return
-        self._busy = True
+        self._running += 1
         try:
             proc = await asyncio.create_subprocess_exec(
-                *self.argv(sandbox, workdir),
+                *self.argv(sandbox, workdir, read_roots, network),
                 cwd=str(workdir),
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                env=self._env(),
+                env=self._env(path_dirs),
                 start_new_session=True,
                 limit=MAX_LINE_BYTES,
             )
-        except (FileNotFoundError, PermissionError) as exc:
-            self._busy = False
+        except (FileNotFoundError, PermissionError, ValueError) as exc:
+            self._running -= 1
             result.error_class = "RUNTIME"
             result.error_message = f"codex CLI not runnable: {type(exc).__name__}"
             yield result
@@ -292,7 +318,7 @@ class CodexRuntime:
             await self._kill(proc)
 
             self._procs.pop(run_id, None)
-            self._busy = False
+            self._running -= 1
             stderr = await self._finish(stderr_task)
         if run_id in self._cancelled:
             self._cancelled.discard(run_id)

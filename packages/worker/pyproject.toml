@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "spareagent-worker"
-version = "0.6.0"
+version = "0.12.0"
 description = "Owner-operated SpareAgent Codex worker; no coordinator dependencies"
 requires-python = ">=3.12"
 dependencies = ["httpx==0.28.1"]

@@ -24,9 +24,13 @@ class ProviderError(Exception):
     retryable = False
     code = "PROVIDER_ERROR"
 
-    def __init__(self, message: str, usage: UsageReport | None = None) -> None:
+    def __init__(
+        self, message: str, usage: UsageReport | None = None, detail_code: str | None = None
+    ) -> None:
         super().__init__(message)
         self.usage = usage
+        # A stable, specific reason the member sees (e.g. WRONG_LANGUAGE); optional.
+        self.detail_code = detail_code
 
 
 class TransientProviderError(ProviderError):

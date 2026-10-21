@@ -34,7 +34,9 @@ import tempfile
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
+from packages.common.deliverables import DOCUMENT_KINDS
 from packages.common.observability import redact
 from packages.common.repository_manager import RepositoryError, RepositoryManager
 from packages.provider_sdk.base import PermanentProviderError, ProviderError
@@ -48,6 +50,7 @@ from packages.provider_sdk.types import (
     ProviderCapabilities,
     UsageReport,
 )
+from packages.worker import recipes
 from packages.worker.codex_runtime import CodexEvent, CodexRunResult, CodexRuntime
 from packages.worker.local_controls import LocalSharingControl
 from packages.worker.subscription_auth import (
@@ -58,7 +61,17 @@ from packages.worker.subscription_auth import (
 )
 
 PROVIDER_NAME = "codex-subscription"
-ALLOWED_TASK_TYPES = frozenset({"CODE_REVIEW", "WRITE_TESTS", "CODE_FIX"})
+ALLOWED_TASK_TYPES = frozenset(
+    {
+        "CODE_REVIEW",
+        "WRITE_TESTS",
+        "CODE_FIX",
+        "CODE_CHANGE",
+        "TRANSLATE_DOCUMENT",
+        "ANALYZE_SPREADSHEET",
+        "GENERAL",
+    }
+)
 
 
 class OwnerOnlyViolation(PermanentProviderError):
@@ -122,6 +135,7 @@ class CodexSubscriptionAdapter:
         workspace_factory: WorkspaceFactory | None = None,
         keep_workspace: bool = False,
         shared: SharedWorkConsent | None = None,
+        tools: Callable[[str], Any] | None = None,
     ) -> None:
         if not owner_ref:
             raise ValueError("owner_ref is required")
@@ -129,6 +143,8 @@ class CodexSubscriptionAdapter:
             raise ValueError("shared work requires the no-purchased-credits attestation")
         self.owner_ref = owner_ref
         self.shared = shared
+        # tool name -> packages.worker.tools.ToolAccess (or None when not installed)
+        self.tools = tools
         self.runtime = runtime or CodexRuntime()
         self._workspace = workspace_factory or _temp_workspace
         self._keep_workspace = keep_workspace or workspace_factory is not None
@@ -166,7 +182,12 @@ class CodexSubscriptionAdapter:
             raise SharedWorkRefused("Sharing is paused on this device")
         if not request.authorization_ref:
             raise SharedWorkRefused("Shared task carries no authorization reference")
-        if not request.repository_url or not request.commit_sha:
+        if request.task_type in DOCUMENT_KINDS:
+            if request.repository_url or request.commit_sha:
+                raise SharedWorkRefused("Document tasks never check out a repository")
+            if not request.inputs and request.task_type != "GENERAL":
+                raise SharedWorkRefused("Document tasks need their attachments")
+        elif not request.repository_url or not request.commit_sha:
             raise SharedWorkRefused("Shared tasks must name a pinned repository commit")
         return True
 
@@ -204,6 +225,12 @@ class CodexSubscriptionAdapter:
                 "API-key usage is never used as a fallback"
             ) from SubscriptionAuthError(status)
         yield ProgressEvent("Verified local ChatGPT login (credentials stay on device)", 5)
+        if request.task_type in DOCUMENT_KINDS:
+            if not shared:
+                raise OwnerOnlyViolation("Document tasks run only as shared experimental work")
+            async for item in self._execute_document(request):
+                yield item
+            return
 
         checkout = None
         if shared:
@@ -217,6 +244,11 @@ class CodexSubscriptionAdapter:
         if shared and sandbox is None:
             sandbox = "workspace-write"
         prompt = SHARED_PREAMBLE + request.prompt if shared else request.prompt
+        if shared and request.task_type == "CODE_CHANGE":
+            prompt += recipes.CODE_CHANGE_SUFFIX
+        network = shared and request.network_access
+        if network:
+            prompt = recipes.with_network(prompt)
         run: CodexRunResult | None = None
         try:
             percent = 10
@@ -226,6 +258,7 @@ class CodexSubscriptionAdapter:
                 workdir,
                 timeout_seconds=request.max_duration_seconds,
                 sandbox=sandbox if shared else None,
+                network=network,
             ):
                 if isinstance(item, CodexRunResult):
                     run = item
@@ -268,6 +301,92 @@ class CodexSubscriptionAdapter:
                 checkout.cleanup()
             elif not self._keep_workspace:
                 shutil.rmtree(workdir, ignore_errors=True)
+
+    async def _execute_document(
+        self, request: ExecutionRequest
+    ) -> AsyncIterator[ProgressEvent | ExecutionResult]:
+        """Translation / analysis / general tasks in a fresh workspace (recipes.py)."""
+        ws = recipes.Workspace.create()
+        access = None
+        try:
+            try:
+                if request.task_type == "TRANSLATE_DOCUMENT":
+                    prompt, expected = recipes.prepare_translation(request, ws)
+                elif request.task_type == "GENERAL":
+                    access = self.tools("python-data") if self.tools else None
+                    prompt = recipes.prepare_general(request, ws, data_tools=access is not None)
+                    expected = 0
+                else:
+                    access = self.tools("python-data") if self.tools else None
+                    prompt = recipes.prepare_analysis(request, ws, data_tools=access is not None)
+                    expected = 0
+            except recipes.RecipeError as exc:
+                raise PermanentProviderError(f"{exc.code}: {exc}", detail_code=exc.code) from exc
+            if request.network_access:
+                prompt = recipes.with_network(prompt)
+            yield ProgressEvent(f"Prepared {len(request.inputs)} attachment(s)", 10)
+            run: CodexRunResult | None = None
+            percent = 12
+            async for item in self.runtime.run(
+                request.attempt_id,
+                prompt,
+                ws.root,
+                timeout_seconds=request.max_duration_seconds,
+                sandbox="workspace-write",
+                read_roots=access.read_roots if access else (),
+                path_dirs=access.path_dirs if access else (),
+                network=request.network_access,
+            ):
+                if isinstance(item, CodexRunResult):
+                    run = item
+                elif isinstance(item, CodexEvent) and item.kind == "progress":
+                    percent = min(85, percent + 5)
+                    yield ProgressEvent(redact(item.message)[:200], percent)
+            assert run is not None  # noqa: S101 - runtime always yields a result
+            self._raise_for(run, request)
+            yield ProgressEvent("Checking the result", 90)
+            report = None
+            try:
+                if request.task_type == "TRANSLATE_DOCUMENT":
+                    files, report = recipes.finish_translation(request, ws, expected)
+                elif request.task_type == "GENERAL":
+                    files, report = recipes.finish_general(request, ws)
+                else:
+                    files, report = recipes.finish_analysis(request, ws)
+                if not report.ok:
+                    raise recipes.RecipeError(report.reason or "CHECK_FAILED", "result check")
+                artifacts = recipes.deliverable_artifacts(files)
+            except recipes.RecipeError as exc:
+                failed = [c for c in report.checks if not c["ok"]] if report else []
+                code = exc.code if exc.code.isupper() else None
+                if code in ("MISSING_OUTPUT", "NO_DELIVERABLE") and ws.is_output_empty():
+                    code = "MODEL_DECLINED"  # a clean run that produced nothing at all
+                raise PermanentProviderError(
+                    f"Result did not pass the device check: {exc.code} {failed}"[:1000],
+                    usage=self._usage(request, run),
+                    detail_code=code,
+                ) from exc
+            summary = redact(run.final_message or "Codex finished without a final message")
+            log_text = redact(
+                f"provider={PROVIDER_NAME} auth=CHATGPT thread={run.thread_id or '-'}\n"
+                f"input_tokens={run.usage.input_tokens} "
+                f"output_tokens={run.usage.output_tokens}\n"
+                f"deliverables={[f.name for f in files]}\n"
+                f"device_checks={[c['name'] for c in report.checks if c['ok']]}\n"
+                "billing=NOT_OBSERVABLE api_key_used=false\n"
+            )
+            yield ProgressEvent("Result ready", 95)
+            yield ExecutionResult(
+                summary=summary[:2000],
+                artifacts=(
+                    ArtifactPayload("SUMMARY", "summary.md", "text/plain", summary.encode()),
+                    ArtifactPayload("LOG", "codex.log", "text/plain", log_text.encode()),
+                    *artifacts,
+                ),
+                usage=self._usage(request, run),
+            )
+        finally:
+            ws.cleanup()
 
     def _raise_for(self, run: CodexRunResult, request: ExecutionRequest) -> None:
         usage = self._usage(request, run)

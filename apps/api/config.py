@@ -35,6 +35,9 @@ class Settings(BaseSettings):
 
     friends_auth_enabled: bool = False
     friends_web_origin: str = "http://localhost:3000"
+    # More dashboard origins for the same server on other networks (comma-separated), e.g.
+    # the Tailscale address next to the LAN one. `friends_web_origin` stays the primary.
+    friends_web_extra_origins: str = ""
     friends_session_hours: int = Field(default=12, ge=1, le=24)
 
     database_url: str = "postgresql+asyncpg://spareagent:spareagent@localhost:55432/spareagent"
@@ -64,7 +67,8 @@ class Settings(BaseSettings):
     max_node_concurrency: int = Field(default=4, ge=1, le=100)
     lease_poll_max_wait_seconds: float = Field(default=25.0, ge=0, le=60)
     lease_poll_interval_seconds: float = Field(default=0.5, gt=0, le=10)
-    max_completion_artifact_bytes: int = Field(default=5 * 1024 * 1024, ge=1024)
+    # 0012: room for a task's deliverables (each ≤ 5 MB, together ≤ 12 MB) plus logs.
+    max_completion_artifact_bytes: int = Field(default=13 * 1024 * 1024, ge=1024)
 
     # Week 3 sandboxed code execution (disabled by default; D-35)
     code_execution_enabled: bool = False
@@ -88,9 +92,26 @@ class Settings(BaseSettings):
     # Off by default; even when on, each dispatch needs a verified, unexpired,
     # route-covered authorization plus the owner's codex-check and credits attestations.
     experiment_live_enabled: bool = False
+    # One-click sharing: anyone holding the operator's signup code (shipped inside the
+    # worker bundle) can create their own provider account and invite-code group. Each new
+    # group copies the operator-verified template authorization, so the operator still
+    # decides which written permission covers self-serve groups and can revoke it.
+    self_serve_enabled: bool = False
+    self_serve_signup_code: SecretStr | None = None
+    self_serve_authorization_id: uuid.UUID | None = None
 
     local_worker_node_ids: str = DEFAULT_LOCAL_WORKER
     mock_chat_resource_id: uuid.UUID = uuid.UUID(DEFAULT_MOCK_CHAT_RESOURCE)
+
+    @property
+    def friends_web_origins(self) -> tuple[str, ...]:
+        extra = (o.strip() for o in self.friends_web_extra_origins.split(","))
+        return (self.friends_web_origin, *(o for o in extra if o and o != self.friends_web_origin))
+
+    @field_validator("self_serve_signup_code", "self_serve_authorization_id", mode="before")
+    @classmethod
+    def _blank_is_unset(cls, value):
+        return None if value == "" else value
 
     @field_validator("provider_mode")
     @classmethod
@@ -120,18 +141,27 @@ class Settings(BaseSettings):
         if self.friends_auth_enabled:
             from urllib.parse import urlsplit
 
-            origin = urlsplit(self.friends_web_origin)
-            if (
-                origin.scheme not in ("http", "https")
-                or not origin.hostname
-                or origin.username
-                or origin.password
-                or origin.path
-                or origin.query
-                or origin.fragment
-                or (self.app_env != "local" and origin.scheme != "https")
-            ):
-                raise ConfigError("FRIENDS_WEB_ORIGIN must be an origin; HTTPS outside local")
+            for value in self.friends_web_origins:
+                origin = urlsplit(value)
+                if (
+                    origin.scheme not in ("http", "https")
+                    or not origin.hostname
+                    or origin.username
+                    or origin.password
+                    or origin.path
+                    or origin.query
+                    or origin.fragment
+                    or (self.app_env != "local" and origin.scheme != "https")
+                ):
+                    raise ConfigError("FRIENDS_WEB_ORIGIN(S) must be origins; HTTPS outside local")
+        if self.self_serve_enabled:
+            code = self.self_serve_signup_code
+            if code is None or len(code.get_secret_value()) < 16:
+                raise ConfigError("SELF_SERVE_SIGNUP_CODE must be at least 16 characters")
+            if self.self_serve_authorization_id is None or not self.experiment_enabled:
+                raise ConfigError(
+                    "SELF_SERVE_ENABLED needs EXPERIMENT_ENABLED and SELF_SERVE_AUTHORIZATION_ID"
+                )
         self.code_resource_ids  # noqa: B018 - validate UUIDs eagerly
         # Validate CIDRs eagerly so a typo cannot silently widen or break the trust boundary.
         self.trusted_networks  # noqa: B018

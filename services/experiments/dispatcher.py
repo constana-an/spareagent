@@ -35,10 +35,11 @@ from db.models import (
     SubscriptionSharingPreference,
     Task,
     TaskAttempt,
+    TaskKind,
 )
 from services.context import AppContext
-from services.experiments.participation import current_authorization
-from services.scheduler.lease_service import task_deadline_passed, utcnow
+from services.experiments.participation import STANDING_APPROVAL, current_authorization
+from services.scheduler.lease_service import started_attempts, task_deadline_passed, utcnow
 from services.subscriptions.policy import (
     EXPERIMENTAL_SCOPE,
     AuthorizationSnapshot,
@@ -48,14 +49,36 @@ from services.subscriptions.policy import (
     Mode,
 )
 from services.subscriptions.usage import SubscriptionUsageMonitor
+from services.tasks import kinds as kind_catalog
 from services.tasks import repository as repo
 from services.tasks.state_machine import TaskStatus, transition
 
 log = logging.getLogger(__name__)
 
+
+def declared_tools(capabilities: dict | None) -> frozenset[str] | None:
+    """Tools a node declared in its heartbeat: {"tools": {"git": true, ...}} or a list."""
+    tools = (capabilities or {}).get("tools")
+    if isinstance(tools, dict):
+        return frozenset(k for k, v in tools.items() if v is True and isinstance(k, str))
+    if isinstance(tools, list):
+        return frozenset(t for t in tools if isinstance(t, str))
+    return None
+
+
 SCAN_LIMIT = 20
 LIVE_PROFILE = "CODEX_LIVE"
 ONLINE_STATUSES = ("IDLE", "RESERVED", "RUNNING")
+
+
+def _approval_still_valid(
+    task: Task, consent: ExperimentalTaskConsent, prefs: SubscriptionSharingPreference | None
+) -> bool:
+    """LIVE runs need the owner's own approval: per task, or a standing approval that is
+    still switched on right now (turning it off makes queued tasks wait for the owner)."""
+    if consent.consent_source == STANDING_APPROVAL:
+        return bool(prefs and prefs.auto_approve_members)
+    return task.execution_profile != LIVE_PROFILE or consent.consent_source == "OWNER_APPROVAL"
 
 
 class ExperimentalDispatcher:
@@ -81,6 +104,19 @@ class ExperimentalDispatcher:
                 )
             ).scalars()
         )
+        member = (
+            await session.execute(
+                select(ExperimentalGroupMember).where(
+                    ExperimentalGroupMember.group_id == group.id,
+                    ExperimentalGroupMember.user_id == consent.requester_id,
+                )
+            )
+        ).scalar_one_or_none()
+        used = (
+            await SubscriptionUsageMonitor.member_usage_last_24h(
+                session, conn.id, now, requester_id=consent.requester_id
+            )
+        ).get(consent.requester_id, {"tasks": 0, "minutes": 0.0})
         auth = await current_authorization(session, group.id)
         scope_types = (auth.authorization_scope or {}).get("task_types") if auth else None
         fresh_after = now - timedelta(seconds=self.ctx.settings.worker_heartbeat_ttl_seconds)
@@ -125,9 +161,8 @@ class ExperimentalDispatcher:
             owner_max_tasks_per_day=prefs.max_tasks_per_day if prefs else 0,
             task_consent_status=(
                 "PENDING"
-                if task.execution_profile == LIVE_PROFILE
-                and consent.status == "APPROVED"
-                and consent.consent_source != "OWNER_APPROVAL"
+                if consent.status == "APPROVED"
+                and not _approval_still_valid(task, consent, prefs if prefs_group_ok else None)
                 else consent.status
             ),
             resource_type=resource.resource_type,
@@ -140,8 +175,9 @@ class ExperimentalDispatcher:
                 worker.status in ONLINE_STATUSES
                 and worker.last_heartbeat is not None
                 and worker.last_heartbeat >= fresh_after
-                and worker.active_tasks < worker.max_concurrency
             ),
+            # A busy device is not an offline one: members see "busy", not "offline".
+            node_at_capacity=worker.active_tasks >= worker.max_concurrency,
             active_tasks_on_connection=await SubscriptionUsageMonitor.active_tasks(session, conn),
             tasks_started_last_24h=await SubscriptionUsageMonitor.started_last_24h(
                 session, conn.id, now
@@ -162,6 +198,14 @@ class ExperimentalDispatcher:
             owner_check_passed=conn.owner_check_passed_at is not None,
             no_purchased_credits=conn.no_purchased_credits_at is not None,
             node_executor=(worker.capabilities or {}).get("executor"),
+            kind_status=(await session.get(TaskKind, task.task_type)).status,
+            required_tools=kind_catalog.required_tools(task.task_type, getattr(task, "spec", None)),
+            node_tools=declared_tools(worker.capabilities),
+            owner_allowed_tools=frozenset(prefs.allowed_tools if prefs else ()),
+            member_tasks_started_last_24h=int(used["tasks"]),
+            member_minutes_last_24h=used["minutes"],
+            member_max_tasks_per_day=member.max_tasks_per_day if member else None,
+            member_max_minutes_per_day=member.max_minutes_per_day if member else None,
         )
         return snap, conn, auth.id if auth else None
 
@@ -241,7 +285,12 @@ class ExperimentalDispatcher:
         self, session: AsyncSession, task: Task, consent: ExperimentalTaskConsent
     ) -> tuple[uuid.UUID, uuid.UUID] | None:
         now = utcnow()
-        if task_deadline_passed(task, now):
+        attempts = (
+            await session.execute(
+                select(func.count()).select_from(TaskAttempt).where(TaskAttempt.task_id == task.id)
+            )
+        ).scalar_one()
+        if task_deadline_passed(task, now, requeued=attempts > 0):
             await transition(
                 session,
                 task,
@@ -254,12 +303,7 @@ class ExperimentalDispatcher:
                 },
             )
             return None
-        attempts = (
-            await session.execute(
-                select(func.count()).select_from(TaskAttempt).where(TaskAttempt.task_id == task.id)
-            )
-        ).scalar_one()
-        if attempts >= task.max_attempts:
+        if await started_attempts(session, task.id) >= task.max_attempts:
             await transition(
                 session,
                 task,

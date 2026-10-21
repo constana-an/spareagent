@@ -35,6 +35,9 @@ AUTHORIZED_ROUTE = "CODEX_CLI_EXEC"
 CODEX_EXECUTOR = "codex-subscription"
 
 
+LEGACY_NODE_TOOLS = frozenset({"code", "git"})  # mirrors services.tasks.kinds
+
+
 class Mode(StrEnum):
     SIMULATED = "SIMULATED"
     LIVE = "LIVE"
@@ -72,6 +75,12 @@ class Reason(StrEnum):
     SCOPE_MISMATCH = "SCOPE_MISMATCH"
     PAID_CREDITS_FORBIDDEN = "PAID_CREDITS_FORBIDDEN"
     RATE_LIMITED = "RATE_LIMITED"
+    TASK_KIND_DISABLED = "TASK_KIND_DISABLED"
+    TASK_KIND_NOT_OPEN = "TASK_KIND_NOT_OPEN"
+    NODE_LACKS_CAPABILITY = "NODE_LACKS_CAPABILITY"
+    TOOL_NOT_ALLOWED = "TOOL_NOT_ALLOWED"
+    MEMBER_DAILY_LIMIT = "MEMBER_DAILY_LIMIT"
+    MEMBER_MINUTES_LIMIT = "MEMBER_MINUTES_LIMIT"
 
 
 # Reasons that can clear without anyone changing the task (wait, keep QUEUED). Everything
@@ -87,6 +96,10 @@ TRANSIENT_REASONS = frozenset(
         Reason.GROUP_SHARING_DISABLED,
         Reason.SUBSCRIPTION_AUTH_INVALID,
         Reason.NODE_NOT_CODEX_CAPABLE,  # the owner's device may restart with the executor
+        Reason.NODE_LACKS_CAPABILITY,  # e.g. the owner installs the data tools
+        Reason.TOOL_NOT_ALLOWED,  # the owner may allow the tool again
+        Reason.MEMBER_DAILY_LIMIT,  # this member's own caps (D-98) free up over 24 h
+        Reason.MEMBER_MINUTES_LIMIT,
     }
 )
 
@@ -149,6 +162,21 @@ class DispatchSnapshot:
     owner_check_passed: bool = False
     no_purchased_credits: bool = False
     node_executor: str | None = None
+    # 0011: the task kind's opening status (only OPEN kinds run LIVE)
+    kind_status: str = "OPEN"
+    node_at_capacity: bool = False
+    # 0013: tools the kind needs, tools the device declared (None: a pre-0013 node that
+    # declares none and is treated as code-capable) and tools the owner allows.
+    required_tools: frozenset[str] = frozenset()
+    node_tools: frozenset[str] | None = None
+    owner_allowed_tools: frozenset[str] = frozenset(
+        {"code", "doc", "git", "network", "python-data"}
+    )
+    # 0016: this requester's use of this device in 24 h and the owner's caps for them.
+    member_tasks_started_last_24h: int = 0
+    member_minutes_last_24h: float = 0.0
+    member_max_tasks_per_day: int | None = None
+    member_max_minutes_per_day: int | None = None
 
 
 @dataclass(frozen=True)
@@ -244,8 +272,24 @@ class ExperimentalSharingPolicy:
         if not s.node_online:
             r.append(Reason.PROVIDER_OFFLINE)
 
+        if s.kind_status == "DISABLED":
+            r.append(Reason.TASK_KIND_DISABLED)
+        elif mode == Mode.LIVE and s.kind_status != "OPEN":
+            r.append(Reason.TASK_KIND_NOT_OPEN)
+        if mode == Mode.LIVE:
+            available = s.node_tools if s.node_tools is not None else LEGACY_NODE_TOOLS
+            if s.required_tools - available:
+                r.append(Reason.NODE_LACKS_CAPABILITY)
+            if s.required_tools - s.owner_allowed_tools:
+                r.append(Reason.TOOL_NOT_ALLOWED)
         allowed_types = s.group_allowed_task_types & s.owner_allowed_task_types
-        if s.authorization is not None and s.authorization.scope_task_types is not None:
+        # The authorization's task types bound subscription use, i.e. LIVE runs; a
+        # SIMULATED run consumes no subscription and is bounded by group/owner settings.
+        if (
+            mode == Mode.LIVE
+            and s.authorization is not None
+            and s.authorization.scope_task_types is not None
+        ):
             allowed_types &= s.authorization.scope_task_types
         if s.task_type not in allowed_types:
             r.append(Reason.TASK_TYPE_NOT_ALLOWED)
@@ -253,12 +297,22 @@ class ExperimentalSharingPolicy:
             s.group_max_task_duration_seconds, s.owner_max_task_duration_seconds
         ):
             r.append(Reason.DURATION_LIMIT)
-        if s.active_tasks_on_connection >= min(
+        if s.node_at_capacity or s.active_tasks_on_connection >= min(
             s.group_max_concurrent_tasks, s.owner_max_concurrent_tasks
         ):
             r.append(Reason.CONCURRENCY_LIMIT)
         if s.tasks_started_last_24h >= min(s.group_max_tasks_per_day, s.owner_max_tasks_per_day):
             r.append(Reason.DAILY_LIMIT)
+        if (
+            s.member_max_tasks_per_day is not None
+            and s.member_tasks_started_last_24h >= s.member_max_tasks_per_day
+        ):
+            r.append(Reason.MEMBER_DAILY_LIMIT)
+        if (
+            s.member_max_minutes_per_day is not None
+            and s.member_minutes_last_24h >= s.member_max_minutes_per_day
+        ):
+            r.append(Reason.MEMBER_MINUTES_LIMIT)
         if s.rate_limited_until is not None and s.rate_limited_until > s.now:
             r.append(Reason.RATE_LIMITED)
         return Decision(allowed=not r, mode=mode, reasons=tuple(dict.fromkeys(r)))

@@ -4,7 +4,16 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 ResourceType = Literal["MANAGED_API", "LICENSED_PROVIDER", "SELF_HOSTED", "PERSONAL_SUBSCRIPTION"]
-ArtifactKind = Literal["PATCH", "TEST_REPORT", "LOG", "SUMMARY"]
+ArtifactKind = Literal["PATCH", "TEST_REPORT", "LOG", "SUMMARY", "DELIVERABLE"]
+
+
+@dataclass(frozen=True)
+class InputFile:
+    """A task attachment, already fetched and checked against its SHA-256."""
+
+    name: str
+    content: bytes
+    sha256: str
 
 
 @dataclass(frozen=True)
@@ -23,6 +32,12 @@ class ExecutionRequest:
     task_type: str = "CODE_FIX"
     # W4: authorization record an experimental (shared) lease relies on, if any.
     authorization_ref: str | None = None
+    # 0011 generic tasks: parameters, expected deliverable and attachments.
+    parameters: dict[str, str] = field(default_factory=dict)
+    deliverable: dict[str, str] | None = None
+    inputs: tuple[InputFile, ...] = ()
+    # The member asked for internet access and the owner allowed it (server-checked).
+    network_access: bool = False
 
 
 @dataclass(frozen=True)

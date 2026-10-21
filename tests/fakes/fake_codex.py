@@ -67,9 +67,57 @@ if home:
 sandbox = args[args.index("--sandbox") + 1] if "--sandbox" in args else "read-only"
 if any('":workspace_roots"="write"' in a for a in args):
     sandbox = "workspace-write"
-if sandbox == "workspace-write" and mode == "chatgpt":
+if sandbox == "workspace-write" and mode == "chatgpt" and not os.path.isdir("in"):
     with open("test_added_by_codex.py", "w") as fh:
         fh.write("def test_added():\n    assert True\n")
+
+# Document tasks (packages/worker/recipes.py): in/ holds inputs, results go to out/.
+if os.path.isdir("in") and os.path.isdir("out") and mode.startswith(("chatgpt", "doc_")):
+    if "./out/answer.md (required)" in prompt:  # general task
+        if mode != "doc_missing":
+            with open("out/answer.md", "w") as fh:
+                fh.write("# 回答\n\n这是对成员问题的回答，并附上一张示意图 diagram.svg。\n")
+            with open("out/diagram.svg", "w") as fh:
+                fh.write('<svg xmlns="http://www.w3.org/2000/svg"><circle r="4"/></svg>')
+            if os.path.exists("in/app.py"):
+                with open("out/app.py", "w") as fh:
+                    fh.write(open("in/app.py").read() + "\nprint('verbose')\n")
+            with open("out/page.html", "w") as fh:
+                fh.write("<script>dropped</script>")
+            if mode == "doc_active_svg":
+                with open("out/diagram.svg", "w") as fh:
+                    fh.write('<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>')
+    elif os.path.exists("in/paragraphs.json"):
+        source = json.load(open("in/paragraphs.json"))
+        if mode == "doc_untranslated":
+            texts = source
+        elif mode == "doc_wrong_count":
+            texts = source[:-1] or ["x"]
+        else:
+            texts = [f"これは第{i + 1}段落の翻訳です。" for i in range(len(source))]
+        if mode != "doc_missing":
+            with open("out/translation.json", "w") as fh:
+                json.dump(texts, fh, ensure_ascii=False)
+    else:
+        names = [
+            line.split("in/", 1)[1].split()[0]
+            for line in prompt.splitlines()
+            if line.startswith("- in/")
+        ]
+        if mode != "doc_missing":
+            with open("out/report.md", "w") as fh:
+                fh.write("# Analysis\n\nInputs: " + ", ".join(names) + "\n\n")
+                fh.write("Mean of column value = 2.0 (sum 6 / count 3). " * 6 + "\n")
+            with open("out/chart-1.svg", "w") as fh:
+                fh.write(
+                    '<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="2"/></svg>'
+                )
+            with open("out/tool.exe", "w") as fh:
+                fh.write("dropped")
+            os.symlink("/etc/passwd", "out/leak.csv")
+            if mode == "doc_active_svg":
+                with open("out/chart-2.svg", "w") as fh:
+                    fh.write('<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>')
 
 
 def emit(obj):

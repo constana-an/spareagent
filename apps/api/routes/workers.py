@@ -222,6 +222,28 @@ async def accept_lease(
     return Response(status_code=204)
 
 
+@router.get(
+    "/leases/{lease_id}/inputs/{input_id}",
+    operation_id="getLeaseInput",
+    response_class=Response,
+    responses={200: {"content": {"application/octet-stream": {}}}},
+)
+async def lease_input(
+    lease_id: str,
+    input_id: str,
+    node: NodePrincipal = Depends(get_node_principal),
+    ctx: AppContext = Depends(get_ctx),
+) -> Response:
+    upload, content = await _remote(ctx).read_input(
+        node, _lease_id(lease_id), parse_uuid_or_404(input_id, "INPUT_NOT_FOUND")
+    )
+    return Response(
+        content,
+        media_type="application/octet-stream",
+        headers={"X-Content-SHA256": upload.sha256, "Cache-Control": "no-store"},
+    )
+
+
 @router.post(
     "/leases/{lease_id}/progress", operation_id="reportLeaseProgress", response_model=LeaseStateOut
 )
@@ -295,6 +317,7 @@ async def complete_lease(
             usage=usage,
             observed_usage=body.observed_usage.model_dump() if body.observed_usage else None,
             reset_hint=body.reset_hint,
+            failure_detail=body.failure_detail,
         ),
     )
     return CompletionOut(task_status=outcome.task_status, replayed=outcome.replayed)
