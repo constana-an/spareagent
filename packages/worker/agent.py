@@ -185,6 +185,10 @@ class WorkerAgent:
         except asyncio.CancelledError:
             job.cancel()
             stopper.cancel()
+            # Let execute() report WORKER_SHUTDOWN before run() returns and the
+            # client is closed; otherwise the task stays RUNNING until its lease lapses.
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await job
             raise
         if job not in done:
             try:
