@@ -1,6 +1,7 @@
 """Build a private Mac App, optionally Developer ID-signed and notarized."""
 
 import argparse
+import contextlib
 import hashlib
 import json
 import platform
@@ -144,6 +145,32 @@ def notarize(app: Path, archive: Path, profile: str, report_dir: Path) -> None:
     subprocess.run(["spctl", "--assess", "--type", "execute", "--verbose=2", str(app)], check=True)
 
 
+VERSION_FILE = ROOT / "apps/macos/version.json"
+LSREGISTER = Path(
+    "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework"
+    "/Support/lsregister"
+)
+
+
+def forget_app(app: Path) -> None:
+    """Drop a build copy from Launch Services so it never shows up in Launchpad."""
+    if LSREGISTER.exists():
+        subprocess.run([str(LSREGISTER), "-u", str(app)], capture_output=True, check=False)
+
+
+def app_version(path: Path = VERSION_FILE) -> tuple[str, int]:
+    """The App's version and build number. In-app updates compare the build, so raise it
+    (and the version) in this one file before publishing a new App."""
+    data = json.loads(path.read_text())
+    version, build = data.get("version"), data.get("build")
+    parts = version.split(".") if isinstance(version, str) else []
+    if len(parts) != 3 or not all(x.isdigit() for x in parts):
+        raise ValueError(f"{path.name}: version must look like 1.2.3")
+    if type(build) is not int or build < 1:
+        raise ValueError(f"{path.name}: build must be a positive whole number")
+    return version, build
+
+
 def check_digest(path: Path, expected: str) -> None:
     with path.open("rb") as source:
         actual = hashlib.file_digest(source, "sha256").hexdigest()
@@ -238,9 +265,22 @@ def main() -> None:
         check_digest(partial, asset["sha256"])
         partial.replace(archive)
     check_digest(archive, asset["sha256"])
+    version, build = app_version()
+    # Only the ZIP is kept. Loose .app copies get registered by Launch Services and show up
+    # as extra SpareAgent icons in Launchpad, so drop any an earlier build left here.
+    for old in out.glob("SpareAgent*.app"):
+        forget_app(old)
+        shutil.rmtree(old, ignore_errors=True)
 
-    with tempfile.TemporaryDirectory(prefix="spareagent-app-build-") as build_dir:
+    with contextlib.ExitStack() as cleanup:
+        build_dir = cleanup.enter_context(
+            tempfile.TemporaryDirectory(prefix="spareagent-app-build-")
+        )
         app = Path(build_dir) / "SpareAgent.app"
+        # Launching the self-test registers the App with Launch Services; forget both copies
+        # before the folder is deleted, or Launchpad keeps listing them.
+        cleanup.callback(forget_app, Path(build_dir) / "archive-check/SpareAgent.app")
+        cleanup.callback(forget_app, app)
         shutil.rmtree(app, ignore_errors=True)
         macos, resources = app / "Contents/MacOS", app / "Contents/Resources"
         macos.mkdir(parents=True)
@@ -280,8 +320,8 @@ def main() -> None:
                     "CFBundleDisplayName": "SpareAgent",
                     "CFBundleExecutable": "SpareAgent",
                     "CFBundlePackageType": "APPL",
-                    "CFBundleShortVersionString": "0.15.0",
-                    "CFBundleVersion": "17",
+                    "CFBundleShortVersionString": version,
+                    "CFBundleVersion": str(build),
                     "LSMinimumSystemVersion": "13.0",
                     "LSUIElement": True,
                     "NSHighResolutionCapable": True,
@@ -337,9 +377,6 @@ def main() -> None:
         zip_path = out / f"SpareAgent-mac-{args.arch}{suffix}.zip"
         shutil.copyfile(candidate, zip_path)
         zip_path.chmod(0o600)
-        published = out / f"SpareAgent{suffix}.app"
-        shutil.rmtree(published, ignore_errors=True)
-        shutil.copytree(app, published)
         if args.sign_identity:
             (out / f"signed-components-{args.arch}.json").write_text(
                 json.dumps([*signed_binaries, "SpareAgent.app/Contents/MacOS/SpareAgent"], indent=2)
@@ -351,7 +388,7 @@ def main() -> None:
             if args.sign_identity
             else "Ad-hoc signing only; Developer ID notarization is not included."
         )
-        print(f"Private app: {published}\nPrivate ZIP: {zip_path}\n{status}")
+        print(f"Private ZIP (App {version}, build {build}): {zip_path}\n{status}")
 
 
 if __name__ == "__main__":

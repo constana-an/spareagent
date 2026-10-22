@@ -117,3 +117,17 @@ def test_stapling_and_gatekeeper_follow_only_accepted_notarization(
             build.notarize(tmp_path / "App.app", tmp_path / "App.zip", "profile", tmp_path / "logs")
         assert not any("stapler" in c or "spctl" in c for c in commands)
     assert json.loads((tmp_path / "logs/submission.json").read_text())["status"] == status
+
+
+def test_app_version_comes_from_one_file(build, tmp_path):
+    assert build.app_version() == ("0.16.0", 18)
+    bad = tmp_path / "version.json"
+    for data in (
+        {"version": "0.16", "build": 18},
+        {"version": "0.16.0", "build": "18"},
+        {"version": "0.16.0", "build": 0},
+        {"version": "v0.16.0", "build": 18},
+    ):
+        bad.write_text(json.dumps(data))
+        with pytest.raises(ValueError):
+            build.app_version(bad)
