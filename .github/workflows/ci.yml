@@ -1,8 +1,11 @@
 name: ci
 
 on:
+  # A PR's commits are checked by the pull_request run; push runs only for main itself.
   push:
+    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 # CI uses fake Codex / simulated devices only. Never enable subscription execution here.
 env:
@@ -52,7 +55,38 @@ jobs:
       - run: npm run build
       - run: npm run typecheck
 
+  # week1-gate takes ~9 minutes. A PR that only touches docs, Markdown, the member web
+  # app (checked by friends-web) or the Mac launcher (compiled on macOS by worker-package)
+  # cannot change its result, so it is skipped there. main always runs it.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      gate: ${{ steps.diff.outputs.gate }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "$EVENT" != pull_request ]; then
+            echo "gate=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          changed="$(git diff --name-only "$BASE"...HEAD)"
+          printf '%s\n' "$changed"
+          gate=true
+          # A here-string, not a pipe: with pipefail an early grep exit could flip the test.
+          if [ -n "$changed" ] && ! grep -qvE '^(docs/|apps/web/|apps/macos/)|\.md$' <<< "$changed"; then
+            gate=false
+          fi
+          echo "gate=$gate" | tee -a "$GITHUB_OUTPUT"
+
   week1-gate:
+    needs: changes
+    if: needs.changes.outputs.gate == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
