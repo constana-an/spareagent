@@ -8,7 +8,7 @@ if [[ -z "$python" ]] || ! "$python" -c 'import sys; assert sys.version_info >= 
   echo "需要 Python 3.12 或更新版本，请安装后重试。" >&2
   result=1
 else
-  "$python" "$here/operator.py" "$@"
+  "$python" "$here/operator_tool.py" "$@"
   result=$?
 fi
 if [[ -t 0 ]]; then read -r -p "按回车关闭 / Press Enter to close " _ || true; fi

@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 SPEC = importlib.util.spec_from_file_location(
-    "spareagent_operator", Path(__file__).resolve().parents[2] / "scripts/operator.py"
+    "spareagent_operator", Path(__file__).resolve().parents[2] / "scripts/operator_tool.py"
 )
 operator = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(operator)

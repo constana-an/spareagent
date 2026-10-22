@@ -22,7 +22,7 @@
 
 ```sh
 # 只读检查，不启动服务、不备份、不打包
-python3 scripts/operator.py --check
+python3 scripts/operator_tool.py --check
 
 # 当前源码需要部署到服务端时：先备份，再构建并应用镜像
 ./scripts/SpareAgent-Operator.command --rebuild
