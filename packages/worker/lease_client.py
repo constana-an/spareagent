@@ -210,6 +210,24 @@ class NodeClient:
             raise WorkerApiError(422, "INPUT_CHECKSUM_MISMATCH", "Attachment checksum mismatch")
         return resp.content
 
+    async def app_release(self, arch: str) -> dict[str, Any] | None:
+        """The newest Mac App the operator published (D-103), or None."""
+        resp = await self.call(
+            "GET", "/v1/workers/me/app-release", params={"arch": arch}, expect=(200, 404)
+        )
+        return resp.json() if resp.status_code == 200 else None
+
+    async def download_app_release(self, arch: str, sha256: str) -> bytes:
+        """The release ZIP; refused unless its bytes match the published SHA-256."""
+        import hashlib
+
+        resp = await self.call(
+            "GET", "/v1/workers/me/app-release/download", params={"arch": arch}, timeout=300
+        )
+        if hashlib.sha256(resp.content).hexdigest() != sha256:
+            raise WorkerApiError(422, "UPDATE_CHECKSUM_MISMATCH", "Update checksum mismatch")
+        return resp.content
+
     async def complete(self, lease_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         return (await self.call("POST", f"/v1/leases/{lease_id}/complete", json=payload)).json()
 

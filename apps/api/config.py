@@ -54,6 +54,8 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
     artifact_root: Path = Path("/var/lib/spareagent/artifacts")
+    # D-103: prebuilt Mac App releases offered to registered devices as in-app updates.
+    app_release_dir: Path = Path("/var/lib/spareagent/app-release")
 
     lease_seconds: int = Field(default=60, ge=1, le=3600)
     worker_heartbeat_ttl_seconds: int = Field(default=30, ge=1, le=3600)

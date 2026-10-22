@@ -30,6 +30,16 @@ python scripts/owner_install_link.py revoke 小明                # 装好后即
 
 首次启用需要私有目录里的 `nginx.conf` 有 `/install/` 规则、`compose.yaml` 给 `tls` 挂载 `./private/install`，然后重建 `tls` 容器（见私有目录 README）。
 
+## 发布 App 更新（D-103）
+
+已装 App 的提供者不用重新运行安装命令。编译新版预编译 App（`python scripts/build_macos_app.py --arch arm64`，版本号在脚本里）后运行：
+
+```sh
+python scripts/owner_install_link.py publish-update
+```
+
+它把 `output/macos-app/SpareAgent-mac-arm64.zip` 复制到私有目录的 `private/app-release/`，写入版本和校验值；比已发布版本旧的包会被拒绝。API 只把它提供给已注册的设备。提供者的菜单栏会在 6 小时内出现「更新到 x.y…」，点了才会安装：先停止接新任务、等运行中的任务结束，然后替换并重新打开 App，失败时自动恢复旧版。首次启用需要 `compose.yaml` 给 `api` 挂载 `./private/app-release:/var/lib/spareagent/app-release:ro`，并部署含本功能的镜像（见私有目录 README）。新的一行安装链接仍需用 `create` 单独生成。
+
 ## 只检查或升级源码
 
 在代码目录执行：

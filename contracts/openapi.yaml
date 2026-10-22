@@ -218,6 +218,36 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/WorkerSelf'}
         '401': {$ref: '#/components/responses/ApiError'}
+  /v1/workers/me/app-release:
+    get:
+      operationId: getAppRelease
+      description: 'D-103. The newest Mac App the operator published for this CPU; the App compares the build.'
+      security: [{nodeAuth: []}]
+      parameters:
+        - {name: arch, in: query, required: true, schema: {type: string, enum: [arm64, x86_64]}}
+      responses:
+        '200':
+          description: published release
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AppRelease'}
+        '401': {$ref: '#/components/responses/ApiError'}
+        '404': {$ref: '#/components/responses/ApiError'}
+  /v1/workers/me/app-release/download:
+    get:
+      operationId: downloadAppRelease
+      description: 'D-103. The release ZIP; X-Content-SHA256 repeats the checksum from getAppRelease.'
+      security: [{nodeAuth: []}]
+      parameters:
+        - {name: arch, in: query, required: true, schema: {type: string, enum: [arm64, x86_64]}}
+      responses:
+        '200':
+          description: App ZIP
+          content:
+            application/zip:
+              schema: {type: string, format: binary}
+        '401': {$ref: '#/components/responses/ApiError'}
+        '404': {$ref: '#/components/responses/ApiError'}
   /v1/workers/{worker_id}/credentials/rotate:
     post:
       operationId: rotateNodeCredentials
@@ -1667,6 +1697,14 @@ components:
         token: {type: string}
         resource_id: {type: string, format: uuid}
         expires_at: {type: string, format: date-time}
+    AppRelease:
+      type: object
+      required: [version, build, sha256, size]
+      properties:
+        version: {type: string}
+        build: {type: integer}
+        sha256: {type: string}
+        size: {type: integer}
     WorkerSelf:
       type: object
       required: [worker_id, resource_id, name, status, max_concurrency, active_tasks]

@@ -40,6 +40,13 @@ class HeartbeatIn(BaseModel):
     capabilities: dict[str, Any] | None = None
 
 
+class AppReleaseOut(BaseModel):
+    version: str
+    build: int
+    sha256: str
+    size: int
+
+
 class WorkerSelf(BaseModel):
     worker_id: uuid.UUID
     resource_id: uuid.UUID

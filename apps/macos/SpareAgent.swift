@@ -108,6 +108,20 @@ func ownerEvents(previous: [String: Any]?, current: [String: Any]) -> [OwnerEven
     return events
 }
 
+/// The menu item for in-app updates (D-103): nil hides it (script launches, old workers).
+func updateMenu(_ state: [String: Any]) -> (title: String, enabled: Bool)? {
+    let update = state["update"] as? [String: Any] ?? [:]
+    let version = update["version"] as? String ?? ""
+    switch update["state"] as? String {
+    case "available": return ("更新到 \(version)…", true)
+    case "downloading": return ("正在下载更新…", false)
+    case "ready": return ("正在安装更新…", false)
+    case "failed": return ("更新没有完成，重试", true)
+    case "current", "idle": return ("检查更新", true)
+    default: return nil
+    }
+}
+
 /// Whether members open the dashboard without Tailscale (operator's FRIENDS_WEB_PUBLIC).
 func publicDashboard(_ state: [String: Any]) -> Bool {
     (state["server"] as? [String: Any])?["public_dashboard"] as? Bool ?? false
@@ -165,6 +179,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
     var loginItem: NSMenuItem!
     var resumeItem: NSMenuItem!
     var inviteWindow: NSWindow?
+    var updateItem: NSMenuItem!
+    var updateTimer: Timer?
+    var updatePending = false
+    var updateAppPath: String?
+    var manualCheck = false
     var previousState: [String: Any]?
     var askedNotifications = false
     var resumeChecked = false
@@ -232,6 +251,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
         resumeItem = entry("打开后恢复上次的在线状态", #selector(toggleResume))
         resumeItem.state = defaults.bool(forKey: "resumeOnline") ? .on : .off
         _ = entry("显示状态", #selector(showWindow))
+        updateItem = entry("检查更新", #selector(updateAction))
+        updateItem.isHidden = true
         menu.addItem(.separator())
         _ = entry("退出 " + appName, #selector(quit))
         item.menu = menu
@@ -331,6 +352,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
         process.arguments = [resources.appendingPathComponent("SpareAgent.command").path]
         var environment = ProcessInfo.processInfo.environment
         environment["SPAREAGENT_NATIVE_APP"] = "1"
+        environment["SPAREAGENT_APP_BUILD"] = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
         process.environment = environment
         process.currentDirectoryURL = resources
         let pipe = Pipe()
@@ -411,7 +433,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
         copyInviteItem.isEnabled = hasInvite
         qrItem.isEnabled = hasInvite
         notify(ownerEvents(previous: previousState, current: status))
+        let firstUpdate = previousState == nil
         previousState = status
+        showUpdate(status, first: firstUpdate)
         if phase == "ONLINE" { askNotificationPermission() }
         resumeIfWanted(status)
         openButton.isEnabled = true
@@ -491,13 +515,97 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
         }
     }
 
+    func showUpdate(_ status: [String: Any], first: Bool) {
+        let menu = updateMenu(status)
+        updateItem.isHidden = menu == nil || quitting
+        if let menu = menu {
+            updateItem.title = menu.title
+            updateItem.isEnabled = menu.enabled && !updatePending
+        }
+        guard menu != nil else { return }
+        if first {
+            request("update_check") { _, _ in }
+            updateTimer = Timer.scheduledTimer(withTimeInterval: 6 * 3600, repeats: true) { _ in
+                self.request("update_check") { _, _ in }
+            }
+            if let from = defaults.string(forKey: "updatedFrom") {
+                defaults.removeObject(forKey: "updatedFrom")
+                let now = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+                notify([OwnerEvent(title: "已更新到 \(now)", body: "之前是 \(from)。设备身份和分享设置都保留了。")])
+            }
+        }
+        let update = status["update"] as? [String: Any] ?? [:]
+        let state = update["state"] as? String
+        if manualCheck && (state == "current" || state == "available") {
+            manualCheck = false
+            if state == "current" { alert("已经是最新版本", "当前 App 就是运营者发布的最新版。") }
+        }
+        guard updatePending else { return }
+        if state == "ready", let path = update["app_path"] as? String {
+            updatePending = false
+            updateAppPath = path
+            defaults.set(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "",
+                         forKey: "updatedFrom")
+            NSApp.terminate(nil)
+        } else if state == "failed" {
+            updatePending = false
+            defaults.removeObject(forKey: "resumeAfterUpdate")
+            alert("更新没有完成", "下载或校验没有通过，原来的 App 没有改动。可以稍后在菜单栏重试。")
+        }
+    }
+
+    @objc func updateAction() {
+        let update = state["update"] as? [String: Any] ?? [:]
+        let state = update["state"] as? String
+        guard state == "available" || state == "failed" else {
+            manualCheck = true
+            request("update_check") { status, _ in if let status = status { self.update(status) } }
+            return
+        }
+        let confirm = NSAlert()
+        confirm.messageText = "更新到 \(update["version"] as? String ?? "新版本")"
+        confirm.informativeText = runningCount(self.state) > 0
+            ? "会先停止接新任务，等正在运行的任务完成后自动安装并重新打开 App。设备身份和分享设置会保留。"
+            : "会暂停分享，安装后自动重新打开 App。设备身份和分享设置会保留。"
+        confirm.addButton(withTitle: "更新")
+        confirm.addButton(withTitle: "取消")
+        NSApp.activate(ignoringOtherApps: true)
+        guard confirm.runModal() == .alertFirstButtonReturn else { return }
+        // Going back online after the update is part of what the owner just agreed to.
+        defaults.set(self.state["phase"] as? String == "ONLINE", forKey: "resumeAfterUpdate")
+        updatePending = true
+        updateItem.isEnabled = false
+        request("update_prepare") { status, _ in if let status = status { self.update(status) } }
+    }
+
+    func alert(_ title: String, _ text: String) {
+        let box = NSAlert()
+        box.messageText = title
+        box.informativeText = text
+        NSApp.activate(ignoringOtherApps: true)
+        box.runModal()
+    }
+
+    /// Hands the staged App to swap-app.sh, which waits for this App to exit.
+    func launchSwap(_ staged: String) {
+        guard let script = Bundle.main.resourceURL?.appendingPathComponent("swap-app.sh") else { return }
+        let copy = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("spareagent-swap-\(UUID().uuidString).sh")
+        guard (try? files.copyItem(at: script, to: copy)) != nil else { return }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = [copy.path, String(ProcessInfo.processInfo.processIdentifier), staged, Bundle.main.bundlePath]
+        try? process.run()
+    }
+
     /// Remembers whether sharing was on when the App last ran, and turns it back on at the
     /// next start only if the owner ticked the menu option.
     func resumeIfWanted(_ status: [String: Any]) {
         let phase = status["phase"] as? String ?? ""
         if !resumeChecked {
             resumeChecked = true
-            if defaults.bool(forKey: "resumeOnline") && defaults.bool(forKey: "wasOnline")
+            let afterUpdate = defaults.bool(forKey: "resumeAfterUpdate")
+            defaults.removeObject(forKey: "resumeAfterUpdate")
+            if (afterUpdate || (defaults.bool(forKey: "resumeOnline") && defaults.bool(forKey: "wasOnline")))
                 && phase == "OFFLINE" && status["consented"] as? Bool == true
                 && status["registered"] as? Bool == true {
                 goOnline()
@@ -609,7 +717,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
             canTerminate = true
             return .terminateNow
         }
-        guard let mode = offlineChoice(exiting: true) else { return .terminateCancel }
+        guard let mode = updateAppPath != nil ? "finish" : offlineChoice(exiting: true) else {
+            return .terminateCancel
+        }
         quitting = true
         showWindow()
         spinner.startAnimation(nil)
@@ -620,6 +730,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
                 self.update(status)
             } else {
                 self.quitting = false
+                self.updateAppPath = nil  // do not apply a staged update on some later quit
                 self.spinner.stopAnimation(nil)
                 self.message.stringValue = "退出请求没有完成。请打开控制页暂停分享后重试。"
                 NSApp.reply(toApplicationShouldTerminate: false)
@@ -631,6 +742,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
     func finishQuit() {
         guard quitting else { return }
         canTerminate = true
+        if let staged = updateAppPath { launchSwap(staged) }
         timer?.invalidate()
         NSApp.reply(toApplicationShouldTerminate: true)
     }
@@ -679,6 +791,11 @@ if CommandLine.arguments.contains("--self-test") {
     precondition(publicInvite.contains("\n2. 在网页里提交任务"))
     precondition(!publicDashboard(online) && publicDashboard(["server": ["public_dashboard": true]]))
     precondition(qrImage("https://h.ts.net:8443/#join=X", size: 220) != nil)
+    precondition(updateMenu(["phase": "OFFLINE"]) == nil)
+    precondition(updateMenu(["update": ["state": "unsupported"]]) == nil)
+    precondition(updateMenu(["update": ["state": "current"]])! == ("检查更新", true))
+    precondition(updateMenu(["update": ["state": "available", "version": "0.15.0"]])! == ("更新到 0.15.0…", true))
+    precondition(updateMenu(["update": ["state": "downloading"]])!.enabled == false)
     print("PASS: local endpoint validation, task count and status labels, menu title, owner notifications, invite")
 } else {
     let app = NSApplication.shared

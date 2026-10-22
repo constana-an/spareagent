@@ -11,12 +11,14 @@ import binascii
 import uuid
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
+from fastapi.responses import FileResponse
 
 from apps.api.dependencies import get_ctx, parse_uuid_or_404
 from apps.api.middleware.auth import get_principal
 from apps.api.middleware.node_auth import get_node_auth, get_node_principal
 from apps.api.schemas.workers import (
     AccessTokenOut,
+    AppReleaseOut,
     CompletionOut,
     EnrollmentCreate,
     EnrollmentOut,
@@ -31,6 +33,7 @@ from apps.api.schemas.workers import (
     WorkerSelf,
 )
 from packages.provider_sdk.types import ArtifactPayload
+from services.app_release import load_release
 from services.context import AppContext
 from services.errors import DomainError
 from services.execution.remote import RemoteWorkerService, assert_path_scope
@@ -138,6 +141,45 @@ async def worker_self(
     node: NodePrincipal = Depends(get_node_principal), ctx: AppContext = Depends(get_ctx)
 ) -> WorkerSelf:
     return WorkerSelf(**await _remote(ctx).describe(node))
+
+
+ARCH = Query(pattern="^(arm64|x86_64)$")
+
+
+def _release(ctx: AppContext, arch: str) -> dict:
+    release = load_release(ctx.settings.app_release_dir, arch)
+    if release is None:
+        raise DomainError(404, "NO_APP_RELEASE", "No App release is published for this CPU")
+    return release
+
+
+@router.get("/workers/me/app-release", operation_id="getAppRelease", response_model=AppReleaseOut)
+async def app_release(
+    arch: str = ARCH,
+    node: NodePrincipal = Depends(get_node_principal),
+    ctx: AppContext = Depends(get_ctx),
+) -> AppReleaseOut:
+    """The newest App the operator published (D-103); the App compares the build."""
+    release = _release(ctx, arch)
+    return AppReleaseOut(**{k: release[k] for k in ("version", "build", "sha256", "size")})
+
+
+@router.get(
+    "/workers/me/app-release/download",
+    operation_id="downloadAppRelease",
+    response_class=FileResponse,
+)
+async def download_app_release(
+    arch: str = ARCH,
+    node: NodePrincipal = Depends(get_node_principal),
+    ctx: AppContext = Depends(get_ctx),
+) -> FileResponse:
+    release = _release(ctx, arch)
+    return FileResponse(
+        release["path"],
+        media_type="application/zip",
+        headers={"X-Content-SHA256": release["sha256"], "Cache-Control": "no-store"},
+    )
 
 
 @router.get("/workers/me/pilot-readiness", operation_id="getWorkerPilotReadiness")
