@@ -2,7 +2,8 @@
 
 ## 给提供算力的人（完全不需要懂技术）
 
-1. 默认使用免费本机安装包 `SpareAgent-local-install-arm64.zip`（Apple Silicon）。解压后按 [LOCAL_APP_INSTALL.md](LOCAL_APP_INSTALL.md) 在终端运行一次 `Install-SpareAgent.sh`。脚本会检查文件、在你的 Mac 上编译菜单栏 App，安装到个人 Applications 文件夹并打开。缺少 Apple 命令行工具时，按系统提示安装后重新运行脚本。无需 Apple 开发者会员、Homebrew、Python、Node 或完整 Xcode；首次编译工具安装可能需要等待。
+1. 推荐用**一行命令安装**：先安装并登录 Tailscale，连上运营者的私网，然后打开「终端」，粘贴运营者私下发给你的那一行 `curl -fsSL https://…/install/…/install.sh | bash` 并回车。它会下载运营者预先编译好的 App，核对校验值和签名，安装到个人 Applications 文件夹并打开；不需要 Apple 命令行工具，也不用解压或编译。这个链接含注册码，只给你一个人用，过期或被撤销后失效；需要重装或更新时向运营者要新链接，已注册的设备、小组和设置都会保留。
+   备用方式：免费本机安装包 `SpareAgent-local-install-arm64.zip`（Apple Silicon）。解压后按 [LOCAL_APP_INSTALL.md](LOCAL_APP_INSTALL.md) 在终端运行一次 `Install-SpareAgent.sh`，在你的 Mac 上编译菜单栏 App；缺少 Apple 命令行工具时按系统提示安装后重新运行。两种方式都无需 Apple 开发者会员、Homebrew、Python、Node 或完整 Xcode。
 2. 以后双击 `SpareAgent.app` 即可启动，不需要终端。首次启动会在窗口中准备随包提供的 Python 和 Worker，并在安装前校验。本机编译不等于 Apple 公证，不能保证所有 macOS 版本和受管理电脑都没有额外系统提示。已有的预编译测试 App 包仍可使用，首次可能需要本人按 macOS 提示放行。
 3. 当前私网版本需先安装并登录 Tailscale，确认已连接运营者的私网。浏览器里会打开「SpareAgent · 一键提供算力」页面。确认订阅类型，阅读分享说明，首次点 **同意并上线**，以后点 **上线**。设备名称和连接方式已自动填写，通常无需修改；需要时展开「设备名称与连接方式」，名称支持中文和空格。如果安装包里有多个网络（例如局域网和 Tailscale），「自动」会先试能连上的那个；不在同一个 Wi‑Fi 时用 Tailscale（你要登录运营者的 tailnet，或运营者把服务器共享给你）。只能在下线时切换。
    - 没有 Codex CLI 时自动下载运营者固定版本的官方 Codex（约 100 MB，校验 SHA-512 后放在 Worker 自己的目录，不改动系统）；
