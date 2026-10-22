@@ -2,6 +2,7 @@
 
 import os
 import subprocess
+import threading
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -33,9 +34,11 @@ def run(script, *args):
 
 def test_swaps_in_the_staged_app_and_removes_the_backup(tmp_path):
     target, staged, script = setup(tmp_path)
-    # The quitting App: detached, so it is reaped (not a zombie) once it exits.
-    pid = int(subprocess.check_output(["bash", "-c", "sleep 0.5 >/dev/null 2>&1 & echo $!"]))
-    assert run(script, pid, staged, target).returncode == 0
+    # The quitting App. A thread reaps it as soon as it exits; otherwise it would stay a
+    # zombie (still visible to `kill -0`), e.g. in a container where nothing reaps orphans.
+    app = subprocess.Popen(["sleep", "0.5"])
+    threading.Thread(target=app.wait, daemon=True).start()
+    assert run(script, app.pid, staged, target).returncode == 0
     assert (target / "version").read_text() == "new"
     assert not staged.exists()
     assert not list(target.parent.glob(".SpareAgent-previous-*"))
