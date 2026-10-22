@@ -3,6 +3,7 @@ import CoreImage
 import Foundation
 import ServiceManagement
 import UserNotifications
+import WebKit
 
 struct PanelEndpoint {
     let url: URL
@@ -377,6 +378,83 @@ final class StatusCard: NSView {
     }
 }
 
+/// The control page in the App's own window instead of a browser tab (D-104). Only the local
+/// page loads here; any other link opens in the default browser.
+final class ConsoleWindow: NSObject, WKUIDelegate, WKNavigationDelegate, WKScriptMessageHandler {
+    let window: NSWindow
+    let web: WKWebView
+    var origin: URL?
+
+    override init() {
+        let config = WKWebViewConfiguration()
+        web = WKWebView(frame: NSRect(x: 0, y: 0, width: 1080, height: 720), configuration: config)
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1080, height: 720),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        super.init()
+        config.userContentController.add(self, name: "copy")
+        web.uiDelegate = self
+        web.navigationDelegate = self
+        window.title = "SpareAgent 控制台"
+        window.minSize = NSSize(width: 720, height: 480)
+        window.isReleasedWhenClosed = false
+        window.contentView = web
+        window.setFrameAutosaveName("SpareAgentConsole")
+        if !window.setFrameUsingName("SpareAgentConsole") { window.center() }
+    }
+
+    /// Shows the page, reloading only when the worker restarted on a new address or key.
+    func show(_ endpoint: PanelEndpoint) {
+        if web.url?.absoluteString != endpoint.url.absoluteString || web.url == nil {
+            origin = endpoint.origin
+            web.load(URLRequest(url: endpoint.url))
+        }
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func local(_ url: URL?) -> Bool {
+        guard let url = url, let origin = origin else { return false }
+        return url.scheme == origin.scheme && url.host == origin.host && url.port == origin.port
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
+                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        if local(action.request.url) || action.request.url?.scheme == "about" { decisionHandler(.allow); return }
+        if let url = action.request.url { NSWorkspace.shared.open(url) }
+        decisionHandler(.cancel)
+    }
+
+    // window.open (e.g. the web dashboard link) goes to the default browser.
+    func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
+                 for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+        if let url = action.request.url, !local(url) { NSWorkspace.shared.open(url) }
+        return nil
+    }
+
+    func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String,
+                 initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.beginSheetModal(for: window) { _ in completionHandler() }
+    }
+
+    func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String,
+                 initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.addButton(withTitle: "确定")
+        alert.addButton(withTitle: "取消")
+        alert.beginSheetModal(for: window) { completionHandler($0 == .alertFirstButtonReturn) }
+    }
+
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.name == "copy", let text = message.body as? String, text.count < 10_000,
+              local(message.frameInfo.request.url) else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNotificationCenterDelegate {
     let files = FileManager.default
     let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "SpareAgent"
@@ -399,6 +477,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
     var loginItem: NSMenuItem!
     var resumeItem: NSMenuItem!
     var inviteWindow: NSWindow?
+    var console: ConsoleWindow?
     var updateItem: NSMenuItem!
     var updateTimer: Timer?
     var updatePending = false
@@ -458,7 +537,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
         let cardItem = NSMenuItem()
         cardItem.view = card
         menu.addItem(cardItem)
-        _ = entry("打开控制页", #selector(openPanel))
+        _ = entry("打开控制台", #selector(openPanel))
+        let browserItem = entry("在浏览器中打开控制台", #selector(openInBrowser))
+        browserItem.isAlternate = true
+        browserItem.keyEquivalentModifierMask = .option
         onlineItem = entry("上线", #selector(goOnline))
         onlineItem.isHidden = true
         pauseItem = entry("暂停分享", #selector(pauseSharing))
@@ -705,11 +787,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
     }
 
     @objc func openPanel() {
-        if let endpoint = endpoint, ready { NSWorkspace.shared.open(endpoint.url) }
-        else { showWindow() }
+        guard let endpoint = endpoint, ready else { showWindow(); return }
+        let console = self.console ?? ConsoleWindow()
+        self.console = console
+        console.show(endpoint)
     }
 
-    @objc func reopenPanel() { showWindow(); openPanel() }
+    @objc func openInBrowser() {
+        if let endpoint = endpoint, ready { NSWorkspace.shared.open(endpoint.url) } else { showWindow() }
+    }
+
+    @objc func reopenPanel() { openPanel() }
 
     func offlineChoice(exiting: Bool) -> String? {
         guard runningCount(state) > 0 else { return "finish" }
