@@ -110,6 +110,43 @@ def test_conflicting_route_is_not_overwritten(deployment, conflict):
     assert all("--bg" not in args and "up" not in args for args in deployment.calls)
 
 
+def test_public_dashboard_turns_on_funnel_for_the_web_port_only(deployment, monkeypatch, tmp_path):
+    instance = deployment.instance
+    instance.check = False
+    instance.work = tmp_path
+    (deployment.directory / "operator.json").write_text(
+        json.dumps(
+            {
+                "dashboard_url": "https://fixture.ts.net:8443",
+                "api_url": "https://fixture.ts.net:8444",
+                "public_dashboard": True,
+            }
+        )
+    )
+    monkeypatch.setattr(instance, "build_python", lambda: "/test/python")
+    monkeypatch.setattr(instance, "backup", lambda snapshot: None)
+    monkeypatch.setattr(instance, "package", lambda python: {"reused": True})
+    assert instance.apply()["healthy"]
+    changes = [args[1:] for args in deployment.calls if "--bg" in args]
+    assert changes == [["funnel", "--bg", "--https=8443", "http://127.0.0.1:13000"]]
+
+
+def test_public_dashboard_still_refuses_funnel_on_the_api_port(deployment):
+    (deployment.directory / "operator.json").write_text(
+        json.dumps(
+            {
+                "dashboard_url": "https://fixture.ts.net:8443",
+                "api_url": "https://fixture.ts.net:8444",
+                "public_dashboard": True,
+            }
+        )
+    )
+    deployment.routes["AllowFunnel"]["fixture.ts.net:8443"] = True
+    deployment.routes["AllowFunnel"]["fixture.ts.net:8444"] = True
+    with pytest.raises(operator.OperatorError, match="8444.*Funnel"):
+        deployment.instance.apply()
+
+
 @pytest.mark.parametrize("busy,authorized", [(1, True), (0, False)])
 def test_tasks_or_invalid_authorization_stop_maintenance(deployment, busy, authorized):
     deployment.snapshot.update(busy=busy, authorization_ok=authorized)

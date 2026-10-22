@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     # More dashboard origins for the same server on other networks (comma-separated), e.g.
     # the Tailscale address next to the LAN one. `friends_web_origin` stays the primary.
     friends_web_extra_origins: str = ""
+    # D-102: the dashboard origin is reachable from the internet (Tailscale Funnel), so
+    # members need only a browser. Devices and the API stay on the private network.
+    friends_web_public: bool = False
     friends_session_hours: int = Field(default=12, ge=1, le=24)
     # Sessions started by joining with a group invite code (members on their own browser).
     friends_member_session_days: int = Field(default=90, ge=1, le=365)

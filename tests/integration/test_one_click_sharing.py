@@ -356,6 +356,18 @@ async def members_of(oc, node) -> list[str]:
     return sorted(m["user_id"] for m in status["members"])
 
 
+async def test_status_says_whether_members_need_tailscale(oc, octx):
+    node = await signup_device(oc)
+    status = await go_online(oc, node)
+    assert status["public_dashboard"] is False
+    public = build_context(octx.settings.model_copy(update={"friends_web_public": True}))
+    try:
+        async with client_for(public) as c:
+            assert (await ok(await owner(c, node, "GET", "")))["public_dashboard"] is True
+    finally:
+        await public.aclose()
+
+
 async def test_member_session_is_long_and_rejoining_keeps_the_same_account(oc, octx):
     node = await signup_device(oc)
     status = await go_online(oc, node)
