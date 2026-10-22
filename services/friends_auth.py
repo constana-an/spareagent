@@ -14,6 +14,9 @@ from services.errors import DomainError
 from services.tasks.service import Principal
 
 COOKIE = "sa_friends_session"
+# Member cookies outlive the server-side session (browsers cap cookies at 400 days) so an
+# expired session can still say who this browser belonged to when the member rejoins.
+MEMBER_COOKIE_DAYS = 400
 
 
 def digest(token: str) -> str:
@@ -64,3 +67,23 @@ async def session_principal(request: Request, ctx: AppContext) -> Principal:
         if user is None or (user.role != "ADMIN" and not await invited(session, user.id)):
             raise DomainError(401, "UNAUTHENTICATED", "Session expired or access withdrawn")
         return Principal(user_id=user.id, role=user.role)
+
+
+async def remembered_principal(request: Request, ctx: AppContext) -> Principal | None:
+    """Who this browser's session belonged to, even after it expired. Only for rejoining
+    with an invite code, which is checked separately; a logged-out (revoked) session and
+    a deleted user give nothing."""
+    token = request.cookies.get(COOKIE, "")
+    if not 20 <= len(token) <= 256:
+        return None
+    async with ctx.sessionmaker() as session:
+        row = (
+            await session.execute(
+                select(FriendsSession).where(
+                    FriendsSession.token_digest == digest(token),
+                    FriendsSession.revoked_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        user = await session.get(User, row.user_id) if row else None
+        return Principal(user_id=user.id, role=user.role) if user else None

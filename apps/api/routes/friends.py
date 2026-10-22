@@ -25,7 +25,15 @@ from db.models import (
 from services.errors import DomainError
 from services.experiments.participation import ExperimentalParticipationService, _audit
 from services.experiments.self_serve import SelfServeSharingService
-from services.friends_auth import COOKIE, check_origin, digest, invited, session_principal
+from services.friends_auth import (
+    COOKIE,
+    MEMBER_COOKIE_DAYS,
+    check_origin,
+    digest,
+    invited,
+    remembered_principal,
+    session_principal,
+)
 from services.tasks.service import Principal
 
 router = APIRouter(prefix="/v1/friends", tags=["friends"])
@@ -122,9 +130,18 @@ async def login(body: Login, request: Request, response: Response) -> Identity:
     return identity(user.id, user.role, ctx)
 
 
-async def _open_session(session, request: Request, response: Response, ctx, user_id) -> None:
-    """Rotate any current browser session and set a new one for `user_id`."""
+async def _open_session(
+    session, request: Request, response: Response, ctx, user_id, *, member: bool = False
+) -> None:
+    """Rotate any current browser session and set a new one for `user_id`. Members who
+    joined with an invite code get a long session and a cookie that outlives it."""
     now = datetime.now(UTC)
+    if member:
+        lifetime = timedelta(days=ctx.settings.friends_member_session_days)
+        cookie_seconds = MEMBER_COOKIE_DAYS * 86400
+    else:
+        lifetime = timedelta(hours=ctx.settings.friends_session_hours)
+        cookie_seconds = ctx.settings.friends_session_hours * 3600
     token = secrets.token_urlsafe(32)
     if request.cookies.get(COOKIE):
         await session.execute(
@@ -136,7 +153,7 @@ async def _open_session(session, request: Request, response: Response, ctx, user
         FriendsSession(
             user_id=user_id,
             token_digest=digest(token),
-            expires_at=now + timedelta(hours=ctx.settings.friends_session_hours),
+            expires_at=now + lifetime,
         )
     )
     response.set_cookie(
@@ -145,7 +162,7 @@ async def _open_session(session, request: Request, response: Response, ctx, user
         httponly=True,
         secure=ctx.settings.app_env != "local",
         samesite="strict",
-        max_age=ctx.settings.friends_session_hours * 3600,
+        max_age=cookie_seconds,
         path="/",
     )
 
@@ -155,18 +172,20 @@ async def join_with_code(body: JoinCodeIn, request: Request, response: Response)
     """Join a one-click sharing group with its invite code; signs the browser in."""
     ctx = require_enabled(request)
     check_origin(request, ctx)
-    principal = None
+    principal, signed_in = None, False
     if request.cookies.get(COOKIE):
         try:
-            principal = await session_principal(request, ctx)
+            principal, signed_in = await session_principal(request, ctx), True
         except DomainError:
-            principal = None  # stale session: join as a new participant
+            # Expired, or removed from the group: rejoin as the same person rather than
+            # as a new participant who would take another seat and lose their history.
+            principal = await remembered_principal(request, ctx)
     user_id, role, _ = await SelfServeSharingService(ctx).join_with_code(
         principal, body.code, body.acknowledgements, body.terms_version
     )
-    if principal is None or principal.user_id != user_id:
+    if not signed_in or principal.user_id != user_id:
         async with ctx.sessionmaker() as session, session.begin():
-            await _open_session(session, request, response, ctx, user_id)
+            await _open_session(session, request, response, ctx, user_id, member=True)
     response.headers["Cache-Control"] = "no-store"
     return identity(user_id, role, ctx)
 

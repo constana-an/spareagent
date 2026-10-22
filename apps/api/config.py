@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     # the Tailscale address next to the LAN one. `friends_web_origin` stays the primary.
     friends_web_extra_origins: str = ""
     friends_session_hours: int = Field(default=12, ge=1, le=24)
+    # Sessions started by joining with a group invite code (members on their own browser).
+    friends_member_session_days: int = Field(default=90, ge=1, le=365)
 
     database_url: str = "postgresql+asyncpg://spareagent:spareagent@localhost:55432/spareagent"
     redis_url: str = "redis://localhost:56379/0"

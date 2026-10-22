@@ -312,6 +312,7 @@ export default function Dashboard() {
     saveLang(next);
   };
   const [loginTab, setLoginTab] = useState<"signin" | "join">("signin"),
+    [returning, setReturning] = useState(false),
     [joinCode, setJoinCode] = useState(""),
     [joinAcksLogin, setJoinAcksLogin] = useState<Record<string, boolean>>({});
   const [me, setMe] = useState<Me | null>(null),
@@ -403,6 +404,14 @@ export default function Dashboard() {
     if (join) {
       setJoinCode(join);
       setLoginTab("join");
+    } else if (!login) {
+      // A member whose session ran out rejoins with the invite code, not an operator code.
+      try {
+        if (localStorage.getItem("sa_member") === "1") {
+          setReturning(true);
+          setLoginTab("join");
+        }
+      } catch {}
     }
     const start = login
       ? api<Me>("friends/login", "POST", { token: login })
@@ -716,6 +725,7 @@ export default function Dashboard() {
           </>
         ) : (
           <>
+            {returning && <p className="notice">{t("rejoin_hint")}</p>}
             <p>{t("join_intro")}</p>
             <form
               onSubmit={(e) => {
@@ -728,6 +738,9 @@ export default function Dashboard() {
                       acknowledgements: joinAcksLogin,
                     }),
                   );
+                  try {
+                    localStorage.setItem("sa_member", "1");
+                  } catch {}
                 }, t("joined_group"));
               }}
             >
