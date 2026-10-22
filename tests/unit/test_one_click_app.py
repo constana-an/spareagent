@@ -13,7 +13,7 @@ import pytest
 
 from packages.worker.app import AppError, Bundle, Controller, load_app_state
 from packages.worker.app_server import AppServer
-from packages.worker.lease_client import WorkerApiError
+from packages.worker.lease_client import TransportError, WorkerApiError
 from packages.worker.local_controls import LocalSharingControl
 from packages.worker.state import load_state
 
@@ -89,6 +89,10 @@ class FakeClient:
         pass
 
 
+async def reachable(_url):
+    return True
+
+
 def make_controller(tmp_path, codex=None, bundle=BUNDLE):
     log: list = []
     agent_runs: list = []
@@ -102,6 +106,7 @@ def make_controller(tmp_path, codex=None, bundle=BUNDLE):
         tmp_path,
         bundle,
         codex=codex or FakeCodex(),
+        probe=reachable,
         client_factory=lambda state: FakeClient(log),
         agent_factory=agent,
     )
@@ -140,6 +145,89 @@ async def test_one_click_goes_online_then_offline(tmp_path):
     assert c.snap.phase == "OFFLINE"
 
 
+@pytest.mark.parametrize("label", ["小安的 Mac", "Alice Mac", "工作电脑 💻"])
+async def test_display_name_is_separate_from_registration_identifier(tmp_path, label):
+    from apps.api.schemas.workers import WorkerRegistration
+
+    registered = []
+
+    class Client(FakeClient):
+        async def register(self, token, **kw):
+            registered.append(WorkerRegistration.model_validate(kw))
+            return await super().register(token, **kw)
+
+        async def sharing_online(self, body):
+            assert body["device_label"] == label
+            return await super().sharing_online(body)
+
+    log = []
+    c = Controller(
+        tmp_path,
+        BUNDLE,
+        codex=FakeCodex(),
+        probe=reachable,
+        client_factory=lambda state: Client(log),
+        agent_factory=lambda stop: stop.wait(),
+        git_check=lambda: True,
+    )
+    try:
+        await c.go_online({"device_label": label})
+        assert c.snap.phase == "ONLINE", c.snap.error
+        assert log[0] == ("signup", label)
+        assert registered[0].name == f"spareagent-{registered[0].resource_id}"
+        assert load_state(tmp_path).name == registered[0].name
+        assert c.snapshot()["device_label"] == label
+    finally:
+        await c.shutdown()
+
+
+@pytest.mark.parametrize("failure_step", ["register", "online"])
+async def test_retry_resumes_saved_registration_and_self_check(tmp_path, failure_step):
+    log, attempts = [], []
+
+    class Client(FakeClient):
+        async def register(self, token, **kw):
+            attempts.append(("register", token, kw["name"]))
+            if failure_step == "register" and len(attempts) == 1:
+                raise TransportError("connection refused before registration")
+            return await super().register(token, **kw)
+
+        async def sharing_online(self, body):
+            attempts.append(("online",))
+            if failure_step == "online" and sum(a[0] == "online" for a in attempts) == 1:
+                raise TransportError("coordinator temporarily unavailable")
+            return await super().sharing_online(body)
+
+    codex = FakeCodex(logged_in=False)
+
+    def controller():
+        return Controller(
+            tmp_path,
+            BUNDLE,
+            codex=codex,
+            probe=reachable,
+            client_factory=lambda state: Client(log),
+            agent_factory=lambda stop: stop.wait(),
+            git_check=lambda: True,
+        )
+
+    c = controller()
+    await c.go_online({"device_label": "小安的 Mac"})
+    assert c.snap.phase == "ERROR" and c.snap.error["code"] == "service_unreachable"
+    # Restarting the application must also preserve progress, not just clicking retry.
+    c = controller()
+    try:
+        await c.go_online({})
+        assert c.snap.phase == "ONLINE", c.snap.error
+        assert [a[0] for a in log].count("signup") == 1
+        assert codex.calls == ["login", "owner_check"]
+        registrations = [a for a in attempts if a[0] == "register"]
+        assert len(registrations) == (2 if failure_step == "register" else 1)
+        assert len(set(registrations)) == 1  # same valid enrollment and stable name
+    finally:
+        await c.shutdown()
+
+
 @pytest.mark.parametrize(
     ("codex", "bundle", "code"),
     [
@@ -164,6 +252,7 @@ async def test_rejected_settings_are_not_remembered_locally(tmp_path):
         tmp_path,
         BUNDLE,
         codex=FakeCodex(),
+        probe=reachable,
         client_factory=lambda state: RejectingClient([]),
         agent_factory=lambda stop: stop.wait(),
     )
@@ -234,6 +323,74 @@ def test_dns_rebinding_host_is_refused(server):
     )
 
 
+async def test_desktop_pause_never_starts_an_offline_device(tmp_path):
+    codex = FakeCodex()
+    c, log, agent_runs = make_controller(tmp_path, codex)
+    srv = AppServer(c, asyncio.get_running_loop(), stop=asyncio.Event())
+    srv.serve_in_thread()
+    try:
+        state = await srv._call("pause", {"offline_mode": "now"})
+        await srv._desktop_task
+        assert state["desktop_protocol"] == 1
+        assert c.snap.phase == "OFFLINE"
+        assert not codex.calls and not log and not agent_runs
+        with pytest.raises(AppError):
+            await srv._call("shutdown", {"offline_mode": "invalid"})
+    finally:
+        await asyncio.to_thread(srv.close)
+
+
+async def test_desktop_shutdown_waits_for_running_tasks_and_blocks_new_online(tmp_path):
+    c, _, _ = make_controller(tmp_path)
+    drained, finish = asyncio.Event(), asyncio.Event()
+
+    async def agent(stop):
+        await stop.wait()
+        drained.set()
+        await finish.wait()
+        return True
+
+    c._agent_factory = agent
+    await c.go_online({})
+    stop = asyncio.Event()
+    srv = AppServer(c, asyncio.get_running_loop(), stop=stop)
+    srv.serve_in_thread()
+    try:
+        state = await srv._call("shutdown", {"offline_mode": "finish"})
+        await drained.wait()
+        assert state["phase"] == "STOPPING" and not stop.is_set()
+        assert LocalSharingControl(tmp_path).paused
+        with pytest.raises(AppError):
+            await srv._call("toggle", {})
+        finish.set()
+        await srv._desktop_task
+        assert stop.is_set() and c.snap.phase == "OFFLINE"
+    finally:
+        finish.set()
+        await c.shutdown()
+        await asyncio.to_thread(srv.close)
+
+
+async def test_desktop_shutdown_cancels_a_pending_login(tmp_path):
+    class SlowCodex(FakeCodex):
+        async def login(self):
+            await asyncio.sleep(3600)
+
+    c, log, _ = make_controller(tmp_path, SlowCodex(logged_in=False))
+    c.start_toggle({})
+    await asyncio.sleep(0.01)
+    stop = asyncio.Event()
+    srv = AppServer(c, asyncio.get_running_loop(), stop=stop)
+    srv.serve_in_thread()
+    try:
+        await srv._call("shutdown", {})
+        await srv._desktop_task
+        assert stop.is_set() and c.snap.phase == "OFFLINE" and not log
+    finally:
+        await c.shutdown()
+        await asyncio.to_thread(srv.close)
+
+
 async def test_capability_settings_and_tool_state_reach_the_page(tmp_path):
     sent = []
 
@@ -246,6 +403,7 @@ async def test_capability_settings_and_tool_state_reach_the_page(tmp_path):
         tmp_path,
         BUNDLE,
         codex=FakeCodex(),
+        probe=reachable,
         client_factory=lambda state: Client([]),
         agent_factory=lambda stop: stop.wait(),
         git_check=lambda: True,
@@ -363,9 +521,9 @@ async def test_auto_picks_the_first_reachable_network_and_owner_can_pin_one(tmp_
         tmp_path,
         two_network_bundle(tmp_path),
         codex=FakeCodex(),
+        probe=probe,
         client_factory=lambda state: FakeClient([]),
         agent_factory=lambda stop: stop.wait(),
-        probe=probe,
     )
     await c.resolve_network()
     assert c.network().id == "tailscale"  # off the home Wi-Fi: LAN is unreachable
@@ -406,6 +564,82 @@ def test_old_single_address_bundles_still_load(tmp_path):
     assert c.snapshot()["invite_links"] == []
 
 
+async def test_registered_device_uses_updated_bundle_trust_and_dashboard(tmp_path, monkeypatch):
+    import packages.worker.app as app_mod
+
+    c, _, _ = make_controller(tmp_path)
+    await c.go_online({"device_label": "My Mac", "subscription_type": "PLUS"})
+    await c.go_offline()
+    state = load_state(tmp_path)
+    state.ca_file = str(tmp_path / "obsolete-private-ca.pem")
+    c.bundle = Bundle(
+        api_url="https://server.example.ts.net:8444",
+        dashboard_url="https://server.example.ts.net:8443",
+        signup_code="s" * 24,
+        terms_version=BUNDLE.terms_version,
+    )
+    sent = {}
+
+    def client(url, **kwargs):
+        sent.update(api_url=url, **kwargs)
+
+    monkeypatch.setattr(app_mod, "NodeClient", client)
+    c._default_client(state)
+    assert sent["api_url"] == c.bundle.api_url
+    assert sent["ca_file"] is None and sent["node_key"] == state.node_key
+    assert c.snapshot()["dashboard_url"] == c.bundle.dashboard_url
+
+    async def dashboard_login(_name):
+        return {"dashboard_url": "https://old.example:13443", "token": "test-token"}
+
+    monkeypatch.setattr(c, "_owner_call", dashboard_login)
+    assert (await c.dashboard_link()).startswith(c.bundle.dashboard_url + "/#login=")
+
+
+@pytest.mark.parametrize("failure", [None, "certificate", "dns", "unready"])
+async def test_https_probe_checks_tls_and_readiness_without_inference(
+    tmp_path, monkeypatch, failure
+):
+    import socket
+    import ssl
+
+    import httpx
+
+    import packages.worker.app as app_mod
+
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        if failure == "certificate":
+            raise httpx.ConnectError("TLS") from ssl.SSLCertVerificationError(1, "wrong host")
+        if failure == "dns":
+            raise httpx.ConnectError("DNS") from socket.gaierror("offline")
+        return httpx.Response(503 if failure == "unready" else 200)
+
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        app_mod.httpx,
+        "AsyncClient",
+        lambda **kwargs: real_client(transport=httpx.MockTransport(handle), **kwargs),
+    )
+    c = Controller(tmp_path, Bundle("https://server.example.ts.net:8444", "s" * 24, "v1"))
+    await c.resolve_network()
+    expected = {
+        None: None,
+        "certificate": "certificate_invalid",
+        "dns": "tailscale_unreachable",
+        "unready": "service_unreachable",
+    }[failure]
+    assert c.snapshot()["connection_error"] == expected
+    assert c.snapshot()["networks"][0]["reachable"] is (failure is None)
+    assert [(r.method, r.url.path) for r in requests] == [("GET", "/readyz")]
+    if failure:
+        await c.go_online({})
+        assert c.snap.phase == "ERROR" and c.snap.error["code"] == expected
+        assert load_state(tmp_path) is None  # no registration or owner self-check
+
+
 async def test_owner_sets_member_limits_from_the_app(tmp_path):
     sent = []
 
@@ -418,6 +652,7 @@ async def test_owner_sets_member_limits_from_the_app(tmp_path):
         tmp_path,
         BUNDLE,
         codex=FakeCodex(),
+        probe=reachable,
         client_factory=lambda state: Client([]),
         agent_factory=lambda stop: stop.wait(),
         git_check=lambda: True,

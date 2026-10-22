@@ -107,6 +107,10 @@ async def test_missing_git_offers_apple_tools_but_still_goes_online(tmp_path, mo
     monkeypatch.setattr(app_mod, "request_git_install", lambda: asked.append(True))
     codex = FakeCodex(logged_in=False)
     log: list = []
+
+    async def reachable(_url):
+        return True
+
     c = Controller(
         tmp_path,
         BUNDLE,
@@ -114,6 +118,7 @@ async def test_missing_git_offers_apple_tools_but_still_goes_online(tmp_path, mo
         client_factory=lambda state: FakeClient(log),
         agent_factory=lambda stop: stop.wait(),
         git_check=lambda: False,
+        probe=reachable,
     )
     await c.go_online({"device_label": "Fresh Mac", "subscription_type": "PLUS"})
     # Document and table tasks do not need git: going online continues, and the device
@@ -122,3 +127,4 @@ async def test_missing_git_offers_apple_tools_but_still_goes_online(tmp_path, mo
     assert not (c.snap.phase == "ERROR" and c.snap.error["code"] == "git_missing")
     assert c.snap.step != "git_check"
     assert c.capabilities()["tools"]["git"] is False
+    await c.shutdown()

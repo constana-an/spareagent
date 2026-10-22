@@ -32,6 +32,7 @@ background:var(--off);color:#fff;box-shadow:0 10px 30px rgba(0,0,0,.18);transiti
 .big small{display:block;color:inherit;opacity:.85;font-size:13px;font-weight:400;margin-top:6px}
 .state{margin-top:14px;font-size:15px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin-top:16px}
+details>summary{cursor:pointer;font-weight:600}details{margin-top:12px}details[open]>summary{margin-bottom:12px}
 .consent ul{margin:8px 0 0;padding-left:20px}.consent li{margin:4px 0}
 .row{display:flex;gap:12px;flex-wrap:wrap}.row>label{flex:1 1 160px}
 label{display:block;font-size:13px;color:var(--muted)}
@@ -66,6 +67,32 @@ input.cap{width:7.5em;padding:4px 6px}
   <button class="lang" id="lang" type="button"></button>
 </header>
 
+<section class="card consent" id="consent">
+  <h2 data-t="before_title"></h2>
+  <label><span data-t="plan"></span>
+    <select id="plan"><option value="PLUS">ChatGPT Plus</option><option value="PRO">ChatGPT Pro</option></select>
+  </label>
+  <p class="muted" data-t="consent_intro"></p>
+  <ul>
+    <li id="summary_tasks"></li>
+    <li data-t="summary_credits"></li>
+    <li id="summary_network"></li>
+  </ul>
+  <details>
+    <summary data-t="sharing_details"></summary>
+    <ul id="ack"></ul>
+  </details>
+  <details id="connection_options">
+    <summary data-t="connection_options"></summary>
+    <div class="row">
+      <label><span data-t="device_name"></span><input id="device" maxlength="80"></label>
+      <label id="net_box" class="hidden"><span data-t="net_label"></span><select id="net"></select></label>
+    </div>
+    <p class="muted" data-t="device_hint"></p>
+    <p class="muted hidden" id="net_note"></p>
+  </details>
+</section>
+
 <section class="hero">
   <button class="big" id="big" type="button"></button>
   <div class="state" id="state" role="status" aria-live="polite"></div>
@@ -81,20 +108,7 @@ input.cap{width:7.5em;padding:4px 6px}
     </div>
   </div>
   <div class="error hidden" id="error" role="alert"></div>
-</section>
-
-<section class="card consent" id="consent">
-  <h2 data-t="before_title"></h2>
-  <div class="row">
-    <label><span data-t="device_name"></span><input id="device" maxlength="80"></label>
-    <label><span data-t="plan"></span>
-      <select id="plan"><option value="PLUS">ChatGPT Plus</option><option value="PRO">ChatGPT Pro</option></select>
-    </label>
-    <label id="net_box" class="hidden"><span data-t="net_label"></span><select id="net"></select></label>
-  </div>
-  <p class="muted hidden" id="net_note"></p>
-  <p class="muted" data-t="consent_intro"></p>
-  <ul id="ack"></ul>
+  <p class="muted hidden" id="retry_hint" data-t="retry_hint"></p>
 </section>
 
 <section class="card hidden" id="invite">
@@ -109,8 +123,8 @@ input.cap{width:7.5em;padding:4px 6px}
   <p class="muted" data-t="invite_help"></p>
 </section>
 
-<section class="card hidden" id="settings">
-  <h2 data-t="limits_title"></h2>
+<details class="card hidden" id="settings">
+  <summary data-t="limits_title"></summary>
   <div class="row">
     <label><span data-t="max_members"></span><input id="max_members" type="number" min="2"></label>
     <label><span data-t="max_tasks"></span><input id="max_tasks" type="number" min="1" max="50"></label>
@@ -126,7 +140,7 @@ input.cap{width:7.5em;padding:4px 6px}
     <button class="s p" id="save" type="button" data-t="save"></button>
     <small id="usage" role="status" aria-live="polite"></small>
   </div>
-</section>
+</details>
 
 <section class="card hidden" id="running">
   <h2 data-t="running_title"></h2>
@@ -152,7 +166,7 @@ input.cap{width:7.5em;padding:4px 6px}
 </section>
 
 <div class="notice hidden" id="notice" role="status" aria-live="polite"></div>
-<p><small data-t="footer"></small></p>
+<p><small id="footer" data-t="footer"></small></p>
 </main>
 <script>
 "use strict";
@@ -169,19 +183,28 @@ zh: {
  step_server_online:"开启分享与自动批准", step_worker_start:"启动接单程序",
  step_server_offline:"暂停分享", step_worker_stop:"停止接单程序",
  before_title:"上线前请确认", device_name:"设备名称（小组成员会看到）", plan:"你的订阅",
- consent_intro:"点击「上线」即表示你本人确认以下全部内容（随时可以点一下下线）：",
+ first_online:"同意并上线",
+ consent_intro:"阅读下面的分享说明。点击上线即表示你本人同意，随时可以暂停：",
+ sharing_details:"完整分享说明", connection_options:"设备名称与连接方式（通常无需修改）",
+ device_hint:"设备名称已自动填写，支持中文和空格；连接方式默认自动选择。",
+ summary_tasks_auto:"账号留在本机。成员的任务会在你允许的范围和上限内自动批准，在这台 Mac 上执行并消耗你的订阅额度。",
+ summary_tasks_manual:"账号留在本机。成员的任务经你批准后，在允许的范围和上限内使用这台 Mac 和你的订阅额度执行。",
+ summary_credits:"请确认：账号没有额外购买或赠送的 Credits，自动充值已关闭。首次上线会消耗少量订阅额度完成自检。",
+ summary_network_on:"允许成员勾选「需要联网」的任务联网，网站可见你的 IP，任务可能访问局域网设备。可在「小组与任务设置」中关闭。",
+ summary_network_off:"已关闭任务联网；成员的任务只能使用上传的材料。可在「小组与任务设置」中调整。",
+ retry_hint:"修复上面的提示后，点「重试上线」。已安装的组件和已通过的自检会保留。",
  ack_1:"这是私人、非商业的实验，没有任何付费、转售或报酬。",
  ack_2:"我的 ChatGPT 账号只在这台电脑的官方 Codex CLI 里登录，密码和登录凭据不会交给 SpareAgent 或任何人。",
- ack_3:"小组成员提交的任务会在设置的上限内自动批准，并使用我自己的订阅额度在这台电脑上运行（只限我允许的任务种类和工具，在隔离的临时目录中、不联网）。",
+ ack_3:"小组成员提交的任务会在设置的上限内自动批准，并使用我自己的订阅额度在这台电脑上运行（只限我允许的任务种类和工具，在隔离的临时目录中执行；仅在成员勾选且你允许时联网）。",
  ack_4:"我的账号没有额外购买或赠送的 Credits，并已关闭自动充值；分享只消耗订阅自带额度。",
- ack_5:"上线时会用我的额度运行一次很短的自检提示。",
+ ack_5:"首次上线时会用我的额度运行一次很短的自检提示；通过后不重复运行。",
  ack_6:"我可以随时调整人数和任务上限、移除成员、关闭自动批准或下线。",
  ack_7:"服务器运营者设置的总上限（例如小组最多人数）仍然适用。",
  ack_8:"默认允许成员的任务联网（勾选了「需要联网」的任务）：网站会看到你的 IP，任务能访问你家里网络中的设备。不想要可以在「本机工具」里取消「允许联网」。",
  invite_title:"小组邀请码", copy:"复制邀请链接", copied:"已复制", rotate:"换一个邀请码",
  invite_help:"把邀请链接或邀请码私下发给你信任的人。他们打开链接、勾选同意后即可加入并提交任务。换码后旧码立即失效。",
  invite_lost:"邀请码只在生成时显示一次。点「换一个邀请码」生成新的。",
- limits_title:"小组与任务上限（随时可改）", max_members:"小组人数上限（含你自己）",
+ limits_title:"小组与任务设置", max_members:"小组人数上限（含你自己）",
  max_tasks:"每 24 小时最多任务数", max_minutes:"单个任务最长（分钟）",
  auto_approve:"自动批准小组成员的任务", save:"保存", saved:"已保存",
  usage:(n,m)=>`过去 24 小时已接 ${n} / ${m} 个任务`, cap:(c)=>`（服务器上限 ${c} 人）`,
@@ -195,6 +218,7 @@ zh: {
  open_dashboard:"打开网页控制台",
  live_blocked:"注意：服务器暂未开启真实执行，任务会排队等待，直到运营者开启。",
  footer:"关闭这个页面不会下线；关闭运行它的终端窗口或按 Ctrl-C 会自动下线。",
+ footer_app:"关闭这个页面会继续运行。可从菜单栏打开控制页、暂停分享或退出 SpareAgent。",
  e_bundle_missing:"缺少运营者提供的连接配置（bundle.json）。请用运营者给你的安装包重新安装。", net_label:"连接方式", net_auto:"自动（先试可用的）", net_ok:"可连接", net_down:"连不上",
  net_using:(l)=>`当前使用：${l}`, net_hint:"局域网只在同一个 Wi‑Fi 下可用；不在一起时用 Tailscale（双方都要登录 Tailscale）。下线后才能切换。",
  e_network_locked:"请先下线，再切换连接方式。", links_title:"其他网络的链接：",
@@ -204,6 +228,9 @@ zh: {
  e_codex_login_required:"需要用你自己的 ChatGPT 账号登录 Codex（不要用 API Key）。",
  e_owner_check_failed:"本机自检没有通过。请确认 Codex 能正常使用后重试。",
  e_server_rejected:"服务器拒绝了请求：", e_server_unreachable:"连不上服务器，请检查网络：",
+ e_tailscale_unreachable:"无法连接 Tailscale 私网地址。请打开 Tailscale，确认已登录并连接到运营者的私网；若已连接，请联系运营者检查服务。",
+ e_certificate_invalid:"HTTPS 证书与地址不匹配或不受信任。请向运营者获取最新安装包；不要忽略证书警告。",
+ e_service_unreachable:"服务器没有响应或尚未就绪。请稍后重试；若仍失败，请联系运营者检查服务。",
  e_worker_stopped:"接单程序意外停止。", e_not_registered:"请先上线一次。",
  e_plan_invalid:"请选择订阅类型。", e_invalid_input:"输入有误：", e_unexpected:"发生意外错误：",
  s_QUEUED:"排队中", s_RESERVED:"已分配", s_RUNNING:"运行中", s_VERIFYING:"校验中", s_SUCCEEDED:"完成",
@@ -259,19 +286,28 @@ en: {
  step_server_online:"Enable sharing and automatic approval", step_worker_start:"Start the worker",
  step_server_offline:"Pause sharing", step_worker_stop:"Stop the worker",
  before_title:"Before you go online", device_name:"Device name (visible to your group)", plan:"Your plan",
- consent_intro:"By clicking “Go online” you personally confirm all of the following (one more click goes offline any time):",
+ first_online:"Agree and go online",
+ consent_intro:"Read the sharing terms below. Going online confirms your agreement; you can pause at any time:",
+ sharing_details:"Full sharing terms", connection_options:"Device name and connection (usually no changes needed)",
+ device_hint:"The device name is filled in automatically and supports Chinese and spaces. The connection defaults to automatic.",
+ summary_tasks_auto:"Credentials stay on this Mac. Members' tasks are automatically approved within your allowed scope and limits, run on this Mac and consume your plan usage.",
+ summary_tasks_manual:"Credentials stay on this Mac. After your approval, members' tasks run on this Mac using your plan, within your allowed scope and limits.",
+ summary_credits:"Confirm that your account has no additional purchased or granted Credits and auto-reload is off. The first startup uses a little plan usage for a self-check.",
+ summary_network_on:"Tasks marked “needs internet” may access the internet: websites see your IP and tasks may reach devices on your local network. Turn this off in “Group and task settings”.",
+ summary_network_off:"Task internet access is off; tasks can only use uploaded materials. Change this in “Group and task settings”.",
+ retry_hint:"Resolve the issue above, then retry. Installed components and a successful self-check are kept.",
  ack_1:"This is a private, non-commercial experiment with no payment, resale or compensation.",
  ack_2:"My ChatGPT account is signed in only in the official Codex CLI on this computer; my credentials are never given to SpareAgent or anyone.",
- ack_3:"Tasks from my group's members are approved automatically within my limits and run on this computer with my own plan usage (only the kinds and tools I allow, in an isolated temporary folder without network).",
+ ack_3:"Tasks from my group's members are approved automatically within my limits and run on this computer with my own plan usage (only the kinds and tools I allow, in an isolated temporary folder; network access requires both your permission and the member’s request).",
  ack_4:"My account holds no additional purchased or granted Credits and auto-reload is off; sharing only uses included plan usage.",
- ack_5:"Going online runs one very short self-check prompt on my plan.",
+ ack_5:"The first startup runs one very short self-check prompt on my plan; a successful check is reused.",
  ack_6:"I can change member and task limits, remove members, switch off automatic approval or go offline at any time.",
  ack_7:"The server operator's overall caps (such as the maximum group size) still apply.",
  ack_8:"Members' tasks may use the internet by default (those marked \u201cneeds internet\u201d): websites see your IP and tasks can reach devices on your home network. Untick \u201cAllow internet\u201d under device tools to turn it off.",
  invite_title:"Group invite code", copy:"Copy invite link", copied:"Copied", rotate:"New invite code",
  invite_help:"Send the link or code privately to people you trust. They open it, accept the terms and can submit tasks. A new code immediately invalidates the old one.",
  invite_lost:"The code is shown only when it is created. Click “New invite code” to issue another.",
- limits_title:"Group and task limits (change any time)", max_members:"Maximum members (including you)",
+ limits_title:"Group and task settings", max_members:"Maximum members (including you)",
  max_tasks:"Maximum tasks per 24 hours", max_minutes:"Maximum minutes per task",
  auto_approve:"Approve my group's tasks automatically", save:"Save", saved:"Saved",
  usage:(n,m)=>`${n} / ${m} tasks in the last 24 hours`, cap:(c)=>` (server cap ${c})`,
@@ -285,6 +321,7 @@ en: {
  open_dashboard:"Open web dashboard",
  live_blocked:"Note: real execution is not enabled on the server yet; tasks wait until the operator enables it.",
  footer:"Closing this page does not go offline; closing the Terminal window that runs it, or Ctrl-C, does.",
+ footer_app:"Closing this page keeps SpareAgent running. Use the menu bar to open the control page, pause sharing or quit.",
  e_bundle_missing:"The operator's connection file (bundle.json) is missing. Reinstall from the operator's package.", net_label:"Connection", net_auto:"Automatic (first that works)", net_ok:"reachable", net_down:"unreachable",
  net_using:(l)=>`Using: ${l}`, net_hint:"The LAN address works only on the same Wi-Fi; elsewhere use Tailscale (both people signed in to Tailscale). Switch while offline.",
  e_network_locked:"Go offline before switching the connection.", links_title:"Links for other networks:",
@@ -294,6 +331,9 @@ en: {
  e_codex_login_required:"Sign in to Codex with your own ChatGPT account (not an API key).",
  e_owner_check_failed:"The self-check failed. Make sure Codex works, then retry.",
  e_server_rejected:"The server rejected the request: ", e_server_unreachable:"Cannot reach the server; check the network: ",
+ e_tailscale_unreachable:"Cannot reach the Tailscale address. Open Tailscale and check you are signed in and connected to the operator’s private network. If connected, ask the operator to check the service.",
+ e_certificate_invalid:"The HTTPS certificate does not match the address or is not trusted. Ask the operator for an updated package; do not bypass certificate warnings.",
+ e_service_unreachable:"The service is unavailable or not ready. Retry shortly; if it still fails, ask the operator to check it.",
  e_worker_stopped:"The worker stopped unexpectedly.", e_not_registered:"Go online once first.",
  e_plan_invalid:"Choose your plan.", e_invalid_input:"Invalid input: ", e_unexpected:"Unexpected error: ",
  s_QUEUED:"Queued", s_RESERVED:"Assigned", s_RUNNING:"Running", s_VERIFYING:"Verifying", s_SUCCEEDED:"Done",
@@ -329,7 +369,7 @@ const ONLINE_STEPS=["codex_install","git_check","codex_login","signup","owner_ch
 const OFFLINE_STEPS=["server_offline","draining","worker_stop"];
 const KEY=new URLSearchParams(location.hash.slice(1)).get("k")||"";
 let lang=(()=>{try{return localStorage.getItem("sa_lang")}catch(e){return null}})()||"zh";
-let S=null, editing=false, flash="", localErr=null;
+let S=null, onboardingEditing=false, settingsEditing=false, flash="", localErr=null;
 const $=id=>document.getElementById(id);
 const t=(k,...a)=>{const v=(T[lang]||T.zh)[k];return typeof v==="function"?v(...a):(v??k)};
 
@@ -364,10 +404,11 @@ function applyStatic(){
 function render(){
   if(!S){if(localErr){show($("error"),true);$("error").textContent=errText(localErr)}return}
   const big=$("big"), ph=S.phase;
+  $("footer").textContent=t(S.desktop_app?"footer_app":"footer");
   big.className="big"+(ph==="ONLINE"?" online":"")+(ph==="STARTING"||ph==="STOPPING"?" busy":"");
   big.disabled=ph==="STARTING"||ph==="STOPPING"||!KEY;
   big.innerHTML="";
-  const main=ph==="ONLINE"?t("online"):ph==="STARTING"?t("starting"):ph==="STOPPING"?t("stopping"):ph==="ERROR"?t("retry"):t("go_online");
+  const main=ph==="ONLINE"?t("online"):ph==="STARTING"?t("starting"):ph==="STOPPING"?t("stopping"):ph==="ERROR"?t("retry"):t(S.consented?"go_online":"first_online");
   const sub=ph==="ONLINE"?t("online_sub"):ph==="OFFLINE"?t("go_online_sub"):"";
   big.append(main); if(sub){const s=document.createElement("small");s.textContent=sub;big.append(s)}
   $("state").textContent=t("st_"+ph);
@@ -379,9 +420,15 @@ function render(){
   const err=S.error||localErr;
   show($("error"),!!err); if(err)$("error").textContent=errText(err);
   show($("consent"),ph!=="ONLINE");
-  if(!editing){$("device").value=S.device_label||"";$("plan").value=S.subscription_type||"PLUS"}
+  if(ph==="ONLINE")onboardingEditing=false;
+  if(!onboardingEditing){$("device").value=S.device_label||"";$("plan").value=S.subscription_type||"PLUS"}
   renderNetworks(ph);
   const srv=S.server;
+  const sharing=srv&&srv.sharing;
+  $("summary_tasks").textContent=t(sharing&&sharing.auto_approve_members===false?"summary_tasks_manual":"summary_tasks_auto");
+  $("summary_network").textContent=t(sharing&&!(sharing.allowed_tools||[]).includes("network")?"summary_network_off":"summary_network_on");
+  show($("retry_hint"),ph==="ERROR");
+  $("device").disabled=$("plan").disabled=ph==="STARTING"||ph==="STOPPING";
   show($("invite"),!!srv); show($("settings"),!!srv); show($("members"),!!srv); show($("tasks"),!!srv);
   show($("running"),!!srv);
   if(srv){
@@ -392,7 +439,7 @@ function render(){
     const others=(S.invite_links||[]).filter(l=>l.id!==S.network);
     show($("links"),others.length>0);
     $("links").textContent=others.length?t("links_title")+" "+others.map(l=>l.label+": "+l.url).join("  "):"";
-    if(!editing){
+    if(!settingsEditing){
       $("max_members").value=g.max_members; $("max_members").max=g.member_cap;
       $("max_members").min=Math.max(2,srv.members.length);
       $("max_tasks").value=g.max_tasks_per_day; $("max_minutes").value=Math.round(g.max_task_duration_seconds/60);
@@ -432,13 +479,15 @@ function render(){
   }
   const notes=[];
   if(srv&&!srv.live_ready)notes.push(t("live_blocked"));
-  if(S.server_error)notes.push(t("e_server_unreachable")+S.server_error);
+  if(S.connection_error)notes.push(t("e_"+S.connection_error));
+  else if(S.server_error)notes.push(t("e_server_unreachable")+S.server_error);
   if(!S.bundle_ok)notes.push(t("e_bundle_missing"));
   show($("notice"),notes.length>0); $("notice").textContent=notes.join(" ");
 }
 function renderNetworks(ph){
   const nets=S.networks||[], sel=$("net");
   show($("net_box"),nets.length>1); show($("net_note"),nets.length>1);
+  if(ph==="ERROR"&&nets.some(n=>n.reachable===false))$("connection_options").open=true;
   if(nets.length<2)return;
   const mark=n=>n.reachable===true?" · "+t("net_ok"):n.reachable===false?" · "+t("net_down"):"";
   if(document.activeElement!==sel){sel.innerHTML="";
@@ -457,8 +506,7 @@ function renderKinds(srv){
   (srv.kinds||[]).filter(k=>k.offered&&k.status!=="DISABLED").forEach(k=>{
     const l=document.createElement("label"); const c=document.createElement("input");
     c.type="checkbox"; c.dataset.kind=k.kind; c.checked=allowed.has(k.kind);
-    c.addEventListener("change",()=>{editing=true;
-      if(tool==="network"&&c.checked&&!confirm(t("network_confirm")))c.checked=false});
+    c.addEventListener("change",()=>settingsEditing=true);
     const name=document.createElement("span"); name.textContent=lang==="zh"?k.name_zh:k.name_en;
     const st=document.createElement("small"); st.textContent=t("ks_"+k.status);
     const need=k.required_tools.filter(x=>x!=="code"&&x!=="doc");
@@ -473,7 +521,8 @@ function renderTools(srv){
   TOOL_ORDER.forEach(tool=>{
     const l=document.createElement("label"); const c=document.createElement("input");
     c.type="checkbox"; c.dataset.tool=tool; c.checked=allowed.has(tool); c.title=t("allow");
-    c.addEventListener("change",()=>editing=true);
+    c.addEventListener("change",()=>{settingsEditing=true;
+      if(tool==="network"&&c.checked&&!confirm(t("network_confirm")))c.checked=false});
     const name=document.createElement("span"); name.textContent=t("tool_"+tool);
     const st=document.createElement("small"); st.id="tool_state_"+tool;
     l.append(c,name,st);
@@ -526,6 +575,7 @@ function progressText(m){if(!m||lang!=="zh")return m||"";
   return "Codex 正在处理…"}
 function runningCount(){return Math.max(S&&S.running_here||0,S&&S.server&&S.server.usage?S.server.usage.running:0)}
 async function act(route, body){
+  localErr=null;
   let ok=true;
   try{S=await call(route,body)}
   catch(e){ok=false;localErr={code:e.code,detail:e.message,server_code:e.server_code};
@@ -574,11 +624,12 @@ $("save").onclick=async()=>{
   $("save").disabled=true;setFlash(t("saving")+" · ");
   const ok=await act("settings",v);
   $("save").disabled=false;
-  if(ok){editing=false;setFlash(t("saved")+" · ",2000)}
+  if(ok){settingsEditing=false;setFlash(t("saved")+" · ",2000)}
   else{setFlash(t("save_failed").replace(/[：:\s]+$/,"")+" · ",8000)}  // reason is in the error box
 };
 $("dashboard").onclick=async()=>{try{const r=await call("dashboard");window.open(r.url,"_blank","noopener")}catch(e){localErr={code:e.code,detail:e.message};render()}};
-["max_members","max_tasks","max_minutes","concurrency","auto","device","plan"].forEach(id=>{$(id).addEventListener("focus",()=>editing=true);$(id).addEventListener("input",()=>editing=true)});
+["max_members","max_tasks","max_minutes","concurrency","auto"].forEach(id=>$(id).addEventListener("input",()=>settingsEditing=true));
+["device","plan"].forEach(id=>$(id).addEventListener("input",()=>onboardingEditing=true));
 applyStatic(); poll(); setInterval(poll,1500);
 </script>
 </body>

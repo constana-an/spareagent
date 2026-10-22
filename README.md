@@ -12,11 +12,13 @@ resale or paid fallback.
 | Who | Does | Needs |
 |---|---|---|
 | **Operator** | Runs the private coordinator (API, database, scheduler, verifier, dashboard) and privately hands out the Mac package | Docker; this repository |
-| **Owner** (provides compute) | Unzips `SpareAgent-mac.zip`, double-clicks, presses **Go online**: Codex is installed, the owner signs in to their own ChatGPT, a group and invite link are created | A Mac and their own ChatGPT Plus/Pro |
-| **Member** (uses compute) | Opens the invite link, submits tasks with attachments, follows progress, downloads results | A browser |
+| **Owner** (provides compute) | Runs the local installer once to build `SpareAgent.app` on their Mac, then opens the App, reads the sharing terms and goes online: Codex is installed, the owner signs in to their own ChatGPT, a group and invite link are created. A menu-bar icon controls pause and quit | A Mac, Apple command line tools for the first local build, their own ChatGPT Plus/Pro, and access to the private coordinator (currently Tailscale) |
+| **Member** (uses compute) | Opens the invite link, submits tasks with attachments, follows progress, downloads results | A browser and Tailscale access for the current private deployment |
 
 Tasks are approved by the owner's standing approval, dispatched to the owner's Mac, run by
 Codex in a per-task sandboxed folder, checked by the platform and delivered as files.
+
+The default free installer builds the menu-bar App locally once; later launches use the App directly. No paid Apple developer membership is required. See [local installation](docs/LOCAL_APP_INSTALL.md). This is not Apple notarization; first-install behavior on another Mac remains to be verified.
 
 ## What members can ask for
 
@@ -37,8 +39,7 @@ Codex in a per-task sandboxed folder, checked by the platform and delivered as f
   reasons with advice, cancel, download with SHA-256 check, own usage and caps.
 - **Recovery:** a task the owner hands back or that loses its device re-runs once; a paused
   owner still takes requests, which wait and say why.
-- **Networks:** one package can list several server addresses (e.g. LAN and Tailscale);
-  the Mac app picks the first that answers or the one the owner chose.
+- **Private HTTPS:** the current package uses Tailscale Serve with a browser-trusted certificate; no manual CA import. Tailscale access is still required. Legacy packages can list several server addresses; the app checks HTTPS readiness and picks a reachable one or the owner’s choice.
 - Chinese by default, English on request.
 
 ## Limits to know
@@ -48,7 +49,7 @@ Codex in a per-task sandboxed folder, checked by the platform and delivered as f
 - All one-click kinds were opened for real execution by operator decision without
   per-kind acceptance; real-device acceptance is still to be done ([design §7](docs/GENERAL_TASKS_DESIGN.md)).
 - Groups are capped at 5 people by the written authorization the operator relies on.
-- The Mac package is not signed: on first open, allow it in *System Settings → Privacy & Security*.
+- The Mac App currently uses ad-hoc signing for local testing, without Developer ID notarization; first-open security approval may still be required.
 
 ## Documentation
 
@@ -60,8 +61,17 @@ Codex in a per-task sandboxed folder, checked by the platform and delivered as f
 | Every decision and why | [docs/DECISIONS.md](docs/DECISIONS.md) (D-90 onwards for the current release) |
 | API | [contracts/openapi.yaml](contracts/openapi.yaml) |
 | Private Mac deployment | [docs/MAC_PRIVATE_DEPLOYMENT.md](docs/MAC_PRIVATE_DEPLOYMENT.md) |
+| Maintain the existing Mac deployment | [docs/OPERATOR_GUIDE.md](docs/OPERATOR_GUIDE.md) |
 
 ## Operator: build the Mac package
+
+For the existing private Mac deployment, double-click `scripts/SpareAgent-Operator.command`.
+It reads the saved configuration, backs up data, starts or restores services, checks HTTPS,
+and builds or reuses the private source installer. It preserves the real-execution switch
+and does not run inference. Use `--rebuild` when service images need rebuilding from the
+current source. See [operator maintenance](docs/OPERATOR_GUIDE.md).
+
+For separate packaging or legacy deployments:
 
 ```sh
 python scripts/build_worker_bundle.py \
@@ -71,6 +81,9 @@ python scripts/build_worker_bundle.py \
 ```
 
 `output/worker-bundle/SpareAgent-mac.zip` contains the signup code: share it privately.
+On macOS, follow with `python scripts/build_macos_app.py --arch arm64` to produce the
+desktop App ZIP with bundled Python. Only Apple Silicon has been tested on this Mac;
+the Intel build option remains unverified on an Intel device.
 The server must list each extra dashboard address in `FRIENDS_WEB_EXTRA_ORIGINS`, listen on
 it, and its certificate must cover it. Real execution is switched by `EXPERIMENT_LIVE_ENABLED`
 plus an operator-verified authorization ([ONE_CLICK_SHARING.md](docs/ONE_CLICK_SHARING.md)).

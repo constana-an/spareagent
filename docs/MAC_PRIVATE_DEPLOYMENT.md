@@ -1,5 +1,7 @@
 # Mac 私有部署、设备角色与停机记录
 
+本文是 2026-10-18 的历史记录，不代表当前运行状态。当前 Mac 的启动、恢复和打包入口见 [OPERATOR_GUIDE.md](OPERATOR_GUIDE.md)；当前地址及开关见本机私有部署目录的 README 和 `.env`。
+
 记录日期：2026-10-18（America/New_York）。部署基于已合并 Week 6 的 main
 `5068eadf01cefa2abdc1d1687ed6f4e4d568e3aa`。
 

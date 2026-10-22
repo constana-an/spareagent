@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WHEEL = "spareagent_worker-0.12.0-py3-none-any.whl"
 
 
-def fetch_dependency_wheels(out: Path) -> None:
+def fetch_dependency_wheels(out: Path, cache: Path | None = None) -> None:
     """The worker's dependencies as wheels, so the launcher installs fully offline."""
     wheels = out / "wheels"
     shutil.rmtree(wheels, ignore_errors=True)
@@ -36,6 +36,7 @@ def fetch_dependency_wheels(out: Path) -> None:
             "pip",
             "download",
             "--only-binary=:all:",
+            *(["--no-index", "--find-links", str(cache)] if cache else []),
             "--dest",
             str(wheels),
             str(out / WHEEL),
@@ -112,6 +113,11 @@ def main():
     p.add_argument("--signup-code-file", help="file holding SELF_SERVE_SIGNUP_CODE")
     p.add_argument("--terms-version", default="2026-10-experimental-v1")
     p.add_argument("--ca-file", help="public CA certificate (ca.pem) for a private HTTPS server")
+    p.add_argument("--output-dir", type=Path, default=ROOT / "output/worker-bundle")
+    p.add_argument(
+        "--dependency-cache", type=Path, help="resolve dependencies from these local wheels"
+    )
+    p.add_argument("--no-build-isolation", action="store_true")
     p.add_argument(
         "--network",
         action="append",
@@ -124,7 +130,7 @@ def main():
     if args.api_url and not (args.signup_code_file and args.dashboard_url):
         p.error("--api-url needs --signup-code-file and --dashboard-url")
 
-    out = ROOT / "output" / "worker-bundle"
+    out = args.output_dir.resolve()
     out.mkdir(parents=True, exist_ok=True)
     # setuptools reuses packages/worker/build: stale copies of moved or deleted modules
     # would otherwise ship in the wheel.
@@ -138,6 +144,7 @@ def main():
             "pip",
             "wheel",
             "--no-deps",
+            *(["--no-build-isolation"] if args.no_build_isolation else []),
             "--wheel-dir",
             str(out),
             str(ROOT / "packages" / "worker"),
@@ -150,7 +157,7 @@ def main():
     shutil.copy2(ROOT / "scripts" / "setup-worker-macos.sh", out)
     print(f"Bundle: {out}\nWorker SHA-256: {digest}")
     if args.api_url:
-        fetch_dependency_wheels(out)
+        fetch_dependency_wheels(out, args.dependency_cache)
         shutil.copy2(ROOT / "scripts" / "runtime-pins.json", out / "runtime.json")
         write_bundle(out, args)
 
