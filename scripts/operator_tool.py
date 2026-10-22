@@ -224,6 +224,9 @@ class Operator:
             self.run([self.tailscale, "serve", "status", "--json"], private=True)
         )
         self.missing_routes = []
+        # D-102: members may reach the dashboard (only) through Tailscale Funnel; the API
+        # port that devices and install links use always stays tailnet-only.
+        public_web = bool(self.connection.get("public_dashboard"))
         ports = config["services"]["tls"]["ports"]
         for public_port, local_port in ((web_port, 13000), (api_port, 18000)):
             if not any(
@@ -237,12 +240,14 @@ class Operator:
             tcp = self.serve_before.get("TCP", {}).get(str(public_port))
             if tcp and (tcp != {"HTTPS": True} or not current):
                 raise OperatorError(f"端口 {public_port} 已用于其他转发，不自动覆盖。")
-            if self.serve_before.get("AllowFunnel", {}).get(key):
+            funnel = bool(self.serve_before.get("AllowFunnel", {}).get(key))
+            public = public_web and public_port == web_port
+            if funnel and not public:
                 raise OperatorError(f"端口 {public_port} 已用于公网 Funnel，不自动改动。")
             if current and current != {"Handlers": {"/": {"Proxy": proxy}}}:
                 raise OperatorError(f"端口 {public_port} 被其他入口占用，不自动覆盖。")
-            if not current:
-                self.missing_routes.append((public_port, proxy))
+            if not current or (public and not funnel):
+                self.missing_routes.append((public_port, proxy, public))
         self.progress("检查现有数据库与运行任务")
         volume = config["volumes"]["pgdata"]["name"]
         self.run([self.docker, "volume", "inspect", volume], private=True)
@@ -490,7 +495,7 @@ class Operator:
         before = self.preflight()
         if self.check:
             if self.missing_routes:
-                raise OperatorError("私网 HTTPS 入口缺失；运行维护入口可恢复指定端口。")
+                raise OperatorError("HTTPS 入口缺失；运行维护入口可恢复指定端口。")
             self.health()
             return {
                 "mode": "check",
@@ -507,8 +512,9 @@ class Operator:
             self.rebuild()
         self.progress("启动或恢复现有服务，保留数据库和分享设置")
         self.run([*self.compose, "up", "-d", "--wait", "--wait-timeout", "120"])
-        for port, proxy in self.missing_routes:
-            self.run([self.tailscale, "serve", "--bg", f"--https={port}", proxy])
+        for port, proxy, public in self.missing_routes:
+            command = "funnel" if public else "serve"
+            self.run([self.tailscale, command, "--bg", f"--https={port}", proxy])
         serve_after = json.loads(
             self.run([self.tailscale, "serve", "status", "--json"], private=True)
         )

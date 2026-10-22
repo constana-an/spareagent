@@ -108,15 +108,21 @@ func ownerEvents(previous: [String: Any]?, current: [String: Any]) -> [OwnerEven
     return events
 }
 
+/// Whether members open the dashboard without Tailscale (operator's FRIENDS_WEB_PUBLIC).
+func publicDashboard(_ state: [String: Any]) -> Bool {
+    (state["server"] as? [String: Any])?["public_dashboard"] as? Bool ?? false
+}
+
 /// A message the owner can paste into a chat together with the invite link.
-func inviteMessage(_ link: String) -> String {
-    """
-    我在用 SpareAgent 和几个朋友共享我的 ChatGPT 额度，邀请你加入：
-    1. 先安装 Tailscale 并登录，加入运营者的私网（运营者会给你邀请）。
-    2. 打开这个链接，勾选同意即可加入：\(link)
-    3. 在网页里提交任务，结果做好后可以直接下载。
-    这个链接只给你，请不要转发。
-    """
+func inviteMessage(_ link: String, needsTailscale: Bool) -> String {
+    let steps = needsTailscale
+        ? ["先安装 Tailscale 并登录，加入运营者的私网（运营者会给你邀请）。",
+           "打开这个链接，勾选同意即可加入：\(link)"]
+        : ["用浏览器打开这个链接（手机或电脑都可以，不用装任何软件），勾选同意即可加入：\(link)"]
+    let lines = (steps + ["在网页里提交任务，结果做好后可以直接下载。"])
+        .enumerated().map { "\($0.offset + 1). \($0.element)" }
+    return (["我在用 SpareAgent 和几个朋友共享我的 ChatGPT 额度，邀请你加入："] + lines
+        + ["这个链接只给你，请不要转发。"]).joined(separator: "\n")
 }
 
 func qrImage(_ text: String, size: CGFloat) -> NSImage? {
@@ -561,7 +567,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
     @objc func copyInvite() {
         guard let link = state["invite_link"] as? String else { return }
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(inviteMessage(link), forType: .string)
+        NSPasteboard.general.setString(
+            inviteMessage(link, needsTailscale: !publicDashboard(state)), forType: .string)
     }
 
     @objc func showInvite() {
@@ -574,7 +581,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
         let image = NSImageView(frame: NSRect(x: 70, y: 180, width: 220, height: 220))
         image.image = qrImage(link, size: 220)
         image.imageScaling = .scaleProportionallyUpOrDown
-        let hint = NSTextField(wrappingLabelWithString: "朋友连上 Tailscale 后，用手机相机扫码或打开下面的链接即可加入。这个链接只发给你信任的人。")
+        let how = publicDashboard(state) ? "朋友" : "朋友连上 Tailscale 后，"
+        let hint = NSTextField(wrappingLabelWithString: how + "用手机相机扫码或打开下面的链接即可加入。这个链接只发给你信任的人。")
         hint.frame = NSRect(x: 24, y: 110, width: 312, height: 60)
         let text = NSTextField(wrappingLabelWithString: link)
         text.isSelectable = true
@@ -664,7 +672,12 @@ if CommandLine.arguments.contains("--self-test") {
     var unreachable = later
     unreachable["server_error"] = "offline"
     precondition(ownerEvents(previous: later, current: unreachable).map(\.title) == ["连不上服务器"])
-    precondition(inviteMessage("https://h.ts.net:8443/#join=X").contains("https://h.ts.net:8443/#join=X"))
+    let privateInvite = inviteMessage("https://h.ts.net:8443/#join=X", needsTailscale: true)
+    let publicInvite = inviteMessage("https://h.ts.net:8443/#join=X", needsTailscale: false)
+    precondition(privateInvite.contains("Tailscale") && privateInvite.contains("#join=X"))
+    precondition(!publicInvite.contains("Tailscale") && publicInvite.contains("#join=X"))
+    precondition(publicInvite.contains("\n2. 在网页里提交任务"))
+    precondition(!publicDashboard(online) && publicDashboard(["server": ["public_dashboard": true]]))
     precondition(qrImage("https://h.ts.net:8443/#join=X", size: 220) != nil)
     print("PASS: local endpoint validation, task count and status labels, menu title, owner notifications, invite")
 } else {

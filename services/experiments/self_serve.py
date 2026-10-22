@@ -652,6 +652,7 @@ class SelfServeSharingService:
                 "queued": sum(1 for t, _ in tasks if t.status == "QUEUED"),
             },
             "dashboard_url": self.ctx.settings.friends_web_origin,
+            "public_dashboard": self.ctx.settings.friends_web_public,
             "invite_code": None,
         }
 

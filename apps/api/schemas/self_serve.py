@@ -141,6 +141,8 @@ class SharingStatusOut(BaseModel):
     tasks: list[TaskSummary]
     usage: UsageSummary = Field(default_factory=UsageSummary)
     dashboard_url: str
+    # Members can open the dashboard without Tailscale (FRIENDS_WEB_PUBLIC, D-102).
+    public_dashboard: bool = False
     # Only returned when a new code was just issued; only its digest is stored.
     invite_code: str | None = None
 

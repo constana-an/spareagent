@@ -2808,6 +2808,7 @@ components:
             running: {type: integer}
             queued: {type: integer}
         dashboard_url: {type: string}
+        public_dashboard: {type: boolean, description: Members can open the dashboard without Tailscale (D-102)}
         invite_code: {type: ['string', 'null'], description: Returned only when a new code was just issued}
     FriendsIdentity:
       properties:

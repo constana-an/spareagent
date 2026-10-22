@@ -13,7 +13,7 @@ resale or paid fallback.
 |---|---|---|
 | **Operator** | Runs the private coordinator (API, database, scheduler, verifier, dashboard) and privately hands out the Mac package | Docker; this repository |
 | **Owner** (provides compute) | Runs the local installer once to build `SpareAgent.app` on their Mac, then opens the App, reads the sharing terms and goes online: Codex is installed, the owner signs in to their own ChatGPT, a group and invite link are created. A menu-bar icon controls pause and quit | A Mac, Apple command line tools for the first local build, their own ChatGPT Plus/Pro, and access to the private coordinator (currently Tailscale) |
-| **Member** (uses compute) | Opens the invite link, submits tasks with attachments, follows progress, downloads results | A browser and Tailscale access for the current private deployment |
+| **Member** (uses compute) | Opens the invite link, submits tasks with attachments, follows progress, downloads results | A browser (the dashboard is public via Tailscale Funnel, D-102; without it, Tailscale access) |
 
 Tasks are approved by the owner's standing approval, dispatched to the owner's Mac, run by
 Codex in a per-task sandboxed folder, checked by the platform and delivered as files.
@@ -39,7 +39,7 @@ The default free installer builds the menu-bar App locally once; later launches 
   reasons with advice, cancel, download with SHA-256 check, own usage and caps.
 - **Recovery:** a task the owner hands back or that loses its device re-runs once; a paused
   owner still takes requests, which wait and say why.
-- **Private HTTPS:** the current package uses Tailscale Serve with a browser-trusted certificate; no manual CA import. Tailscale access is still required. Legacy packages can list several server addresses; the app checks HTTPS readiness and picks a reachable one or the owner’s choice.
+- **HTTPS:** the current package uses Tailscale Serve with a browser-trusted certificate; no manual CA import. Owners' devices and the API stay on the tailnet; the member dashboard alone can be public through Tailscale Funnel (D-102), so members need only a browser. Legacy packages can list several server addresses; the app checks HTTPS readiness and picks a reachable one or the owner’s choice.
 - Chinese by default, English on request.
 
 ## Limits to know
@@ -127,7 +127,7 @@ does not occupy a participant slot. (Week 6 was capped at two users; one-click g
 allow up to five.)
 
 Week 6 used LAN HTTPS. The current release also supports a Tailscale address next to the
-LAN one (see *Networks* above). Tailscale Funnel exposes a service publicly and is not used.
+LAN one (see *Networks* above). Since D-102 only the member dashboard port may be served through Tailscale Funnel; the API and devices remain tailnet-only.
 See the [Mac deployment and shutdown record](docs/MAC_PRIVATE_DEPLOYMENT.md) for setup
 boundaries, HTTPS changes and preserving data when stopping containers. The local stack
 was validated and then stopped at the owner's request; this is not a continuously hosted
