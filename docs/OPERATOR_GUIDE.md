@@ -32,7 +32,7 @@ python scripts/owner_install_link.py revoke 小明                # 装好后即
 
 ## 发布 App 更新（D-103）
 
-已装 App 的提供者不用重新运行安装命令。编译新版预编译 App（`python scripts/build_macos_app.py --arch arm64`，版本号在脚本里）后运行：
+已装 App 的提供者不用重新运行安装命令。先把 `apps/macos/version.json` 的 `version` 和 `build` 调高（菜单栏按 `build` 判断有没有新版，必须比已发布的大），编译新版预编译 App（`python scripts/build_macos_app.py --arch arm64`）后运行：
 
 ```sh
 python scripts/owner_install_link.py publish-update
