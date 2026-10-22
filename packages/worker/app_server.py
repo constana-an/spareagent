@@ -212,6 +212,7 @@ class AppServer:
 async def _refresh_loop(controller: Controller, stop: asyncio.Event) -> None:
     while not stop.is_set():
         await controller.refresh()
+        controller.refresh_limits()
         try:
             await asyncio.wait_for(stop.wait(), 5)
         except TimeoutError:
