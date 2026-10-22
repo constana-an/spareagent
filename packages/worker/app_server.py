@@ -85,6 +85,11 @@ class AppServer:
             elif route == "shutdown":
                 self._quitting = True  # exit after the existing drain completes
             await asyncio.sleep(0.05)
+        elif route == "update_check":
+            await c.updater.check()
+        elif route == "update_prepare":
+            c.updater.start_prepare()
+            await asyncio.sleep(0.05)
         elif route == "cancel":
             await c.cancel()
         elif route == "refresh":

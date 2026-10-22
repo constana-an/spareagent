@@ -368,6 +368,47 @@ async def test_status_says_whether_members_need_tailscale(oc, octx):
         await public.aclose()
 
 
+async def test_registered_devices_can_fetch_the_published_app(oc, octx, tmp_path):
+    import hashlib
+    import json
+
+    node = await signup_device(oc)
+    releases = tmp_path / "app-release"
+    releases.mkdir()
+    ctx = build_context(octx.settings.model_copy(update={"app_release_dir": releases}))
+    auth = bearer(node["access_token"])
+    try:
+        async with client_for(ctx) as c:
+            url = "/v1/workers/me/app-release"
+            assert (await c.get(url, params={"arch": "arm64"}, headers=auth)).status_code == 404
+            data = b"PK fake app zip"
+            (releases / "SpareAgent-mac-arm64.zip").write_bytes(data)
+            digest = hashlib.sha256(data).hexdigest()
+            (releases / "release.json").write_text(
+                json.dumps(
+                    {
+                        "version": "0.15.0",
+                        "build": 17,
+                        "apps": {"arm64": {"file": "SpareAgent-mac-arm64.zip", "sha256": digest}},
+                    }
+                )
+            )
+            info = await c.get(url, params={"arch": "arm64"}, headers=auth)
+            assert info.json() == {
+                "version": "0.15.0",
+                "build": 17,
+                "sha256": digest,
+                "size": len(data),
+            }
+            got = await c.get(url + "/download", params={"arch": "arm64"}, headers=auth)
+            assert got.content == data and got.headers["x-content-sha256"] == digest
+            assert (await c.get(url, params={"arch": "x86_64"}, headers=auth)).status_code == 404
+            assert (await c.get(url, params={"arch": "../x"}, headers=auth)).status_code == 422
+            assert (await c.get(url, params={"arch": "arm64"})).status_code == 401
+    finally:
+        await ctx.aclose()
+
+
 async def test_member_session_is_long_and_rejoining_keeps_the_same_account(oc, octx):
     node = await signup_device(oc)
     status = await go_online(oc, node)

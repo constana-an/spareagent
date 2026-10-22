@@ -251,6 +251,7 @@ def main() -> None:
             shutil.copyfile(source / name, target)
         (resources / "bundle.json").chmod(0o600)
         shutil.copyfile(ROOT / "scripts/SpareAgent.command", resources / "SpareAgent.command")
+        shutil.copyfile(ROOT / "scripts/swap-app.sh", resources / "swap-app.sh")  # D-103
         runtime_name = f"python-{args.arch}.tar.gz"
         signed_binaries = []
         if args.sign_identity:
@@ -279,8 +280,8 @@ def main() -> None:
                     "CFBundleDisplayName": "SpareAgent",
                     "CFBundleExecutable": "SpareAgent",
                     "CFBundlePackageType": "APPL",
-                    "CFBundleShortVersionString": "0.14.0",
-                    "CFBundleVersion": "16",
+                    "CFBundleShortVersionString": "0.15.0",
+                    "CFBundleVersion": "17",
                     "LSMinimumSystemVersion": "13.0",
                     "LSUIElement": True,
                     "NSHighResolutionCapable": True,

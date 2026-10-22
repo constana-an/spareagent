@@ -37,6 +37,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from packages.worker.app_update import Updater
 from packages.worker.lease_client import NodeClient, TransportError, WorkerApiError
 from packages.worker.runtime import (
     ManagedCodex,
@@ -340,6 +341,14 @@ class Controller:
         self._agent_task: asyncio.Task | None = None
         self._client: NodeClient | None = None
         self._job: asyncio.Task | None = None
+        # The menu-bar App passes its build; script launches get no in-app updates.
+        build = os.environ.get("SPAREAGENT_APP_BUILD", "")
+        self.updater = Updater(
+            directory,
+            self._node_client,
+            int(build) if build.isdigit() else None,
+            platform.machine(),
+        )
 
     # ---------------------------------------------------------------- plumbing
     def _save(self, **values: Any) -> None:
@@ -466,6 +475,7 @@ class Controller:
             "server": s.server,
             "server_error": s.server_error,
             "connection_error": self._connection_error,
+            "update": self.updater.status(),
             "tools": {
                 "git": self.git_ok(),
                 DATA_TOOL: {

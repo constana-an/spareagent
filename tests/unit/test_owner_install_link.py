@@ -112,6 +112,50 @@ def test_cli_create_reads_operator_api_url(tmp_path, capsys):
     assert tool.main(["--private-dir", str(private), "revoke", "nobody"]) == 1
 
 
+def versioned_zip(path: Path, version: str, build: int) -> Path:
+    app_zip(path, {**INFO, "CFBundleShortVersionString": version, "CFBundleVersion": str(build)})
+    return path
+
+
+def test_publish_update_writes_a_release_for_devices(tmp_path):
+    release_dir = tmp_path / "app-release"
+    arm = versioned_zip(tmp_path / "arm.zip", "0.15.0", 17)
+    release = tool.publish_update(release_dir, arm, "arm64")
+    assert release == {
+        "version": "0.15.0",
+        "build": 17,
+        "apps": {
+            "arm64": {
+                "file": "SpareAgent-mac-arm64.zip",
+                "sha256": hashlib.sha256(arm.read_bytes()).hexdigest(),
+            }
+        },
+    }
+    assert json.loads((release_dir / "release.json").read_text()) == release
+    intel = versioned_zip(tmp_path / "intel.zip", "0.15.0", 17)
+    assert set(tool.publish_update(release_dir, intel, "x86_64")["apps"]) == {"arm64", "x86_64"}
+    # A newer build replaces the release; the other CPU's older entry is dropped.
+    newer = versioned_zip(tmp_path / "new.zip", "0.16.0", 18)
+    assert set(tool.publish_update(release_dir, newer, "arm64")["apps"]) == {"arm64"}
+    with pytest.raises(tool.LinkError):
+        tool.publish_update(release_dir, arm, "arm64")  # never goes backwards
+    assert not list(release_dir.glob(".*"))
+
+
+def test_publish_update_refuses_other_apps(tmp_path):
+    other = app_zip(
+        tmp_path / "x.zip",
+        {
+            **INFO,
+            "CFBundleIdentifier": "com.example.x",
+            "CFBundleShortVersionString": "1",
+            "CFBundleVersion": "1",
+        },
+    )
+    with pytest.raises(tool.LinkError):
+        tool.publish_update(tmp_path / "r", other, "arm64")
+
+
 # --- install.sh, with fake curl/codesign and an isolated Applications directory ---
 
 mac_only = pytest.mark.skipif(sys.platform != "darwin", reason="Mac installer")
