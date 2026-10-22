@@ -4,6 +4,7 @@ no Codex or subscription is ever used."""
 
 from __future__ import annotations
 
+import time
 import uuid
 from contextlib import asynccontextmanager
 
@@ -13,7 +14,15 @@ from pydantic import SecretStr
 
 from apps.api.main import create_app
 from services.context import build_context
-from tests.conftest import ADMIN, bearer, fetch_val, headers, make_settings, seed_fixtures
+from tests.conftest import (
+    ADMIN,
+    bearer,
+    execute,
+    fetch_val,
+    headers,
+    make_settings,
+    seed_fixtures,
+)
 from tests.integration.test_experimental_live import authorize_live, poll
 from tests.integration.test_experimental_sharing import (
     JOIN_ACKS,
@@ -332,6 +341,106 @@ async def test_dashboard_login_for_the_owner(oc, octx):
         me = await browser.post("/v1/friends/login", json={"token": login["token"]}, headers=ORIGIN)
         assert me.status_code == 200 and me.json()["role"] == "PROVIDER"
         assert me.json()["user_id"] == node["user_id"]
+
+
+async def expire_sessions(ctx, user_id) -> None:
+    await execute(
+        ctx,
+        "UPDATE friends_sessions SET expires_at = now() - interval '1 hour' WHERE user_id = :u",
+        u=uuid.UUID(user_id),
+    )
+
+
+async def members_of(oc, node) -> list[str]:
+    status = await ok(await owner(oc, node, "GET", ""))
+    return sorted(m["user_id"] for m in status["members"])
+
+
+async def test_member_session_is_long_and_rejoining_keeps_the_same_account(oc, octx):
+    node = await signup_device(oc)
+    status = await go_online(oc, node)
+    bob, bob_me = await join(octx, status["invite_code"])
+    try:
+        cookie = next(c for c in bob.cookies.jar if c.name == "sa_friends_session")
+        assert cookie.expires - time.time() > 399 * 86400  # outlives the 90-day session
+        days = await fetch_val(
+            octx,
+            "SELECT round(extract(epoch FROM expires_at - created_at) / 86400) "
+            "FROM friends_sessions "
+            "WHERE user_id = :u",
+            u=uuid.UUID(bob_me["user_id"]),
+        )
+        assert days == octx.settings.friends_member_session_days
+        task = await submit_as(bob, status, status["sharing"]["connection_id"])
+        before = await members_of(oc, node)
+
+        # Months later the session has expired; the browser still holds the cookie.
+        await expire_sessions(octx, bob_me["user_id"])
+        assert (await bob.get("/v1/friends/me")).status_code == 401
+        again = await bob.post(
+            "/v1/friends/join-code",
+            json={
+                "code": status["invite_code"],
+                "terms_version": TERMS,
+                "acknowledgements": JOIN_ACKS,
+            },
+            headers=ORIGIN,
+        )
+        assert again.status_code == 200, again.text
+        assert again.json()["user_id"] == bob_me["user_id"]
+        assert await members_of(oc, node) == before  # no extra seat taken
+        mine = (await bob.get("/v1/experimental-tasks")).json()["items"]
+        assert task["id"] in [t["id"] for t in mine]  # history kept
+    finally:
+        await bob.aclose()
+
+
+async def test_removed_member_rejoins_with_a_new_code_as_the_same_account(oc, octx):
+    node = await signup_device(oc)
+    status = await go_online(oc, node)
+    bob, bob_me = await join(octx, status["invite_code"])
+    try:
+        removed = await ok(await owner(oc, node, "DELETE", f"/members/{bob_me['user_id']}"))
+        assert (await bob.get("/v1/friends/me")).status_code == 401
+        back = await bob.post(
+            "/v1/friends/join-code",
+            json={
+                "code": removed["invite_code"],
+                "terms_version": TERMS,
+                "acknowledgements": JOIN_ACKS,
+            },
+            headers=ORIGIN,
+        )
+        assert back.status_code == 200, back.text
+        assert back.json()["user_id"] == bob_me["user_id"]
+        assert len(await members_of(oc, node)) == 2
+    finally:
+        await bob.aclose()
+
+
+async def test_after_logout_the_browser_no_longer_identifies_the_member(oc, octx):
+    node = await signup_device(oc)
+    status = await go_online(oc, node)
+    bob, bob_me = await join(octx, status["invite_code"])
+    try:
+        stale = bob.cookies.get("sa_friends_session")
+        assert (await bob.post("/v1/friends/logout", headers=ORIGIN)).status_code == 204
+        # Even a copy of the old cookie gives nothing once logged out.
+        bob.cookies.set("sa_friends_session", stale)
+        assert (await bob.get("/v1/friends/me")).status_code == 401
+        assert (
+            await bob.post(
+                "/v1/friends/join-code",
+                json={
+                    "code": status["invite_code"],
+                    "terms_version": TERMS,
+                    "acknowledgements": JOIN_ACKS,
+                },
+                headers=ORIGIN,
+            )
+        ).json()["user_id"] != bob_me["user_id"]
+    finally:
+        await bob.aclose()
 
 
 # ====================================================================== gates

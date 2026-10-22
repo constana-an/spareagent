@@ -13,6 +13,8 @@ const en = {
   login_intro: "Sign in with the one-time code your operator shared privately.",
   invitation_code: "Invitation code",
   enter: "Enter workspace",
+  rejoin_hint:
+    "Your sign-in has expired. Open the invite link again or enter the invite code below: you get your own account and task history back.",
   join_intro:
     "Join a friend's one-click sharing group with the invite code they sent you. No account needed.",
   group_invite_code: "Group invite code",
@@ -343,6 +345,7 @@ const zh: Record<Key, string> = {
   login_intro: "使用运营者私下发给你的一次性登录码登录。",
   invitation_code: "登录码",
   enter: "进入工作区",
+  rejoin_hint: "登录已过期。重新打开邀请链接，或在下面输入邀请码，就会回到你原来的账号和任务记录。",
   join_intro: "用朋友发给你的邀请码加入他的一键分享小组，无需注册账号。",
   group_invite_code: "小组邀请码",
   join_button: "加入小组",
