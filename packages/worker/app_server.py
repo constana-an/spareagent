@@ -34,9 +34,18 @@ REQUEST_TIMEOUT = 60
 
 
 class AppServer:
-    def __init__(self, controller: Controller, loop: asyncio.AbstractEventLoop, port: int = 0):
+    def __init__(
+        self,
+        controller: Controller,
+        loop: asyncio.AbstractEventLoop,
+        port: int = 0,
+        stop: asyncio.Event | None = None,
+    ):
         self.controller = controller
         self.loop = loop
+        self.stop = stop
+        self._desktop_task: asyncio.Task | None = None
+        self._quitting = False
         self.key = secrets.token_urlsafe(24)
         handler = self._handler()
         self.httpd = ThreadingHTTPServer(("127.0.0.1", port), handler)
@@ -60,7 +69,21 @@ class AppServer:
         if route == "state":
             pass
         elif route == "toggle":
+            if self._quitting:
+                raise AppError("invalid_input", "The app is shutting down")
             c.start_toggle(body)
+            await asyncio.sleep(0.05)
+        elif route in ("pause", "shutdown"):
+            mode = body.get("offline_mode", "finish")
+            if mode not in ("finish", "now"):
+                raise AppError("invalid_input", "offline_mode must be finish or now")
+            if route == "shutdown" and self.stop is None:
+                raise AppError("invalid_input", "Shutdown is unavailable")
+            if self._desktop_task is None or self._desktop_task.done():
+                self._quitting = route == "shutdown"
+                self._desktop_task = asyncio.create_task(self._desktop_pause(mode))
+            elif route == "shutdown":
+                self._quitting = True  # exit after the existing drain completes
             await asyncio.sleep(0.05)
         elif route == "cancel":
             await c.cancel()
@@ -87,7 +110,20 @@ class AppServer:
             return {"url": await c.dashboard_link()}
         else:
             raise KeyError(route)
-        return c.snapshot()
+        return {
+            **c.snapshot(),
+            "desktop_protocol": 1,
+            "desktop_app": os.environ.get("SPAREAGENT_NATIVE_APP") == "1",
+        }
+
+    async def _desktop_pause(self, mode: str) -> None:
+        if self.controller.snap.phase == "STARTING":
+            await self.controller.cancel()
+        await self.controller.go_offline(mode)
+        if self._quitting and self.stop is not None:
+            # Let the initiating HTTP response finish before closing the HTTP server.
+            await asyncio.sleep(0.1)
+            self.stop.set()
 
     def _handler(self):
         server = self
@@ -207,10 +243,10 @@ async def run_app(
         write_private(directory / RUNTIME_FILE, pins_path.read_text(encoding="utf-8"))
     controller = Controller(directory, bundle, runtime_pins=load_pins(pins_path))
     loop = asyncio.get_running_loop()
-    server = AppServer(controller, loop, port)
+    stop = asyncio.Event()
+    server = AppServer(controller, loop, port, stop=stop)
     write_pid(directory)
     write_private(url_file, server.url)
-    stop = asyncio.Event()
     # SIGHUP: the owner closed the Terminal window that runs the app.
     for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
         loop.add_signal_handler(sig, stop.set)

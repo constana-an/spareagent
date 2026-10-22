@@ -17,5 +17,6 @@ test-results/
 output/playwright/
 
 output/worker-bundle/
+output/macos-app/
 build/
 *.egg-info/

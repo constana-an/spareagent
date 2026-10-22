@@ -26,6 +26,7 @@ import os
 import platform
 import shutil
 import socket
+import ssl
 import tempfile
 import time
 from dataclasses import dataclass, field
@@ -33,6 +34,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
+
+import httpx
 
 from packages.worker.lease_client import NodeClient, TransportError, WorkerApiError
 from packages.worker.runtime import (
@@ -130,19 +133,34 @@ class Bundle:
 PROBE_SECONDS = 2.0
 
 
-async def tcp_reachable(url: str) -> bool:
-    """Whether the server's port answers on this network (no request is sent)."""
-    parts = urlsplit(url)
-    port = parts.port or (443 if parts.scheme == "https" else 80)
+def connection_problem(exc: BaseException, url: str) -> str:
+    causes = []
+    current: BaseException | None = exc
+    while current is not None and current not in causes:
+        causes.append(current)
+        current = current.__cause__ or current.__context__
+    if any(isinstance(e, ssl.SSLCertVerificationError) for e in causes):
+        return "certificate_invalid"
+    if (urlsplit(url).hostname or "").endswith(".ts.net") and any(
+        isinstance(e, socket.gaierror | TimeoutError | httpx.ConnectTimeout) for e in causes
+    ):
+        return "tailscale_unreachable"
+    return "service_unreachable"
+
+
+async def probe_server(url: str, ca_file: str | None) -> str | None:
+    """Check TLS and readiness without signing in or running an inference."""
     try:
-        async with asyncio.timeout(PROBE_SECONDS):
-            _, writer = await asyncio.open_connection(parts.hostname, port)
-    except (OSError, TimeoutError):
-        return False
-    writer.close()
-    with contextlib.suppress(Exception):
-        await writer.wait_closed()
-    return True
+        async with httpx.AsyncClient(
+            verify=ssl.create_default_context(cafile=ca_file) if ca_file else True,
+            timeout=PROBE_SECONDS,
+            trust_env=False,
+        ) as client:
+            response = await client.get(f"{url.rstrip('/')}/readyz")
+            response.raise_for_status()
+    except (httpx.HTTPError, OSError) as exc:
+        return connection_problem(exc, url)
+    return None
 
 
 def find_bundle(directory: Path, explicit: str | None = None) -> Path | None:
@@ -291,12 +309,14 @@ class Controller:
         agent_factory=None,
         runtime_pins: dict[str, Any] | None = None,
         git_check=git_available,
-        probe=tcp_reachable,
+        probe=None,
     ) -> None:
         self.directory = directory
         self.bundle = bundle
         self._probe = probe
         self._reachable: dict[str, bool] = {}
+        self._network_errors: dict[str, str | None] = {}
+        self._connection_error: str | None = None
         self._network_id: str | None = None  # resolved choice ("auto" picks one)
         managed = (
             ManagedCodex(directory / "runtime", runtime_pins)
@@ -357,10 +377,15 @@ class Controller:
             return
         before = self.network()
         nets = self.bundle.networks
-        if len(nets) > 1:
+        if self._probe is not None:
             results = await asyncio.gather(*(self._probe(n.api_url) for n in nets))
             self._reachable = {n.id: bool(ok) for n, ok in zip(nets, results, strict=True)}
-            self._network_id = next((n.id for n in nets if self._reachable[n.id]), nets[0].id)
+        else:
+            errors = await asyncio.gather(*(probe_server(n.api_url, self._ca_file()) for n in nets))
+            self._network_errors = dict(zip((n.id for n in nets), errors, strict=True))
+            self._reachable = {n.id: self._network_errors[n.id] is None for n in nets}
+        self._network_id = next((n.id for n in nets if self._reachable[n.id]), nets[0].id)
+        self._connection_error = self._network_errors.get(self.network().id)
         if self.network() != before and self._client is not None:
             with contextlib.suppress(Exception):
                 await self._client.aclose()
@@ -383,8 +408,10 @@ class Controller:
                 net.api_url if net else state.api_url,
                 worker_id=state.worker_id,
                 node_key=state.node_key,
-                ca_file=state.ca_file,
-                allow_insecure_http=state.allow_insecure_http,
+                ca_file=self._ca_file() if net else state.ca_file,
+                allow_insecure_http=(
+                    self.bundle.allow_insecure_http if net else state.allow_insecure_http
+                ),
             )
         assert self.bundle is not None and net is not None  # noqa: S101 - checked by callers
         return NodeClient(
@@ -406,7 +433,7 @@ class Controller:
         code = self.app_state.get("invite_code")
         net = self.network()
         nets = self.bundle.networks if self.bundle else ()
-        if net and net.dashboard_url and len(nets) > 1:
+        if net and net.dashboard_url:
             dashboard = net.dashboard_url  # the address that works on this network
         else:
             dashboard = (s.server or {}).get("dashboard_url") or (net and net.dashboard_url)
@@ -438,6 +465,7 @@ class Controller:
             "dashboard_url": dashboard,
             "server": s.server,
             "server_error": s.server_error,
+            "connection_error": self._connection_error,
             "tools": {
                 "git": self.git_ok(),
                 DATA_TOOL: {
@@ -455,8 +483,11 @@ class Controller:
         try:
             self.snap.server = await client.sharing_status()
             self.snap.server_error = None
+            self._connection_error = None
         except (WorkerApiError, TransportError) as exc:
             self.snap.server_error = str(exc)
+            if isinstance(exc, TransportError):
+                self._connection_error = connection_problem(exc, client.api_url)
 
     async def startup(self) -> None:
         """A previous run may have exited without going offline; make the server agree
@@ -496,13 +527,17 @@ class Controller:
             self.snap.phase, self.snap.error = "STARTING", None
             try:
                 await self.resolve_network()
+                if self._connection_error:
+                    raise AppError(self._connection_error)
                 await self._online_steps(options)
             except AppError as exc:
                 self._fail(exc.code, exc.detail)
             except WorkerApiError as exc:
                 self._fail("server_rejected", exc.message, server_code=exc.code)
             except TransportError as exc:
-                self._fail("server_unreachable", str(exc))
+                net = self.network()
+                state = load_state(self.directory)
+                self._fail(connection_problem(exc, net.api_url if net else state.api_url), str(exc))
             except Exception as exc:  # noqa: BLE001 - surface every failure on the page
                 log.exception("going online failed")
                 self._fail("unexpected", type(exc).__name__)
@@ -602,10 +637,12 @@ class Controller:
                 )
                 # Kept until registration succeeds so a retry does not sign up twice.
                 self._save(signup=signup)
+            # Display names can contain Chinese/spaces; enrollment needs an ASCII identifier.
+            node_name = f"spareagent-{signup['resource_id']}"
             data = await client.register(
                 signup["enrollment_token"],
                 resource_id=str(signup["resource_id"]),
-                name=self.app_state["device_label"],
+                name=node_name,
                 capabilities={"code": True, "chat": False, "executor": "codex-subscription"},
                 max_concurrency=1,
             )
@@ -619,7 +656,7 @@ class Controller:
                 node_key=data["node_key"],
                 node_key_expires_at=data["node_key_expires_at"],
                 resource_id=str(signup["resource_id"]),
-                name=self.app_state["device_label"],
+                name=node_name,
                 max_concurrency=1,
                 ca_file=self._ca_file(),
                 allow_insecure_http=self.bundle.allow_insecure_http,
@@ -799,11 +836,7 @@ class Controller:
     async def dashboard_link(self) -> str:
         data = await self._owner_call("dashboard_login")
         net = self.network()
-        base = (
-            net.dashboard_url
-            if net and net.dashboard_url and self.bundle and len(self.bundle.networks) > 1
-            else data["dashboard_url"]
-        )
+        base = net.dashboard_url if net and net.dashboard_url else data["dashboard_url"]
         return f"{base}/#login={data['token']}"
 
     async def shutdown(self) -> None:

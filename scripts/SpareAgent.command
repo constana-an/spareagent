@@ -13,7 +13,7 @@ PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$HOME/.npm-global/bin:$P
 for d in "$HOME"/.nvm/versions/node/*/bin; do [[ -d "$d" ]] && PATH="$d:$PATH"; done
 export PATH
 
-pause() { read -r -p "按回车关闭 / Press Enter to close " _ || true; }
+pause() { [[ "${SPAREAGENT_NATIVE_APP:-0}" == 1 ]] || read -r -p "按回车关闭 / Press Enter to close " _ || true; }
 fail() { printf '\n%s\n' "$*" >&2; pause; exit 1; }
 pin() { plutil -extract "$1" raw -o - runtime.json 2>/dev/null; }
 
@@ -30,25 +30,51 @@ case "$(uname -m)" in
 esac
 py_url="$(pin "python.assets.$arch.url")"
 py_sha="$(pin "python.assets.$arch.sha256")"
+py_bundle="python-$arch.tar.gz"
+[[ ! -f "python-$arch.zip" ]] || py_bundle="python-$arch.zip"
+if [[ -f "$py_bundle" ]]; then
+  bundled_sha="$(pin "python.assets.$arch.bundled_sha256" || true)"
+  [[ -z "$bundled_sha" ]] || py_sha="$bundled_sha"
+fi
 [[ -n "$py_url" && -n "$py_sha" ]] || fail "安装包缺少运行环境信息。runtime.json is incomplete."
 
-base="$HOME/Library/Application Support/SpareAgent"
+base="${SPAREAGENT_APP_HOME:-$HOME/Library/Application Support/SpareAgent}"
 pyhome="$base/python-${py_sha:0:16}"
 mkdir -p "$base"
+tmp=""; backup=""; installing=0
+cleanup() {
+  local result=$?
+  if [[ "$installing" == 1 && "$result" != 0 ]]; then
+    rm -rf "$base/worker"
+    [[ -z "$backup" ]] || mv "$backup" "$base/worker"
+  fi
+  [[ -z "$tmp" ]] || rm -rf "$tmp"
+}
+trap cleanup EXIT
 if [[ ! -x "$pyhome/bin/python3" ]]; then
-  echo "首次运行：正在下载运行环境（约 25 MB）… / First run: downloading the runtime (~25 MB)…"
   tmp="$(mktemp -d "$base/.python-XXXXXX")"
-  trap 'rm -rf "$tmp"' EXIT
-  curl -fL --proto '=https' --tlsv1.2 --retry 3 --connect-timeout 20 -o "$tmp/python.tar.gz" "$py_url" ||
-    fail "下载运行环境失败，请检查网络后再双击本文件。Download failed: check the network and retry."
-  [[ "$(shasum -a 256 "$tmp/python.tar.gz" | cut -d ' ' -f 1)" == "$py_sha" ]] ||
+  if [[ -f "$py_bundle" ]]; then
+    echo "正在准备内置运行环境… / Preparing the bundled runtime…"
+    cp "$py_bundle" "$tmp/python.archive"
+  elif [[ "${SPAREAGENT_NATIVE_APP:-0}" == 1 ]]; then
+    fail "App 缺少这台 Mac 的运行环境，请重新获取对应处理器的安装包。Bundled runtime missing."
+  else
+    echo "首次运行：正在下载运行环境（约 25 MB）… / First run: downloading the runtime (~25 MB)…"
+    curl -fL --proto '=https' --tlsv1.2 --retry 3 --connect-timeout 20 -o "$tmp/python.archive" "$py_url" ||
+      fail "下载运行环境失败，请检查网络后再双击本文件。Download failed: check the network and retry."
+  fi
+  [[ "$(shasum -a 256 "$tmp/python.archive" | cut -d ' ' -f 1)" == "$py_sha" ]] ||
     fail "运行环境校验失败，已停止。Runtime checksum mismatch; stopped."
-  tar -xzf "$tmp/python.tar.gz" -C "$tmp"
+  if [[ "$py_bundle" == *.zip && -f "$py_bundle" ]]; then
+    ditto -x -k "$tmp/python.archive" "$tmp"
+  else
+    tar -xzf "$tmp/python.archive" -C "$tmp"
+  fi
   [[ -x "$tmp/python/bin/python3" ]] || fail "运行环境格式不正确。Unexpected runtime layout."
   rm -rf "$pyhome"
   mv "$tmp/python" "$pyhome"
   rm -rf "$tmp"
-  trap - EXIT
+  tmp=""
 fi
 
 wheel="$(ls spareagent_worker-*-py3-none-any.whl 2>/dev/null | head -1)"
@@ -57,13 +83,25 @@ stamp="$(shasum -a 256 SHA256SUMS | cut -d ' ' -f 1)-${py_sha:0:16}"
 venv="$base/worker"
 if [[ "$(cat "$venv/.package-sha256" 2>/dev/null || true)" != "$stamp" ]]; then
   echo "正在安装 SpareAgent Worker… / Installing the worker…"
-  rm -rf "$venv"
+  if [[ -d "$venv" ]]; then
+    backup="$(mktemp -d "$base/.previous-worker-XXXXXX")"
+    rmdir "$backup"
+    mv "$venv" "$backup"
+  fi
+  installing=1
   "$pyhome/bin/python3" -m venv "$venv"
   # Offline: only the wheels shipped (and checksummed) in this package.
   "$venv/bin/python" -m pip install --disable-pip-version-check -q --no-index \
     --find-links "$here/wheels" --find-links "$here" "$wheel"
   printf '%s' "$stamp" > "$venv/.package-sha256"
+  installing=0
+  [[ -z "$backup" ]] || rm -rf "$backup"
+  backup=""
 fi
 
 echo "正在打开控制页面… / Opening the control page…"
-exec "$venv/bin/spareagent-worker" app --bundle "$here/bundle.json"
+if [[ "${SPAREAGENT_NATIVE_APP:-0}" == 1 ]]; then
+  exec "$venv/bin/spareagent-worker" app --bundle "$here/bundle.json" --no-browser
+else
+  exec "$venv/bin/spareagent-worker" app --bundle "$here/bundle.json"
+fi
