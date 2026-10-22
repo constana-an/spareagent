@@ -9,30 +9,24 @@ PAGE = r"""<!doctype html>
 <title>SpareAgent · 一键提供算力</title>
 <style>
 :root{--bg:#f6f5f1;--card:#fff;--ink:#1d1c1a;--muted:#6b6862;--line:#e4e1da;--accent:#1f7a4d;
---accent-ink:#fff;--warn:#9a5b00;--warn-bg:#fff6e5;--err:#b3261e;--err-bg:#fdecea;--off:#8c877e}
+--accent-ink:#fff;--warn:#9a5b00;--warn-bg:#fff6e5;--err:#b3261e;--err-bg:#fdecea;--off:#8c877e;
+--ok-bg:#e6f3ea;--run:#1f5f99;--run-bg:#e6eff8;--track:#e9e6df}
 @media (prefers-color-scheme:dark){:root{--bg:#141412;--card:#1e1d1b;--ink:#f1efe9;--muted:#a19d95;
 --line:#34322e;--accent:#3fb37a;--accent-ink:#08140e;--warn:#f0b35a;--warn-bg:#2b2416;--err:#ff8a80;
---err-bg:#2f1a18;--off:#6f6b64}}
+--err-bg:#2f1a18;--off:#6f6b64;--ok-bg:#183126;--run:#8cbcf0;--run-bg:#18273a;--track:#34322e}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 -apple-system,BlinkMacSystemFont,
 "PingFang SC","Hiragino Sans GB","Segoe UI",sans-serif}
-main{max-width:760px;margin:0 auto;padding:28px 16px 60px}
+main{max-width:880px;margin:0 auto;padding:24px 16px 60px}
 header{display:flex;justify-content:space-between;align-items:center;gap:12px}
-h1{font-size:20px;margin:0}h2{font-size:16px;margin:0 0 10px}
+h1{font-size:18px;margin:0;font-weight:600}h1 small{font-weight:400;font-size:14px}
+h2{font-size:15px;margin:0;font-weight:600}
 .muted{color:var(--muted)}small{color:var(--muted)}
 .lang{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;
 padding:4px 12px;cursor:pointer}
-.hero{display:flex;flex-direction:column;align-items:center;text-align:center;padding:28px 0 8px}
-.big{width:200px;height:200px;border-radius:50%;border:0;cursor:pointer;font-size:22px;font-weight:600;
-background:var(--off);color:#fff;box-shadow:0 10px 30px rgba(0,0,0,.18);transition:transform .15s,background .2s}
-.big:hover{transform:scale(1.03)}.big:disabled{cursor:progress;opacity:.85}
-.big.online{background:var(--accent);color:var(--accent-ink)}
-.big.busy{background:linear-gradient(135deg,var(--off),var(--accent));animation:pulse 1.6s infinite}
-@keyframes pulse{50%{box-shadow:0 0 0 14px rgba(63,179,122,.15)}}
-.big small{display:block;color:inherit;opacity:.85;font-size:13px;font-weight:400;margin-top:6px}
-.state{margin-top:14px;font-size:15px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin-top:16px}
-details>summary{cursor:pointer;font-weight:600}details{margin-top:12px}details[open]>summary{margin-bottom:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin-top:14px}
+.head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px}
+details>summary{cursor:pointer;font-weight:600}details[open]>summary{margin-bottom:12px}
 .consent ul{margin:8px 0 0;padding-left:20px}.consent li{margin:4px 0}
 .row{display:flex;gap:12px;flex-wrap:wrap}.row>label{flex:1 1 160px}
 label{display:block;font-size:13px;color:var(--muted)}
@@ -40,36 +34,66 @@ input,select{width:100%;margin-top:4px;padding:8px 10px;border:1px solid var(--l
 background:var(--bg);color:var(--ink);font-size:15px}
 input[type=checkbox]{width:auto;margin-right:6px}
 button.s{border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:8px;
-padding:7px 14px;cursor:pointer;font-size:14px}
-button.p{background:var(--accent);color:var(--accent-ink);border-color:transparent}
-.code{font:600 28px/1.2 ui-monospace,Menlo,monospace;letter-spacing:2px;margin:6px 0 10px;word-break:break-all}
+padding:7px 14px;cursor:pointer;font-size:14px;white-space:nowrap}
+button.s:disabled{opacity:.5;cursor:default}
+button.p{background:var(--accent);color:var(--accent-ink);border-color:transparent;font-weight:600}
+.status-title{font-size:19px;font-weight:600;display:flex;align-items:center;gap:10px}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--off);flex:none}
+.dot.on{background:var(--accent)}.dot.busy{background:var(--warn);animation:blink 1.2s infinite}.dot.bad{background:var(--err)}
+@keyframes blink{50%{opacity:.35}}
+.status-sub{margin:2px 0 0 20px}
+.gauges{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:22px;margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
+.gauge .top{display:flex;justify-content:space-between;gap:8px;font-size:14px}
+.bar{height:6px;border-radius:3px;background:var(--track);overflow:hidden;margin:6px 0 4px}
+.bar i{display:block;height:100%;border-radius:3px;background:var(--accent)}
+.bar i.warn{background:#d98b17}.bar i.bad{background:var(--err)}
+.chip{display:inline-block;font-size:12px;padding:1px 9px;border-radius:999px;background:var(--track);color:var(--muted);white-space:nowrap}
+.chip.ok{background:var(--ok-bg);color:var(--accent)}.chip.run{background:var(--run-bg);color:var(--run)}
+.chip.wait{background:var(--warn-bg);color:var(--warn)}.chip.bad{background:var(--err-bg);color:var(--err)}
+.pair{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:14px}
+.pair>.card{margin-top:14px}
+.li{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line)}
+.li .name{display:flex;align-items:center;gap:8px;min-width:0}
+.li .name>span:last-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.av{width:26px;height:26px;border-radius:50%;background:var(--run-bg);color:var(--run);font-size:11px;display:inline-flex;
+align-items:center;justify-content:center;flex:none}
+.mini{display:inline-block;width:64px;height:4px;border-radius:2px;background:var(--track);vertical-align:middle;margin-left:6px;overflow:hidden}
+.mini i{display:block;height:100%;background:var(--accent)}
+.editor{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;padding:0 0 10px 34px}
+.editor label{flex:1 1 120px}
+.code{font:600 22px/1.2 ui-monospace,Menlo,monospace;letter-spacing:2px;margin:2px 0 4px;word-break:break-all}
 .link{font-size:13px;word-break:break-all}
 .notice{background:var(--warn-bg);color:var(--warn);border-radius:10px;padding:10px 12px;margin-top:12px;font-size:14px}
 .error{background:var(--err-bg);color:var(--err);border-radius:10px;padding:10px 12px;margin-top:12px;font-size:14px}
-table{width:100%;border-collapse:collapse;font-size:14px}td,th{padding:6px 4px;border-top:1px solid var(--line);text-align:left}
-th{color:var(--muted);font-weight:500;border-top:0}
-code{font-family:ui-monospace,Menlo,monospace;font-size:13px}
-.steps{list-style:none;padding:0;margin:10px 0 0;text-align:left;display:inline-block}
+.steps{list-style:none;padding:0;margin:12px 0 0 20px}
 .steps li{margin:3px 0;color:var(--muted)}.steps li.now{color:var(--ink);font-weight:600}
 .steps li.done{color:var(--accent)}
-.hidden{display:none}
+.hidden{display:none!important}
+.seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{flex:1;border:0;background:var(--bg);color:var(--ink);padding:9px 6px;font-size:14px;cursor:pointer}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button.on{background:var(--accent);color:var(--accent-ink);font-weight:600}
 h3.sub{font-size:14px;margin:16px 0 6px}
 .checks label{display:flex;align-items:center;gap:6px;font-size:14px;color:var(--ink);margin:4px 0;flex-wrap:wrap}
 .checks small{margin-left:4px}.checks button.s{padding:3px 10px;font-size:13px}
-input.cap{width:7.5em;padding:4px 6px}
-#member_rows td{vertical-align:middle}
+.dialog{margin-top:12px;border:1px solid var(--line);border-radius:12px;padding:14px;background:var(--bg)}
+.foot{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-top:10px}
+@media (max-width:640px){
+.gauges{grid-template-columns:1fr;gap:12px}.pair{grid-template-columns:1fr;gap:0}
+.status-title{font-size:17px}.li{flex-wrap:wrap}.editor{padding-left:0}
+}
 </style>
 </head>
 <body>
 <main>
 <header>
-  <div><h1 data-t="title"></h1><small data-t="subtitle"></small></div>
+  <h1><span data-t="brand"></span> <small id="device_title"></small></h1>
   <button class="lang" id="lang" type="button"></button>
 </header>
 
-<section class="card consent" id="consent">
+<section class="card consent hidden" id="consent">
   <h2 data-t="before_title"></h2>
-  <label><span data-t="plan"></span>
+  <label style="margin-top:10px"><span data-t="plan"></span>
     <select id="plan"><option value="PLUS">ChatGPT Plus</option><option value="PRO">ChatGPT Pro</option></select>
   </label>
   <p class="muted" data-t="consent_intro"></p>
@@ -78,29 +102,28 @@ input.cap{width:7.5em;padding:4px 6px}
     <li data-t="summary_credits"></li>
     <li id="summary_network"></li>
   </ul>
-  <details>
+  <details style="margin-top:10px">
     <summary data-t="sharing_details"></summary>
-    <ul id="ack"></ul>
+    <ul class="ack"></ul>
   </details>
-  <details id="connection_options">
-    <summary data-t="connection_options"></summary>
-    <div class="row">
-      <label><span data-t="device_name"></span><input id="device" maxlength="80"></label>
-      <label id="net_box" class="hidden"><span data-t="net_label"></span><select id="net"></select></label>
-    </div>
-    <p class="muted" data-t="device_hint"></p>
-    <p class="muted hidden" id="net_note"></p>
-  </details>
+  <p class="muted" data-t="device_hint"></p>
+  <button class="s p" id="go" type="button" data-t="first_online"></button>
 </section>
 
-<section class="hero">
-  <button class="big" id="big" type="button"></button>
-  <div class="state" id="state" role="status" aria-live="polite"></div>
+<section class="card" id="status">
+  <div class="head" style="align-items:flex-start">
+    <div>
+      <div class="status-title"><span class="dot" id="dot"></span><span id="state_title"></span></div>
+      <div class="status-sub muted" id="state" role="status" aria-live="polite"></div>
+    </div>
+    <button class="s" id="big" type="button"></button>
+  </div>
   <ol class="steps hidden" id="steps"></ol>
-  <button class="s hidden" id="cancel" type="button" data-t="cancel"></button>
-  <div class="card hidden" id="offline_choice" role="dialog" aria-labelledby="oc_title">
+  <button class="s hidden" id="cancel" type="button" data-t="cancel" style="margin:8px 0 0 20px"></button>
+  <div class="dialog hidden" id="offline_choice" role="dialog" aria-labelledby="oc_title">
     <h2 id="oc_title" data-t="oc_title"></h2>
     <p class="muted" id="oc_text"></p>
+    <p class="muted" data-t="pause_note" style="font-size:13px"></p>
     <div class="row">
       <button class="s p" id="oc_finish" type="button" data-t="oc_finish"></button>
       <button class="s" id="oc_now" type="button" data-t="oc_now"></button>
@@ -109,61 +132,74 @@ input.cap{width:7.5em;padding:4px 6px}
   </div>
   <div class="error hidden" id="error" role="alert"></div>
   <p class="muted hidden" id="retry_hint" data-t="retry_hint"></p>
+  <div class="gauges hidden" id="gauges"></div>
 </section>
 
-<section class="card hidden" id="invite">
-  <h2 data-t="invite_title"></h2>
-  <div class="code" id="code"></div>
-  <div class="link muted" id="link"></div>
-  <div class="link muted hidden" id="links"></div>
-  <div class="row" style="margin-top:10px">
-    <button class="s p" id="copy" type="button" data-t="copy"></button>
-    <button class="s" id="rotate" type="button" data-t="rotate"></button>
-  </div>
-  <p class="muted" data-t="invite_help"></p>
-</section>
-
-<details class="card hidden" id="settings">
-  <summary data-t="limits_title"></summary>
-  <div class="row">
-    <label><span data-t="max_members"></span><input id="max_members" type="number" min="2"></label>
-    <label><span data-t="max_tasks"></span><input id="max_tasks" type="number" min="1" max="50"></label>
-    <label><span data-t="max_minutes"></span><input id="max_minutes" type="number" min="1" max="60"></label>
-    <label><span data-t="concurrency"></span><input id="concurrency" type="number" min="1" max="3"></label>
-  </div>
-  <h3 class="sub" data-t="kinds_title"></h3>
-  <div id="kinds" class="checks"></div>
-  <h3 class="sub" data-t="tools_title"></h3>
-  <div id="tools" class="checks"></div>
-  <label style="margin-top:10px"><input id="auto" type="checkbox"><span data-t="auto_approve"></span></label>
-  <div class="row" style="margin-top:10px;align-items:center">
-    <button class="s p" id="save" type="button" data-t="save"></button>
-    <small id="usage" role="status" aria-live="polite"></small>
-  </div>
-</details>
-
-<section class="card hidden" id="running">
-  <h2 data-t="running_title"></h2>
-  <p class="muted" id="usage_line" role="status" aria-live="polite"></p>
-  <table><thead><tr><th data-t="kind"></th><th data-t="elapsed"></th><th data-t="progress"></th></tr></thead>
-  <tbody id="running_rows"></tbody></table>
-  <p class="muted" data-t="pause_note"></p>
-</section>
-
-<section class="card hidden" id="members">
-  <h2 data-t="members_title"></h2>
-  <table><thead><tr><th data-t="member"></th><th data-t="joined"></th><th data-t="m_used"></th>
-    <th data-t="m_task_cap"></th><th data-t="m_min_cap"></th><th></th></tr></thead>
-  <tbody id="member_rows"></tbody></table>
-  <p class="muted" data-t="m_caps_help"></p>
-</section>
+<div class="pair">
+  <section class="card hidden" id="members">
+    <div class="head"><h2><span data-t="members_title"></span> <small id="members_count"></small></h2><small data-t="m_used"></small></div>
+    <div id="member_rows"></div>
+  </section>
+  <section class="card hidden" id="invite">
+    <h2 data-t="invite_title"></h2>
+    <div class="code" id="code" style="margin-top:8px"></div>
+    <small id="invite_sub"></small>
+    <div class="row" style="margin-top:12px;gap:8px">
+      <button class="s p" id="copy" type="button" data-t="copy"></button>
+      <button class="s" id="rotate" type="button" data-t="rotate"></button>
+    </div>
+    <details style="margin-top:12px">
+      <summary data-t="show_link" style="font-weight:400;font-size:13px"></summary>
+      <div class="link muted" id="link"></div>
+      <div class="link muted hidden" id="links" style="margin-top:6px"></div>
+      <p class="muted" data-t="invite_help" style="font-size:13px"></p>
+    </details>
+  </section>
+</div>
 
 <section class="card hidden" id="tasks">
   <h2 data-t="tasks_title"></h2>
-  <table><thead><tr><th data-t="time"></th><th data-t="kind"></th><th data-t="status"></th><th data-t="approval"></th></tr></thead>
-  <tbody id="task_rows"></tbody></table>
-  <p><button class="s" id="dashboard" type="button" data-t="open_dashboard"></button></p>
+  <div id="task_rows" style="margin-top:8px"></div>
+  <div class="foot"><small id="tasks_empty" class="hidden" data-t="tasks_none"></small>
+    <button class="s" id="dashboard" type="button" data-t="open_dashboard"></button></div>
 </section>
+
+<section class="card hidden" id="settings">
+  <div class="head"><h2 data-t="settings_title"></h2><small data-t="anytime"></small></div>
+  <div class="seg" id="presets" role="group"></div>
+  <p class="muted" id="preset_summary" style="font-size:13px;margin:8px 0 0"></p>
+  <details id="custom" style="margin-top:12px">
+    <summary data-t="customize" style="font-weight:400;font-size:14px"></summary>
+    <div class="row">
+      <label><span data-t="max_members"></span><input id="max_members" type="number" min="2"></label>
+      <label><span data-t="max_tasks"></span><input id="max_tasks" type="number" min="1" max="50"></label>
+      <label><span data-t="max_minutes"></span><input id="max_minutes" type="number" min="1" max="60"></label>
+      <label><span data-t="concurrency"></span><input id="concurrency" type="number" min="1" max="3"></label>
+    </div>
+    <h3 class="sub" data-t="kinds_title"></h3>
+    <div id="kinds" class="checks"></div>
+    <h3 class="sub" data-t="tools_title"></h3>
+    <div id="tools" class="checks"></div>
+    <label style="margin-top:10px"><input id="auto" type="checkbox"><span data-t="auto_approve"></span></label>
+    <div class="row" style="margin-top:10px;align-items:center">
+      <button class="s p" id="save" type="button" data-t="save"></button>
+      <small id="usage" role="status" aria-live="polite"></small>
+    </div>
+  </details>
+</section>
+
+<details class="card" id="connection_options">
+  <summary data-t="connection_options"></summary>
+  <div class="row">
+    <label><span data-t="device_name"></span><input id="device" maxlength="80"></label>
+    <label id="net_box" class="hidden"><span data-t="net_label"></span><select id="net"></select></label>
+  </div>
+  <p class="muted hidden" id="net_note"></p>
+</details>
+<details class="card hidden" id="terms">
+  <summary data-t="sharing_details"></summary>
+  <ul class="ack" style="padding-left:20px;margin:0"></ul>
+</details>
 
 <div class="notice hidden" id="notice" role="status" aria-live="polite"></div>
 <p><small id="footer" data-t="footer"></small></p>
@@ -190,8 +226,8 @@ zh: {
  summary_tasks_auto:"账号留在本机。成员的任务会在你允许的范围和上限内自动批准，在这台 Mac 上执行并消耗你的订阅额度。",
  summary_tasks_manual:"账号留在本机。成员的任务经你批准后，在允许的范围和上限内使用这台 Mac 和你的订阅额度执行。",
  summary_credits:"请确认：账号没有额外购买或赠送的 Credits，自动充值已关闭。首次上线会消耗少量订阅额度完成自检。",
- summary_network_on:"允许成员勾选「需要联网」的任务联网，网站可见你的 IP，任务可能访问局域网设备。可在「小组与任务设置」中关闭。",
- summary_network_off:"已关闭任务联网；成员的任务只能使用上传的材料。可在「小组与任务设置」中调整。",
+ summary_network_on:"允许成员勾选「需要联网」的任务联网，网站可见你的 IP，任务可能访问局域网设备。可在「分享设置」中关闭。",
+ summary_network_off:"已关闭任务联网；成员的任务只能使用上传的材料。可在「分享设置」中调整。",
  retry_hint:"修复上面的提示后，点「重试上线」。已安装的组件和已通过的自检会保留。",
  ack_1:"这是私人、非商业的实验，没有任何付费、转售或报酬。",
  ack_2:"我的 ChatGPT 账号只在这台电脑的官方 Codex CLI 里登录，密码和登录凭据不会交给 SpareAgent 或任何人。",
@@ -201,14 +237,14 @@ zh: {
  ack_6:"我可以随时调整人数和任务上限、移除成员、关闭自动批准或下线。",
  ack_7:"服务器运营者设置的总上限（例如小组最多人数）仍然适用。",
  ack_8:"默认允许成员的任务联网（勾选了「需要联网」的任务）：网站会看到你的 IP，任务能访问你家里网络中的设备。不想要可以在「本机工具」里取消「允许联网」。",
- invite_title:"小组邀请码", copy:"复制邀请链接", copied:"已复制", rotate:"换一个邀请码",
+ invite_title:"邀请朋友", copy:"复制邀请说明", copied:"已复制", rotate:"换一个",
  invite_help:"把邀请链接或邀请码私下发给你信任的人。他们打开链接、勾选同意后即可加入并提交任务。换码后旧码立即失效。",
  invite_lost:"邀请码只在生成时显示一次。点「换一个邀请码」生成新的。",
  limits_title:"小组与任务设置", max_members:"小组人数上限（含你自己）",
  max_tasks:"每 24 小时最多任务数", max_minutes:"单个任务最长（分钟）",
  auto_approve:"自动批准小组成员的任务", save:"保存", saved:"已保存",
  usage:(n,m)=>`过去 24 小时已接 ${n} / ${m} 个任务`, cap:(c)=>`（服务器上限 ${c} 人）`,
- members_title:"小组成员", member:"成员", joined:"加入时间", you:"你", remove:"移除",
+ members_title:"成员", member:"成员", joined:"加入时间", you:"你", remove:"移除",
  m_used:"过去 24 小时", m_used_val:(n,m)=>`${n} 个任务 · ${m} 分钟`, m_task_cap:"每日任务上限", m_min_cap:"每日分钟上限",
  m_no_cap:"不单独限制", m_cap_range:"任务上限 1–50，分钟上限 1–1440，留空表示不单独限制。",
  m_caps_help:"按成员单独限额：在你这台电脑上，每个成员每 24 小时最多用多少个任务、多少分钟执行时间。留空表示只受上面的整体上限约束。超出后，该成员的新任务会排队并显示原因，额度恢复或你调高后自动继续；正在运行的任务不受影响。",
@@ -272,7 +308,28 @@ zh: {
  sc_NOT_SELF_SERVE_NODE:"这台设备不是通过一键分享注册的。", sc_SELF_SERVE_GROUP_NOT_FOUND:"找不到你的小组，请重新上线。",
  sc_SUBSCRIPTION_AUTH_INVALID:"Codex 登录无效，请重新登录你自己的 ChatGPT 账号。",
  sc_SHARING_REVOKED:"分享已被撤销，请联系运营者。", sc_VALIDATION_ERROR:"提交的数值不在允许范围内。",
- sc_UNAUTHENTICATED:"设备凭据已失效，请重新上线。", sc_RATE_LIMITED:"操作太频繁，请稍后再试。"
+ sc_UNAUTHENTICATED:"设备凭据已失效，请重新上线。", sc_RATE_LIMITED:"操作太频繁，请稍后再试。",
+ brand:"SpareAgent", btn_pause:"暂停分享",
+ title_OFFLINE:"已暂停分享", title_ONLINE:"在线，正在分享", title_STARTING:"正在上线…", title_STOPPING:"正在下线…", title_ERROR:"上线没有完成",
+ sub_OFFLINE:"不会接任何任务。点「上线」开始分享。", sub_ONLINE:"成员的任务会自动批准，在这台 Mac 上运行。",
+ sub_ONLINE_manual:"成员的任务经你批准后，在这台 Mac 上运行。", sub_STARTING:"请按下面的提示操作。", sub_STOPPING:"已停止接新任务。",
+ sub_ERROR:"修复下面的问题后重试。", sub_FIRST:"看完上面的说明，点「同意并上线」。",
+ quota_title:"订阅额度", left:(p)=>`剩 ${p}%`, win_week:"本周额度", win_days:(d)=>`${d} 天额度`, win_hours:(h)=>`${h} 小时额度`, win_minutes:(m)=>`${m} 分钟额度`,
+ reset_min:(m)=>`${m} 分钟后重置`, reset_hm:(h,m)=>`${h} 小时 ${m} 分后重置`, reset_at:(s)=>`${s} 重置`,
+ quota_fb_ok:"正常（暂时读不到具体百分比）", quota_fb_low:"快用完了", quota_fb_exhausted:"已用完，恢复后再接任务",
+ now_title:"现在", now_idle:"空闲", now_running:(n)=>`运行 ${n}`, now_sub:(q,n,m)=>`排队 ${q} · 24 小时内 ${n} 个任务 · ${m} 分钟`,
+ members_count:(n,m)=>`${n} / ${m}`, owner_name:"你（主人）", member_name:(id)=>`成员 ${id}`, m_used_short:(n,m)=>`${n} 个 · ${m} 分钟`,
+ m_capped:"已单独限额", limits_btn:"限额",
+ invite_sub_public:"朋友用浏览器打开链接、勾选同意就能加入。", invite_sub_tailscale:"朋友先登录 Tailscale，再打开链接、勾选同意加入。",
+ show_link:"显示链接", tasks_none:"还没有任务。",
+ settings_title:"分享设置", anytime:"随时可改", preset_save:"省着用", preset_standard:"标准", preset_open:"放开用", preset_custom:"自定义",
+ preset_summary:(n,m,c,net,k,all)=>`每天最多 ${n} 个任务 · 单个最长 ${m} 分钟 · 同时 ${c} 个 · ${net?"允许联网":"不联网"} · ${k===all?`全部 ${all} 类任务`:`${k} / ${all} 类任务`}`,
+ customize:"自定义每一项、任务种类和本机工具",
+ inv_head:"我在用 SpareAgent 和几个朋友共享我的 ChatGPT 额度，邀请你加入：",
+ inv_step_tailscale:"先安装 Tailscale 并登录，加入运营者的私网（运营者会给你邀请）。",
+ inv_step_open:(l)=>`打开这个链接，勾选同意即可加入：${l}`,
+ inv_step_browser:(l)=>`用浏览器打开这个链接（手机或电脑都可以，不用装任何软件），勾选同意即可加入：${l}`,
+ inv_step_submit:"在网页里提交任务，结果做好后可以直接下载。", inv_tail:"这个链接只给你，请不要转发。"
 },
 en: {
  title:"SpareAgent · One-click sharing", subtitle:"Share your spare ChatGPT Codex capacity with your own group",
@@ -293,8 +350,8 @@ en: {
  summary_tasks_auto:"Credentials stay on this Mac. Members' tasks are automatically approved within your allowed scope and limits, run on this Mac and consume your plan usage.",
  summary_tasks_manual:"Credentials stay on this Mac. After your approval, members' tasks run on this Mac using your plan, within your allowed scope and limits.",
  summary_credits:"Confirm that your account has no additional purchased or granted Credits and auto-reload is off. The first startup uses a little plan usage for a self-check.",
- summary_network_on:"Tasks marked “needs internet” may access the internet: websites see your IP and tasks may reach devices on your local network. Turn this off in “Group and task settings”.",
- summary_network_off:"Task internet access is off; tasks can only use uploaded materials. Change this in “Group and task settings”.",
+ summary_network_on:"Tasks marked “needs internet” may access the internet: websites see your IP and tasks may reach devices on your local network. Turn this off in “Sharing settings”.",
+ summary_network_off:"Task internet access is off; tasks can only use uploaded materials. Change this in “Sharing settings”.",
  retry_hint:"Resolve the issue above, then retry. Installed components and a successful self-check are kept.",
  ack_1:"This is a private, non-commercial experiment with no payment, resale or compensation.",
  ack_2:"My ChatGPT account is signed in only in the official Codex CLI on this computer; my credentials are never given to SpareAgent or anyone.",
@@ -304,7 +361,7 @@ en: {
  ack_6:"I can change member and task limits, remove members, switch off automatic approval or go offline at any time.",
  ack_7:"The server operator's overall caps (such as the maximum group size) still apply.",
  ack_8:"Members' tasks may use the internet by default (those marked \u201cneeds internet\u201d): websites see your IP and tasks can reach devices on your home network. Untick \u201cAllow internet\u201d under device tools to turn it off.",
- invite_title:"Group invite code", copy:"Copy invite link", copied:"Copied", rotate:"New invite code",
+ invite_title:"Invite friends", copy:"Copy invitation", copied:"Copied", rotate:"New code",
  invite_help:"Send the link or code privately to people you trust. They open it, accept the terms and can submit tasks. A new code immediately invalidates the old one.",
  invite_lost:"The code is shown only when it is created. Click “New invite code” to issue another.",
  limits_title:"Group and task settings", max_members:"Maximum members (including you)",
@@ -363,7 +420,28 @@ en: {
  install_btn:(n)=>`Install (~${n} MB)`, remove_btn:"Remove", git_hint:"You can go online without them and take document and table tasks; going online offers the Apple command line tools, and code tasks start once they are installed", allow:"Allow",
  r_members:(a,b)=>`Members must be between ${a} and ${b}.`, r_tasks:"Tasks per 24 hours must be between 1 and 50.",
  r_minutes:"Minutes per task must be between 1 and 60.", r_integer:"Enter whole numbers.",
- sc_code:(c)=>` (error code ${c})`
+ sc_code:(c)=>` (error code ${c})`,
+ brand:"SpareAgent", btn_pause:"Pause sharing",
+ title_OFFLINE:"Not sharing", title_ONLINE:"Online, sharing", title_STARTING:"Going online…", title_STOPPING:"Going offline…", title_ERROR:"Couldn't go online",
+ sub_OFFLINE:"No tasks will run. Click “Go online” to start sharing.", sub_ONLINE:"Your group's tasks are approved automatically and run on this Mac.",
+ sub_ONLINE_manual:"Your group's tasks run on this Mac after you approve them.", sub_STARTING:"Follow the steps below.", sub_STOPPING:"No new tasks are accepted.",
+ sub_ERROR:"Fix the issue below, then retry.", sub_FIRST:"Read the terms above, then click “Agree and go online”.",
+ quota_title:"Plan usage", left:(p)=>`${p}% left`, win_week:"This week", win_days:(d)=>`${d}-day window`, win_hours:(h)=>`${h}-hour window`, win_minutes:(m)=>`${m}-minute window`,
+ reset_min:(m)=>`resets in ${m} min`, reset_hm:(h,m)=>`resets in ${h} h ${m} min`, reset_at:(s)=>`resets ${s}`,
+ quota_fb_ok:"OK (exact percentages unavailable)", quota_fb_low:"Running low", quota_fb_exhausted:"Used up; tasks resume after it resets",
+ now_title:"Now", now_idle:"Idle", now_running:(n)=>`${n} running`, now_sub:(q,n,m)=>`${q} queued · ${n} tasks, ${m} min in 24 h`,
+ members_count:(n,m)=>`${n} / ${m}`, owner_name:"You (owner)", member_name:(id)=>`Member ${id}`, m_used_short:(n,m)=>`${n} tasks · ${m} min`,
+ m_capped:"own cap", limits_btn:"Limits",
+ invite_sub_public:"Friends open the link in a browser and accept the terms to join.", invite_sub_tailscale:"Friends sign in to Tailscale, then open the link and accept the terms.",
+ show_link:"Show link", tasks_none:"No tasks yet.",
+ settings_title:"Sharing settings", anytime:"Change any time", preset_save:"Light", preset_standard:"Standard", preset_open:"Generous", preset_custom:"Custom",
+ preset_summary:(n,m,c,net,k,all)=>`Up to ${n} tasks a day · ${m} min each · ${c} at a time · ${net?"internet allowed":"no internet"} · ${k===all?`all ${all} kinds`:`${k} of ${all} kinds`}`,
+ customize:"Customize each limit, task kinds and device tools",
+ inv_head:"I'm sharing my ChatGPT plan with a few friends through SpareAgent. Join us:",
+ inv_step_tailscale:"Install Tailscale, sign in and join the operator's private network (the operator will invite you).",
+ inv_step_open:(l)=>`Open this link and accept the terms to join: ${l}`,
+ inv_step_browser:(l)=>`Open this link in a browser (phone or computer, nothing to install) and accept the terms to join: ${l}`,
+ inv_step_submit:"Submit tasks on the web page and download the results when they are ready.", inv_tail:"This link is just for you; please don't forward it."
 }};
 const ONLINE_STEPS=["codex_install","git_check","codex_login","signup","owner_check","server_online","worker_start"];
 const OFFLINE_STEPS=["server_offline","draining","worker_stop"];
@@ -398,43 +476,47 @@ function applyStatic(){
   document.title=t("title");
   document.querySelectorAll("[data-t]").forEach(el=>{el.textContent=t(el.dataset.t)});
   $("lang").textContent=t("lang");
-  $("ack").innerHTML="";
-  for(let i=1;i<=8;i++){const li=document.createElement("li");li.textContent=t("ack_"+i);$("ack").appendChild(li)}
+  document.querySelectorAll(".ack").forEach(ul=>{ul.innerHTML="";
+    for(let i=1;i<=8;i++){const li=document.createElement("li");li.textContent=t("ack_"+i);ul.appendChild(li)}});
 }
+function el(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e}
 function render(){
   if(!S){if(localErr){show($("error"),true);$("error").textContent=errText(localErr)}return}
-  const big=$("big"), ph=S.phase;
+  const ph=S.phase, srv=S.server, sharing=srv&&srv.sharing, busy=ph==="STARTING"||ph==="STOPPING";
   $("footer").textContent=t(S.desktop_app?"footer_app":"footer");
-  big.className="big"+(ph==="ONLINE"?" online":"")+(ph==="STARTING"||ph==="STOPPING"?" busy":"");
-  big.disabled=ph==="STARTING"||ph==="STOPPING"||!KEY;
-  big.innerHTML="";
-  const main=ph==="ONLINE"?t("online"):ph==="STARTING"?t("starting"):ph==="STOPPING"?t("stopping"):ph==="ERROR"?t("retry"):t(S.consented?"go_online":"first_online");
-  const sub=ph==="ONLINE"?t("online_sub"):ph==="OFFLINE"?t("go_online_sub"):"";
-  big.append(main); if(sub){const s=document.createElement("small");s.textContent=sub;big.append(s)}
-  $("state").textContent=t("st_"+ph);
+  $("device_title").textContent="· "+(S.device_label||"");
+  // First run: the terms and plan are a step before going online, not part of the daily page.
+  const onboarding=!S.consented&&ph!=="ONLINE";
+  show($("consent"),onboarding); show($("terms"),!onboarding);
+  $("go").disabled=busy||!KEY;
+  const big=$("big");
+  big.className="s"+(ph==="OFFLINE"||ph==="ERROR"?" p":"");
+  show(big,!onboarding||ph==="ERROR");
+  big.disabled=busy||!KEY;
+  big.textContent=ph==="ONLINE"?t("btn_pause"):ph==="ERROR"?t("retry"):busy?t(ph==="STARTING"?"starting":"stopping"):t("go_online");
+  $("dot").className="dot"+(ph==="ONLINE"?" on":busy?" busy":ph==="ERROR"?" bad":"");
+  $("state_title").textContent=t("title_"+ph);
+  $("state").textContent=onboarding&&ph==="OFFLINE"?t("sub_FIRST"):ph==="ONLINE"&&sharing&&sharing.auto_approve_members===false?t("sub_ONLINE_manual"):t("sub_"+ph);
   const steps=ph==="STARTING"?ONLINE_STEPS:ph==="STOPPING"?OFFLINE_STEPS:null;
   show($("steps"),!!steps); show($("cancel"),ph==="STARTING");
   if(steps){const ol=$("steps");ol.innerHTML="";const at=steps.indexOf(S.step);
-    steps.forEach((k,i)=>{const li=document.createElement("li");li.textContent=(i<at?"✓ ":i===at?"→ ":"· ")+t("step_"+k);
-      li.className=i<at?"done":i===at?"now":"";ol.appendChild(li)})}
+    steps.forEach((k,i)=>{const li=el("li",i<at?"done":i===at?"now":"",(i<at?"✓ ":i===at?"→ ":"· ")+t("step_"+k));ol.appendChild(li)})}
   const err=S.error||localErr;
   show($("error"),!!err); if(err)$("error").textContent=errText(err);
-  show($("consent"),ph!=="ONLINE");
+  show($("retry_hint"),ph==="ERROR");
   if(ph==="ONLINE")onboardingEditing=false;
-  if(!onboardingEditing){$("device").value=S.device_label||"";$("plan").value=S.subscription_type||"PLUS"}
+  if(!onboardingEditing){if(document.activeElement!==$("device"))$("device").value=S.device_label||"";$("plan").value=S.subscription_type||"PLUS"}
+  $("device").disabled=$("plan").disabled=busy;
   renderNetworks(ph);
-  const srv=S.server;
-  const sharing=srv&&srv.sharing;
   $("summary_tasks").textContent=t(sharing&&sharing.auto_approve_members===false?"summary_tasks_manual":"summary_tasks_auto");
   $("summary_network").textContent=t(sharing&&!(sharing.allowed_tools||[]).includes("network")?"summary_network_off":"summary_network_on");
-  show($("retry_hint"),ph==="ERROR");
-  $("device").disabled=$("plan").disabled=ph==="STARTING"||ph==="STOPPING";
-  show($("invite"),!!srv); show($("settings"),!!srv); show($("members"),!!srv); show($("tasks"),!!srv);
-  show($("running"),!!srv);
+  renderGauges(srv);
+  ["invite","settings","members","tasks"].forEach(id=>show($(id),!!srv));
   if(srv){
     const g=srv.group;
     $("code").textContent=S.invite_code||"— — —";
-    $("link").textContent=S.invite_link||t("invite_lost");
+    $("invite_sub").textContent=S.invite_link?t(srv.public_dashboard?"invite_sub_public":"invite_sub_tailscale"):t("invite_lost");
+    $("link").textContent=S.invite_link||"";
     $("copy").disabled=!S.invite_link;
     const others=(S.invite_links||[]).filter(l=>l.id!==S.network);
     show($("links"),others.length>0);
@@ -443,39 +525,14 @@ function render(){
       $("max_members").value=g.max_members; $("max_members").max=g.member_cap;
       $("max_members").min=Math.max(2,srv.members.length);
       $("max_tasks").value=g.max_tasks_per_day; $("max_minutes").value=Math.round(g.max_task_duration_seconds/60);
-      $("auto").checked=srv.sharing?srv.sharing.auto_approve_members:true;
-      $("concurrency").value=(srv.sharing&&srv.sharing.max_concurrent_tasks)||1;
+      $("auto").checked=sharing?sharing.auto_approve_members:true;
+      $("concurrency").value=(sharing&&sharing.max_concurrent_tasks)||1;
       renderKinds(srv); renderTools(srv);
     } else { renderToolStates() }
     $("usage").textContent=(flash||t("usage",srv.tasks_started_last_24h,g.max_tasks_per_day))+t("cap",g.member_cap);
-    const mb=$("member_rows");
-    // Do not rebuild the rows while the owner is typing a member's limit.
-    if(!mb.contains(document.activeElement)){mb.innerHTML="";
-    srv.members.forEach(m=>{const tr=document.createElement("tr");
-      const a=document.createElement("td");a.textContent=m.is_owner?t("you"):m.user_id.slice(0,8);
-      const b=document.createElement("td");b.textContent=fmt(m.joined_at);
-      const u=document.createElement("td");u.textContent=m.is_owner?"—":t("m_used_val",m.tasks_last_24h||0,m.minutes_last_24h||0);
-      const capCell=(key,max)=>{const td=document.createElement("td");if(m.is_owner){td.textContent="—";return [td,null]}
-        const i=document.createElement("input");i.type="number";i.min="1";i.max=String(max);i.className="cap";
-        i.placeholder=t("m_no_cap");i.value=m[key]??"";td.append(i);return [td,i]};
-      const [tc,ti]=capCell("max_tasks_per_day",50), [mc,mi]=capCell("max_minutes_per_day",1440);
-      const c=document.createElement("td");
-      if(!m.is_owner){
-        const save=document.createElement("button");save.className="s p";save.textContent=t("save");
-        save.onclick=()=>{const v=x=>x.value.trim()===""?null:Number(x.value);
-          const body={user_id:m.user_id,max_tasks_per_day:v(ti),max_minutes_per_day:v(mi)};
-          const bad=[[body.max_tasks_per_day,50],[body.max_minutes_per_day,1440]].some(([x,hi])=>x!==null&&(!Number.isInteger(x)||x<1||x>hi));
-          if(bad){localErr={code:"invalid_input",detail:t("m_cap_range")};render();return}
-          act("member-limits",body)};
-        const btn=document.createElement("button");btn.className="s";btn.textContent=t("remove");
-        btn.onclick=()=>{if(confirm(t("confirm_remove")))act("remove-member",{user_id:m.user_id})};c.append(save,btn)}
-      tr.append(a,b,u,tc,mc,c);mb.append(tr)})}
-    renderRunning(srv);
-    const tb=$("task_rows"); tb.innerHTML="";
-    srv.tasks.forEach(x=>{const tr=document.createElement("tr");
-      const ap=x.approval_status==="APPROVED"?(x.approval_source==="OWNER_STANDING_APPROVAL"?t("approved_auto"):t("approved_owner")):x.approval_status==="PENDING"?t("pending"):t("rejected");
-      [fmt(x.created_at),kindLabel(x)+" · "+label("m_",x.execution_mode),statusText(x),ap].forEach(v=>{const td=document.createElement("td");td.textContent=v;tr.append(td)});
-      tb.append(tr)});
+    renderPresets(srv);
+    renderMembers(srv);
+    renderTasks(srv);
   }
   const notes=[];
   if(srv&&!srv.live_ready)notes.push(t("live_blocked"));
@@ -483,6 +540,134 @@ function render(){
   else if(S.server_error)notes.push(t("e_server_unreachable")+S.server_error);
   if(!S.bundle_ok)notes.push(t("e_bundle_missing"));
   show($("notice"),notes.length>0); $("notice").textContent=notes.join(" ");
+}
+function tone(p){return p>=30?"":p>=10?"warn":"bad"}
+function windowName(m){return m===10080?t("win_week"):m%1440===0?t("win_days",m/1440):m%60===0?t("win_hours",m/60):t("win_minutes",m)}
+function resetText(ts){
+  if(!ts)return "";
+  const min=Math.max(1,Math.round((ts*1000-Date.now())/60000));
+  if(min<60)return t("reset_min",min);
+  if(min<1440)return t("reset_hm",Math.floor(min/60),min%60);
+  const d=new Date(ts*1000), loc=lang==="zh"?"zh-CN":"en-US";
+  return t("reset_at",d.toLocaleDateString(loc,{weekday:"short"})+" "+d.toLocaleTimeString(loc,{hour:"2-digit",minute:"2-digit"}));
+}
+function gauge(title,right,pct,sub){
+  const box=el("div","gauge"), top=el("div","top");
+  top.append(el("span",null,title),el("small",null,right));box.append(top);
+  if(pct!=null){const bar=el("div","bar"),fill=el("i",tone(pct));fill.style.width=Math.max(pct?3:0,Math.min(pct,100))+"%";bar.append(fill);box.append(bar)}
+  if(sub)box.append(el("small",null,sub));
+  return box;
+}
+function renderGauges(srv){
+  const box=$("gauges"), q=S.quota;
+  show(box,!!(srv||q)); box.innerHTML="";
+  const wins=(q&&q.windows)||[];
+  wins.slice(0,2).forEach(w=>box.append(gauge(windowName(w.minutes),t("left",w.remaining_percent),w.remaining_percent,resetText(w.resets_at))));
+  if(q&&!wins.length){const lv=q.level||"ok";const g=gauge(t("quota_title"),"",null,null);
+    const s=el("div",null,t("quota_fb_"+lv));s.style.marginTop="6px";if(lv!=="ok")s.style.color=lv==="low"?"var(--warn)":"var(--err)";
+    g.append(s);g.style.gridColumn="span 2";box.append(g)}
+  if(!srv)return;
+  const u=srv.usage||{tasks_started_last_24h:srv.tasks_started_last_24h||0,execution_minutes_last_24h:0,running:0,queued:0};
+  const live=(srv.tasks||[]).filter(x=>x.status==="RUNNING"||x.status==="RESERVED"||x.status==="VERIFYING");
+  const now=gauge(t("now_title"),"",null,null);
+  const chip=el("span","chip"+(u.running?" run":""),u.running?t("now_running",u.running):t("now_idle"));
+  now.querySelector("small").replaceWith(chip);
+  live.slice(0,2).forEach(x=>{
+    const elp=x.started_at?mmss((Date.now()-Date.parse(x.started_at))/1000)+" / "+mmss(x.max_duration_seconds||0):"";
+    const pct=x.progress&&x.progress.percent!=null?" · "+x.progress.percent+"%":"";
+    const line=el("div",null,kindLabel(x)+(elp?" · "+elp:"")+pct);line.style.marginTop="6px";now.append(line)});
+  now.append(el("small",null,t("now_sub",u.queued,u.tasks_started_last_24h,u.execution_minutes_last_24h)));
+  box.append(now);
+}
+const PRESETS={save:{tasks:3,minutes:10,concurrency:1,network:false},standard:{tasks:5,minutes:10,concurrency:1,network:true},
+  open:{tasks:10,minutes:30,concurrency:2,network:true}};
+function offeredKinds(srv){return (srv.kinds||[]).filter(k=>k.offered&&k.status!=="DISABLED").map(k=>k.kind)}
+function currentPreset(srv){
+  const g=srv.group, sh=srv.sharing||{}, tools=sh.allowed_tools||TOOL_ORDER, kinds=offeredKinds(srv);
+  const allKinds=!sh.allowed_task_types||kinds.every(k=>sh.allowed_task_types.includes(k));
+  return Object.keys(PRESETS).find(n=>{const p=PRESETS[n];return allKinds&&g.max_tasks_per_day===p.tasks&&
+    Math.round(g.max_task_duration_seconds/60)===p.minutes&&(sh.max_concurrent_tasks||1)===p.concurrency&&
+    tools.includes("network")===p.network})||"custom";
+}
+function renderPresets(srv){
+  const cur=currentPreset(srv), box=$("presets");
+  if(!box.children.length||box.dataset.lang!==lang){box.innerHTML="";box.dataset.lang=lang;
+    ["save","standard","open"].forEach(n=>{const b=el("button",null,t("preset_"+n));b.type="button";b.dataset.preset=n;
+      b.onclick=()=>applyPreset(n);box.append(b)})}
+  [...box.children].forEach(b=>{b.classList.toggle("on",b.dataset.preset===cur);b.setAttribute("aria-pressed",b.dataset.preset===cur)});
+  const g=srv.group, sh=srv.sharing||{}, kinds=offeredKinds(srv);
+  const allowed=sh.allowed_task_types?kinds.filter(k=>sh.allowed_task_types.includes(k)).length:kinds.length;
+  $("preset_summary").textContent=(cur==="custom"?t("preset_custom")+" · ":"")+t("preset_summary",g.max_tasks_per_day,
+    Math.round(g.max_task_duration_seconds/60),sh.max_concurrent_tasks||1,(sh.allowed_tools||TOOL_ORDER).includes("network"),allowed,kinds.length);
+}
+async function applyPreset(n){
+  const srv=S&&S.server; if(!srv)return;
+  const p=PRESETS[n], sh=srv.sharing||{}, tools=(sh.allowed_tools||TOOL_ORDER).filter(x=>x!=="network");
+  if(p.network&&!(sh.allowed_tools||TOOL_ORDER).includes("network")&&!confirm(t("network_confirm")))return;
+  settingsEditing=false;
+  await act("settings",{max_members:srv.group.max_members,max_tasks_per_day:p.tasks,max_task_minutes:p.minutes,
+    max_concurrent_tasks:p.concurrency,auto_approve_members:sh.auto_approve_members!==false,
+    allowed_task_types:offeredKinds(srv),allowed_tools:p.network?[...tools,"network"]:tools});
+}
+let openEditor=null;
+function renderMembers(srv){
+  const g=srv.group, mb=$("member_rows");
+  $("members_count").textContent=t("members_count",srv.members.length,g.max_members);
+  // Do not rebuild the rows while the owner is typing a member's limit.
+  if(mb.contains(document.activeElement))return;
+  mb.innerHTML="";
+  srv.members.forEach(m=>{
+    const row=el("div","li"), name=el("span","name");
+    name.append(el("span","av",m.is_owner?t("you"):m.user_id.slice(0,2)),el("span",null,m.is_owner?t("owner_name"):t("member_name",m.user_id.slice(0,8))));
+    row.append(name);
+    if(m.is_owner){row.append(el("small",null,"—"));mb.append(row);return}
+    const used=el("small",null,t("m_used_short",m.tasks_last_24h||0,m.minutes_last_24h||0));
+    const cap=m.max_tasks_per_day||g.max_tasks_per_day, mini=el("span","mini"), fill=el("i");
+    fill.style.width=Math.min(100,100*(m.tasks_last_24h||0)/Math.max(1,cap))+"%";mini.append(fill);used.append(mini);
+    if(m.max_tasks_per_day||m.max_minutes_per_day)used.append(" · "+t("m_capped"));
+    const btn=el("button","s",t("limits_btn"));btn.type="button";
+    btn.onclick=()=>{openEditor=openEditor===m.user_id?null:m.user_id;renderMembers(srv)};
+    const right=el("span");right.style.cssText="display:flex;gap:10px;align-items:center";right.append(used,btn);
+    row.append(right);mb.append(row);
+    if(openEditor!==m.user_id)return;
+    const ed=el("div","editor");
+    const field=(key,max,label)=>{const l=el("label",null,label);const i=el("input");i.type="number";i.min="1";i.max=String(max);
+      i.placeholder=t("m_no_cap");i.value=m[key]??"";l.append(i);ed.append(l);return i};
+    const ti=field("max_tasks_per_day",50,t("m_task_cap")), mi=field("max_minutes_per_day",1440,t("m_min_cap"));
+    const save=el("button","s p",t("save"));save.type="button";
+    save.onclick=()=>{const v=x=>x.value.trim()===""?null:Number(x.value);
+      const body={user_id:m.user_id,max_tasks_per_day:v(ti),max_minutes_per_day:v(mi)};
+      const bad=[[body.max_tasks_per_day,50],[body.max_minutes_per_day,1440]].some(([x,hi])=>x!==null&&(!Number.isInteger(x)||x<1||x>hi));
+      if(bad){localErr={code:"invalid_input",detail:t("m_cap_range")};render();return}
+      openEditor=null;act("member-limits",body)};
+    const rm=el("button","s",t("remove"));rm.type="button";
+    rm.onclick=()=>{if(confirm(t("confirm_remove"))){openEditor=null;act("remove-member",{user_id:m.user_id})}};
+    ed.append(save,rm);const help=el("small",null,t("m_caps_help"));help.style.flexBasis="100%";ed.append(help);mb.append(ed)});
+}
+function taskChip(x){
+  if(x.status==="SUCCEEDED")return ["ok",label("s_",x.status)];
+  if(x.failure&&x.status!=="CANCELLED")return ["bad",t("fc_"+(x.failure.category||"OTHER"))];
+  if(["FAILED","TIMED_OUT","REJECTED"].includes(x.status))return ["bad",label("s_",x.status)];
+  if(["RUNNING","RESERVED","VERIFYING","CANCELLING"].includes(x.status))
+    return ["run",label("s_",x.status)+(x.progress&&x.progress.percent!=null?" "+x.progress.percent+"%":"")];
+  if(x.approval_status==="PENDING")return ["wait",t("pending")];
+  if(x.status==="QUEUED")return ["wait",x.queue_position?t("queued_n",x.queue_position):label("s_",x.status)];
+  return ["",label("s_",x.status)];
+}
+function renderTasks(srv){
+  const box=$("task_rows"); box.innerHTML="";
+  const tasks=srv.tasks||[]; show($("tasks_empty"),!tasks.length);
+  const owner=(srv.members||[]).find(m=>m.is_owner);
+  tasks.slice(0,8).forEach(x=>{
+    const row=el("div","li"), left=el("span");
+    const who=owner&&x.requester_id===owner.user_id?t("you"):t("member_name",String(x.requester_id||"").slice(0,8));
+    left.append(el("span",null,kindLabel(x)),el("small",null," · "+who+" · "+fmt(x.created_at)+(x.execution_mode==="SIMULATED"?" · "+t("m_SIMULATED"):"")));
+    const [cls,text]=taskChip(x);
+    row.append(left,el("span","chip "+cls,text));box.append(row)});
+}
+function inviteMessage(link,needsTailscale){
+  const steps=needsTailscale?[t("inv_step_tailscale"),t("inv_step_open",link)]:[t("inv_step_browser",link)];
+  return [t("inv_head"),...[...steps,t("inv_step_submit")].map((s,i)=>`${i+1}. ${s}`),t("inv_tail")].join("\n");
 }
 function renderNetworks(ph){
   const nets=S.networks||[], sel=$("net");
@@ -554,19 +739,6 @@ function statusText(x){
   return s;
 }
 function mmss(sec){sec=Math.max(0,Math.round(sec));return Math.floor(sec/60)+":"+String(sec%60).padStart(2,"0")}
-function renderRunning(srv){
-  const u=srv.usage||{tasks_started_last_24h:srv.tasks_started_last_24h||0,execution_minutes_last_24h:0,running:0,queued:0};
-  $("usage_line").textContent=t("usage_line",u.tasks_started_last_24h,u.execution_minutes_last_24h,u.running,u.queued);
-  const rows=$("running_rows"); rows.innerHTML="";
-  const live=(srv.tasks||[]).filter(x=>x.status==="RUNNING"||x.status==="RESERVED"||x.status==="VERIFYING");
-  if(!live.length){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=3;
-    td.textContent=t("none_running");tr.append(td);rows.append(tr);return}
-  live.forEach(x=>{const tr=document.createElement("tr");
-    const el=x.started_at?mmss((Date.now()-Date.parse(x.started_at))/1000)+" / "+mmss(x.max_duration_seconds||0):"—";
-    const pr=x.progress?`${x.progress.percent??"?"}% ${progressText(x.progress.message)}`:label("s_",x.status);
-    [kindLabel(x),el,pr].forEach(v=>{const td=document.createElement("td");td.textContent=v;tr.append(td)});
-    rows.append(tr)});
-}
 const PROGRESS_ZH=[[/^Prepared (\d+) attachment/,"已准备 $1 个附件"],[/^Verified local ChatGPT login/,"已确认本机 ChatGPT 登录"],
  [/^Checked out the pinned commit/,"已取出指定版本的代码"],[/^Checking the result/,"正在检查结果"],[/^Result ready/,"结果已就绪"],
  [/^Codex run complete/,"Codex 已完成"],[/^Loaded task metadata \(mock/,"模拟：已读取任务信息"],[/^Generated deterministic fixture/,"模拟：已生成占位结果"]];
@@ -586,7 +758,7 @@ async function act(route, body){
 async function poll(){try{S=await call("state");render()}catch(e){}}
 
 $("lang").onclick=()=>{lang=lang==="zh"?"en":"zh";try{localStorage.setItem("sa_lang",lang)}catch(e){}applyStatic();render()};
-$("big").onclick=()=>{
+$("big").onclick=$("go").onclick=()=>{
   if(S&&S.phase==="ONLINE"&&runningCount()>0){
     $("oc_text").textContent=t("oc_text",runningCount()); show($("offline_choice"),true); $("oc_finish").focus(); return}
   act("toggle",{device_label:$("device").value,subscription_type:$("plan").value});
@@ -598,7 +770,7 @@ $("oc_cancel").onclick=()=>show($("offline_choice"),false);
 $("cancel").onclick=()=>act("cancel");
 $("net").onchange=()=>act("network",{network:$("net").value});
 $("rotate").onclick=()=>act("invite");
-$("copy").onclick=async()=>{try{await navigator.clipboard.writeText(S.invite_link);$("copy").textContent=t("copied");
+$("copy").onclick=async()=>{try{await navigator.clipboard.writeText(inviteMessage(S.invite_link,!(S.server&&S.server.public_dashboard)));$("copy").textContent=t("copied");
   setTimeout(()=>$("copy").textContent=t("copy"),1500)}catch(e){}};
 function checkLimits(v){
   const lo=Math.max(2,S&&S.server?S.server.members.length:2), hi=S&&S.server?S.server.group.member_cap:v.max_members;
