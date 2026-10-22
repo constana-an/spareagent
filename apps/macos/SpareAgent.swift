@@ -1,5 +1,8 @@
 import AppKit
+import CoreImage
 import Foundation
+import ServiceManagement
+import UserNotifications
 
 struct PanelEndpoint {
     let url: URL
@@ -38,7 +41,104 @@ func runningCount(_ state: [String: Any]) -> Int {
     return max(state["running_here"] as? Int ?? 0, usage["running"] as? Int ?? 0)
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+/// Menu-bar text: "在线 · 运行 1 · 今日 3/5" while sharing, otherwise the phase.
+func statusTitle(_ state: [String: Any]) -> String {
+    let label = phaseLabel(state)
+    guard label == "在线" else { return label }
+    var parts = [label]
+    let running = runningCount(state)
+    if running > 0 { parts.append("运行 \(running)") }
+    let server = state["server"] as? [String: Any] ?? [:]
+    let usage = server["usage"] as? [String: Any] ?? [:]
+    if let limit = (server["group"] as? [String: Any])?["max_tasks_per_day"] as? Int {
+        parts.append("今日 \(usage["tasks_started_last_24h"] as? Int ?? 0)/\(limit)")
+    }
+    return parts.joined(separator: " · ")
+}
+
+struct OwnerEvent: Equatable {
+    let title: String
+    let body: String
+}
+
+let finishedStatuses: Set<String> = ["SUCCEEDED", "FAILED", "TIMED_OUT", "CANCELLED"]
+
+func serverTasks(_ state: [String: Any]) -> [[String: Any]] {
+    (state["server"] as? [String: Any])?["tasks"] as? [[String: Any]] ?? []
+}
+
+func kindLabel(_ task: [String: Any], _ state: [String: Any]) -> String {
+    let type = task["task_type"] as? String ?? ""
+    let kinds = (state["server"] as? [String: Any])?["kinds"] as? [[String: Any]] ?? []
+    return kinds.first(where: { $0["kind"] as? String == type })?["name_zh"] as? String ?? "任务"
+}
+
+/// What the owner should hear about between two polls. The first poll only sets the baseline.
+func ownerEvents(previous: [String: Any]?, current: [String: Any]) -> [OwnerEvent] {
+    guard let previous = previous else { return [] }
+    var events: [OwnerEvent] = []
+    var before: [String: String] = [:]
+    for task in serverTasks(previous) {
+        if let id = task["id"] as? String, let status = task["status"] as? String { before[id] = status }
+    }
+    for task in serverTasks(current) {
+        guard let id = task["id"] as? String, let status = task["status"] as? String else { continue }
+        let kind = kindLabel(task, current)
+        if let old = before[id] {
+            guard !finishedStatuses.contains(old), old != status else { continue }
+            if status == "SUCCEEDED" {
+                events.append(OwnerEvent(title: "任务完成", body: "\(kind)已完成，结果已交给成员。"))
+            } else if status == "FAILED" || status == "TIMED_OUT" {
+                let category = (task["failure"] as? [String: Any])?["category"] as? String
+                let reason = category == "LOGIN" ? "需要重新登录 ChatGPT。"
+                    : category == "USAGE_LIMIT" ? "ChatGPT 额度已用完，恢复后再接任务。"
+                    : "打开控制页查看原因。"
+                events.append(OwnerEvent(title: "任务没有完成", body: "\(kind)：\(reason)"))
+            }
+        } else if !finishedStatuses.contains(status) {
+            events.append(OwnerEvent(title: "收到新任务", body: "小组成员提交了一个\(kind)。"))
+        }
+    }
+    let was = previous["phase"] as? String, now = current["phase"] as? String
+    if was == "ONLINE" && now == "ERROR" {
+        events.append(OwnerEvent(title: "分享已中断", body: "打开控制页查看原因并重新上线。"))
+    } else if now == "ONLINE" && !(previous["server_error"] is String) && current["server_error"] is String {
+        events.append(OwnerEvent(title: "连不上服务器", body: "已暂停接新任务；网络恢复后会自动继续。"))
+    }
+    return events
+}
+
+/// A message the owner can paste into a chat together with the invite link.
+func inviteMessage(_ link: String) -> String {
+    """
+    我在用 SpareAgent 和几个朋友共享我的 ChatGPT 额度，邀请你加入：
+    1. 先安装 Tailscale 并登录，加入运营者的私网（运营者会给你邀请）。
+    2. 打开这个链接，勾选同意即可加入：\(link)
+    3. 在网页里提交任务，结果做好后可以直接下载。
+    这个链接只给你，请不要转发。
+    """
+}
+
+func qrImage(_ text: String, size: CGFloat) -> NSImage? {
+    guard let filter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
+    filter.setValue(Data(text.utf8), forKey: "inputMessage")
+    filter.setValue("M", forKey: "inputCorrectionLevel")
+    guard let output = filter.outputImage else { return nil }
+    // A white quiet zone so phone cameras can read it on a dark window too.
+    let margin = (size / 12).rounded()
+    let scale = (size - 2 * margin) / output.extent.width
+    let rep = NSCIImageRep(ciImage: output.transformed(by: CGAffineTransform(scaleX: scale, y: scale)))
+    let image = NSImage(size: NSSize(width: size, height: size))
+    image.lockFocus()
+    NSColor.white.setFill()
+    NSRect(x: 0, y: 0, width: size, height: size).fill()
+    NSGraphicsContext.current?.imageInterpolation = .none
+    rep.draw(in: NSRect(x: margin, y: margin, width: size - 2 * margin, height: size - 2 * margin))
+    image.unlockFocus()
+    return image
+}
+
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNotificationCenterDelegate {
     let files = FileManager.default
     let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "SpareAgent"
     let stateDirectory: URL = {
@@ -53,6 +153,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var item: NSStatusItem!
     var pauseItem: NSMenuItem!
     var retryItem: NSMenuItem!
+    var onlineItem: NSMenuItem!
+    var copyInviteItem: NSMenuItem!
+    var qrItem: NSMenuItem!
+    var loginItem: NSMenuItem!
+    var resumeItem: NSMenuItem!
+    var inviteWindow: NSWindow?
+    var previousState: [String: Any]?
+    var askedNotifications = false
+    var resumeChecked = false
+    let defaults = UserDefaults.standard
     var worker: Process?
     var output: Pipe?
     var endpoint: PanelEndpoint?
@@ -99,10 +209,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return result
         }
         _ = entry("打开控制页", #selector(openPanel))
+        onlineItem = entry("上线", #selector(goOnline))
+        onlineItem.isHidden = true
         pauseItem = entry("暂停分享", #selector(pauseSharing))
         pauseItem.isEnabled = false
         retryItem = entry("重试启动", #selector(retry))
         retryItem.isHidden = true
+        menu.addItem(.separator())
+        copyInviteItem = entry("复制邀请说明", #selector(copyInvite))
+        qrItem = entry("显示邀请二维码", #selector(showInvite))
+        copyInviteItem.isEnabled = false
+        qrItem.isEnabled = false
+        menu.addItem(.separator())
+        loginItem = entry("开机时自动打开", #selector(toggleLoginItem))
+        loginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        resumeItem = entry("打开后恢复上次的在线状态", #selector(toggleResume))
+        resumeItem.state = defaults.bool(forKey: "resumeOnline") ? .on : .off
         _ = entry("显示状态", #selector(showWindow))
         menu.addItem(.separator())
         _ = entry("退出 " + appName, #selector(quit))
@@ -274,14 +396,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         ready = true
         spinner.stopAnimation(nil)
         let label = phaseLabel(status)
-        item.button?.title = " " + (quitting ? "正在退出" : label)
-        pauseItem.isEnabled = !quitting && ["ONLINE", "STARTING"].contains(status["phase"] as? String ?? "")
+        let phase = status["phase"] as? String ?? ""
+        item.button?.title = " " + (quitting ? "正在退出" : statusTitle(status))
+        pauseItem.isEnabled = !quitting && ["ONLINE", "STARTING"].contains(phase)
+        // Before the owner has agreed in the control page, "上线" opens that page instead.
+        onlineItem.isHidden = quitting || !["OFFLINE", "ERROR"].contains(phase)
+        let hasInvite = status["invite_link"] is String
+        copyInviteItem.isEnabled = hasInvite
+        qrItem.isEnabled = hasInvite
+        notify(ownerEvents(previous: previousState, current: status))
+        previousState = status
+        if phase == "ONLINE" { askNotificationPermission() }
+        resumeIfWanted(status)
         openButton.isEnabled = true
         if quitting {
             spinner.startAnimation(nil)
             message.stringValue = "已停止接新任务。正在等待运行中的任务结束，然后退出…"
         } else {
-            let next = status["phase"] as? String == "OFFLINE" ? "在控制页确认后才能上线。" : "请在控制页查看任务和处理提示。"
+            let next = status["phase"] as? String == "OFFLINE"
+                ? (status["consented"] as? Bool == true ? "可以从菜单栏点「上线」。" : "在控制页确认后才能上线。")
+                : "请在控制页查看任务和处理提示。"
             message.stringValue = "当前：\(label)\n\(next)关闭控制页会继续运行，可从菜单栏暂停或退出。"
         }
         if !opened && !quitting {
@@ -341,6 +475,122 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+    @objc func goOnline() {
+        guard state["consented"] as? Bool == true, state["registered"] as? Bool == true else {
+            openPanel(); return
+        }
+        request("toggle") { status, _ in
+            if let status = status { self.update(status) }
+            else { self.showWindow(); self.message.stringValue = "上线请求没有完成，请打开控制页重试。" }
+        }
+    }
+
+    /// Remembers whether sharing was on when the App last ran, and turns it back on at the
+    /// next start only if the owner ticked the menu option.
+    func resumeIfWanted(_ status: [String: Any]) {
+        let phase = status["phase"] as? String ?? ""
+        if !resumeChecked {
+            resumeChecked = true
+            if defaults.bool(forKey: "resumeOnline") && defaults.bool(forKey: "wasOnline")
+                && phase == "OFFLINE" && status["consented"] as? Bool == true
+                && status["registered"] as? Bool == true {
+                goOnline()
+                return
+            }
+        }
+        if !quitting && (phase == "ONLINE" || phase == "OFFLINE") {
+            defaults.set(phase == "ONLINE", forKey: "wasOnline")
+        }
+    }
+
+    @objc func toggleResume() {
+        let on = !defaults.bool(forKey: "resumeOnline")
+        defaults.set(on, forKey: "resumeOnline")
+        resumeItem.state = on ? .on : .off
+    }
+
+    @objc func toggleLoginItem() {
+        let service = SMAppService.mainApp
+        do {
+            if service.status == .enabled { try service.unregister() } else { try service.register() }
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "没有设置成功"
+            alert.informativeText = "请在「系统设置 → 通用 → 登录项」中手动添加 SpareAgent。\n\(error.localizedDescription)"
+            NSApp.activate(ignoringOtherApps: true)
+            alert.runModal()
+        }
+        loginItem.state = service.status == .enabled ? .on : .off
+        if service.status == .requiresApproval {
+            SMAppService.openSystemSettingsLoginItems()
+        }
+    }
+
+    func askNotificationPermission() {
+        guard !askedNotifications else { return }
+        askedNotifications = true
+        let center = UNUserNotificationCenter.current()
+        center.delegate = self
+        center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+    }
+
+    func notify(_ events: [OwnerEvent]) {
+        guard !events.isEmpty else { return }
+        askNotificationPermission()
+        for event in events {
+            let content = UNMutableNotificationContent()
+            content.title = event.title
+            content.body = event.body
+            content.sound = .default
+            UNUserNotificationCenter.current().add(
+                UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+        }
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner, .sound])
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                withCompletionHandler completionHandler: @escaping () -> Void) {
+        DispatchQueue.main.async { self.openPanel() }
+        completionHandler()
+    }
+
+    @objc func copyInvite() {
+        guard let link = state["invite_link"] as? String else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(inviteMessage(link), forType: .string)
+    }
+
+    @objc func showInvite() {
+        guard let link = state["invite_link"] as? String else { return }
+        let window = inviteWindow ?? NSWindow(contentRect: NSRect(x: 0, y: 0, width: 360, height: 430),
+            styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.title = "邀请朋友"
+        window.isReleasedWhenClosed = false
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 360, height: 430))
+        let image = NSImageView(frame: NSRect(x: 70, y: 180, width: 220, height: 220))
+        image.image = qrImage(link, size: 220)
+        image.imageScaling = .scaleProportionallyUpOrDown
+        let hint = NSTextField(wrappingLabelWithString: "朋友连上 Tailscale 后，用手机相机扫码或打开下面的链接即可加入。这个链接只发给你信任的人。")
+        hint.frame = NSRect(x: 24, y: 110, width: 312, height: 60)
+        let text = NSTextField(wrappingLabelWithString: link)
+        text.isSelectable = true
+        text.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        text.frame = NSRect(x: 24, y: 64, width: 312, height: 40)
+        let copy = NSButton(title: "复制邀请说明", target: self, action: #selector(copyInvite))
+        copy.bezelStyle = .rounded
+        copy.frame = NSRect(x: 200, y: 18, width: 136, height: 32)
+        [image, hint, text, copy].forEach { view.addSubview($0) }
+        window.contentView = view
+        window.center()
+        inviteWindow = window
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     @objc func quit() { NSApp.terminate(nil) }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -393,7 +643,30 @@ if CommandLine.arguments.contains("--self-test") {
     precondition(runningCount(["running_here": 2, "server": ["usage": ["running": 1]]]) == 2)
     precondition(phaseLabel(["phase": "OFFLINE"]) == "离线")
     precondition(phaseLabel(["phase": "ONLINE", "server_error": "offline"]) == "连接异常")
-    print("PASS: local endpoint validation, task count and status labels")
+    let online: [String: Any] = ["phase": "ONLINE", "running_here": 1, "server": [
+        "usage": ["running": 1, "tasks_started_last_24h": 3], "group": ["max_tasks_per_day": 5],
+        "kinds": [["kind": "GENERAL", "name_zh": "通用任务"]],
+        "tasks": [["id": "a", "status": "RUNNING", "task_type": "GENERAL"]]]]
+    precondition(statusTitle(online) == "在线 · 运行 1 · 今日 3/5")
+    precondition(statusTitle(["phase": "OFFLINE"]) == "离线")
+    precondition(ownerEvents(previous: nil, current: online).isEmpty)
+    var later = online
+    later["server"] = ["kinds": [["kind": "GENERAL", "name_zh": "通用任务"]], "tasks": [
+        ["id": "a", "status": "FAILED", "task_type": "GENERAL", "failure": ["category": "USAGE_LIMIT"]],
+        ["id": "b", "status": "QUEUED", "task_type": "GENERAL"]]]
+    precondition(ownerEvents(previous: online, current: later) == [
+        OwnerEvent(title: "任务没有完成", body: "通用任务：ChatGPT 额度已用完，恢复后再接任务。"),
+        OwnerEvent(title: "收到新任务", body: "小组成员提交了一个通用任务。")])
+    precondition(ownerEvents(previous: later, current: later).isEmpty)
+    var broken = later
+    broken["phase"] = "ERROR"
+    precondition(ownerEvents(previous: later, current: broken).map(\.title) == ["分享已中断"])
+    var unreachable = later
+    unreachable["server_error"] = "offline"
+    precondition(ownerEvents(previous: later, current: unreachable).map(\.title) == ["连不上服务器"])
+    precondition(inviteMessage("https://h.ts.net:8443/#join=X").contains("https://h.ts.net:8443/#join=X"))
+    precondition(qrImage("https://h.ts.net:8443/#join=X", size: 220) != nil)
+    print("PASS: local endpoint validation, task count and status labels, menu title, owner notifications, invite")
 } else {
     let app = NSApplication.shared
     let delegate = AppDelegate()
