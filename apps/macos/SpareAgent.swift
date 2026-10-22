@@ -122,6 +122,99 @@ func updateMenu(_ state: [String: Any]) -> (title: String, enabled: Bool)? {
     }
 }
 
+enum Tone { case good, warn, bad, idle }
+
+extension Tone {
+    var color: NSColor {
+        switch self {
+        case .good: return .systemGreen
+        case .warn: return .systemOrange
+        case .bad: return .systemRed
+        case .idle: return .tertiaryLabelColor
+        }
+    }
+}
+
+/// Top line of the menu card: what the device is doing, and a short note under it.
+func cardHeadline(_ state: [String: Any]) -> (title: String, note: String, tone: Tone) {
+    if let failed = state["launch_failed"] as? String { return ("启动失败", failed, .bad) }
+    if state.isEmpty { return ("准备中", "正在启动本机接单程序", .warn) }
+    let server = state["server"] as? [String: Any]
+    let members = (server?["members"] as? [[String: Any]] ?? []).filter { $0["is_owner"] as? Bool != true }.count
+    let reach = state["server_error"] is String ? "连不上服务器" : (server == nil ? "" : "服务器已连接")
+    let note = [reach, members > 0 ? "\(members) 位成员" : ""].filter { !$0.isEmpty }.joined(separator: " · ")
+    switch phaseLabel(state) {
+    case "在线": return ("在线，正在分享", note, .good)
+    case "离线": return ("已暂停分享", state["registered"] as? Bool == true ? note : "还没有完成设置", .idle)
+    case "正在上线", "正在下线": return (phaseLabel(state) + "…", note, .warn)
+    case "连接异常": return ("连接异常", "已暂停接新任务；网络恢复后会自动继续", .bad)
+    default: return ("需要处理", "打开控制页查看原因", .bad)
+    }
+}
+
+struct QuotaRow: Equatable {
+    let name: String
+    let detail: String
+    let remaining: Int
+}
+
+func windowName(_ minutes: Int) -> String {
+    if minutes == 7 * 1440 { return "本周额度" }
+    if minutes % 1440 == 0 { return "\(minutes / 1440) 天额度" }
+    if minutes % 60 == 0 { return "\(minutes / 60) 小时额度" }
+    return "\(minutes) 分钟额度"
+}
+
+func resetText(_ resetsAt: Int?, now: Date) -> String {
+    guard let resetsAt = resetsAt else { return "" }
+    let date = Date(timeIntervalSince1970: TimeInterval(resetsAt))
+    let minutes = max(1, Int(date.timeIntervalSince(now) / 60))
+    if minutes < 60 { return "\(minutes) 分钟后重置" }
+    if minutes < 24 * 60 { return "\(minutes / 60) 小时 \(minutes % 60) 分后重置" }
+    let format = DateFormatter()
+    format.locale = Locale(identifier: "zh_CN")
+    format.dateFormat = "EEE HH:mm"
+    return format.string(from: date) + " 重置"
+}
+
+/// One bar per plan window, from the worker's reading of the owner's Codex (shortest first).
+func quotaRows(_ state: [String: Any], now: Date) -> [QuotaRow] {
+    let windows = (state["quota"] as? [String: Any])?["windows"] as? [[String: Any]] ?? []
+    return windows.compactMap { window in
+        guard let minutes = window["minutes"] as? Int, let remaining = window["remaining_percent"] as? Int else { return nil }
+        let reset = resetText(window["resets_at"] as? Int, now: now)
+        return QuotaRow(name: windowName(minutes),
+                        detail: (["剩 \(remaining)%"] + (reset.isEmpty ? [] : [reset])).joined(separator: " · "),
+                        remaining: remaining)
+    }
+}
+
+func quotaTone(_ remaining: Int) -> Tone { remaining >= 30 ? .good : remaining >= 10 ? .warn : .bad }
+
+/// Plain words when Codex gave no numbers; nil when there are bars (or an older worker).
+func quotaFallback(_ state: [String: Any]) -> (text: String, tone: Tone)? {
+    guard let quota = state["quota"] as? [String: Any], quotaRows(state, now: Date()).isEmpty else { return nil }
+    switch quota["level"] as? String {
+    case "exhausted": return ("额度：已用完，恢复后再接任务", .bad)
+    case "low": return ("额度：快用完了", .warn)
+    default: return ("额度：正常（暂时读不到具体百分比）", .good)
+    }
+}
+
+/// What is running now and how much was done in the last day.
+func activityLines(_ state: [String: Any]) -> [String] {
+    guard state["phase"] != nil else { return [] }
+    let server = state["server"] as? [String: Any] ?? [:]
+    let usage = server["usage"] as? [String: Any] ?? [:]
+    let running = serverTasks(state).filter { $0["status"] as? String == "RUNNING" }
+    let count = runningCount(state)
+    var now = count == 0 ? "没有进行中的任务"
+        : count == 1 && running.count == 1 ? "正在运行：\(kindLabel(running[0], state))" : "正在运行 \(count) 个任务"
+    if let queued = usage["queued"] as? Int, queued > 0 { now += " · \(queued) 个在排队" }
+    guard server["usage"] != nil else { return [now] }
+    return [now, "24 小时内开始了 \(usage["tasks_started_last_24h"] as? Int ?? 0) 个任务"]
+}
+
 /// Whether members open the dashboard without Tailscale (operator's FRIENDS_WEB_PUBLIC).
 func publicDashboard(_ state: [String: Any]) -> Bool {
     (state["server"] as? [String: Any])?["public_dashboard"] as? Bool ?? false
@@ -158,6 +251,132 @@ func qrImage(_ text: String, size: CGFloat) -> NSImage? {
     return image
 }
 
+/// A rounded fill drawn in draw(_:), so dynamic colors follow light and dark mode.
+final class FillView: NSView {
+    var color: NSColor = .clear { didSet { needsDisplay = true } }
+    var radius: CGFloat = 0
+
+    override func draw(_ dirtyRect: NSRect) {
+        color.setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
+    }
+}
+
+final class QuotaBar: NSView {
+    var remaining = 0 { didSet { needsDisplay = true } }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.labelColor.withAlphaComponent(0.12).setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: 3, yRadius: 3).fill()
+        guard remaining > 0 else { return }
+        var filled = bounds
+        filled.size.width = max(bounds.height, bounds.width * CGFloat(min(remaining, 100)) / 100)
+        quotaTone(remaining).color.setFill()
+        NSBezierPath(roundedRect: filled, xRadius: 3, yRadius: 3).fill()
+    }
+}
+
+/// The card at the top of the menu: status, one bar per plan window, current work.
+final class StatusCard: NSView {
+    static let width: CGFloat = 300
+    let stack = NSStackView()
+
+    init() {
+        super.init(frame: NSRect(x: 0, y: 0, width: StatusCard.width, height: 60))
+        let background = FillView()
+        background.color = NSColor.labelColor.withAlphaComponent(0.05)
+        background.radius = 8
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 2
+        for view in [background, stack] as [NSView] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(view)
+        }
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(equalToConstant: StatusCard.width),
+            background.topAnchor.constraint(equalTo: topAnchor, constant: 2),
+            background.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+            background.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
+            background.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            stack.topAnchor.constraint(equalTo: background.topAnchor, constant: 10),
+            stack.bottomAnchor.constraint(equalTo: background.bottomAnchor, constant: -10),
+            stack.leadingAnchor.constraint(equalTo: background.leadingAnchor, constant: 12),
+            stack.trailingAnchor.constraint(equalTo: background.trailingAnchor, constant: -12),
+        ])
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    func text(_ value: String, size: CGFloat = 12, bold: Bool = false, color: NSColor = .secondaryLabelColor) -> NSTextField {
+        let field = NSTextField(labelWithString: value)
+        field.font = .systemFont(ofSize: size, weight: bold ? .semibold : .regular)
+        field.textColor = color
+        field.lineBreakMode = .byTruncatingTail
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return field
+    }
+
+    func add(_ view: NSView, fullWidth: Bool = false, gap: CGFloat = 2) {
+        stack.addArrangedSubview(view)
+        if fullWidth { view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true }
+        stack.setCustomSpacing(gap, after: view)
+    }
+
+    func update(_ state: [String: Any]) {
+        stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        let head = cardHeadline(state)
+        let dot = FillView()
+        dot.color = head.tone.color
+        dot.radius = 4
+        dot.widthAnchor.constraint(equalToConstant: 8).isActive = true
+        dot.heightAnchor.constraint(equalToConstant: 8).isActive = true
+        let title = NSStackView(views: [dot, text(head.title, size: 13, bold: true, color: .labelColor)])
+        title.spacing = 6
+        add(title, fullWidth: true, gap: head.note.isEmpty ? 10 : 2)
+        if !head.note.isEmpty { add(text(head.note), gap: 10) }
+        let rows = quotaRows(state, now: Date())
+        for row in rows {
+            let line = NSView()
+            let name = text(row.name, color: .labelColor), detail = text(row.detail)
+            // Fill the rest of the line, right-aligned: its measured width runs short for CJK text.
+            detail.alignment = .right
+            name.setContentCompressionResistancePriority(.required, for: .horizontal)
+            name.setContentHuggingPriority(.required, for: .horizontal)
+            for label in [name, detail] {
+                label.translatesAutoresizingMaskIntoConstraints = false
+                line.addSubview(label)
+            }
+            NSLayoutConstraint.activate([
+                name.leadingAnchor.constraint(equalTo: line.leadingAnchor),
+                detail.trailingAnchor.constraint(equalTo: line.trailingAnchor),
+                detail.leadingAnchor.constraint(equalTo: name.trailingAnchor, constant: 8),
+                name.firstBaselineAnchor.constraint(equalTo: detail.firstBaselineAnchor),
+                name.topAnchor.constraint(equalTo: line.topAnchor),
+                name.bottomAnchor.constraint(equalTo: line.bottomAnchor),
+            ])
+            add(line, fullWidth: true, gap: 4)
+            let bar = QuotaBar()
+            bar.remaining = row.remaining
+            bar.heightAnchor.constraint(equalToConstant: 6).isActive = true
+            add(bar, fullWidth: true, gap: 8)
+        }
+        if let fallback = quotaFallback(state) {
+            add(text(fallback.text, color: fallback.tone == .good ? .secondaryLabelColor : fallback.tone.color), gap: 10)
+        }
+        let lines = activityLines(state)
+        if !lines.isEmpty {
+            let rule = FillView()
+            rule.color = .separatorColor
+            rule.heightAnchor.constraint(equalToConstant: 1).isActive = true
+            add(rule, fullWidth: true, gap: 6)
+            lines.forEach { add(text($0)) }
+        }
+        layoutSubtreeIfNeeded()
+        setFrameSize(NSSize(width: StatusCard.width, height: fittingSize.height))
+    }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNotificationCenterDelegate {
     let files = FileManager.default
     let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "SpareAgent"
@@ -171,6 +390,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
     var retryButton: NSButton!
     var openButton: NSButton!
     var item: NSStatusItem!
+    var card: StatusCard!
     var pauseItem: NSMenuItem!
     var retryItem: NSMenuItem!
     var onlineItem: NSMenuItem!
@@ -233,6 +453,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
             menu.addItem(result)
             return result
         }
+        card = StatusCard()
+        card.update([:])
+        let cardItem = NSMenuItem()
+        cardItem.view = card
+        menu.addItem(cardItem)
         _ = entry("打开控制页", #selector(openPanel))
         onlineItem = entry("上线", #selector(goOnline))
         onlineItem.isHidden = true
@@ -392,7 +617,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
 
     func startPolling() {
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { _ in self.poll() }
+        // Common modes: the card keeps updating while the menu is open.
+        let ticker = Timer(timeInterval: 1.5, repeats: true) { _ in self.poll() }
+        RunLoop.main.add(ticker, forMode: .common)
+        timer = ticker
         poll()
     }
 
@@ -426,6 +654,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
         let label = phaseLabel(status)
         let phase = status["phase"] as? String ?? ""
         item.button?.title = " " + (quitting ? "正在退出" : statusTitle(status))
+        card.update(status)
         pauseItem.isEnabled = !quitting && ["ONLINE", "STARTING"].contains(phase)
         // Before the owner has agreed in the control page, "上线" opens that page instead.
         onlineItem.isHidden = quitting || !["OFFLINE", "ERROR"].contains(phase)
@@ -461,6 +690,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
         spinner.stopAnimation(nil)
         message.stringValue = detail
         item.button?.title = " 启动失败"
+        card.update(["launch_failed": "点「重试启动」再试一次"])
         retryButton.isHidden = false
         retryItem.isHidden = false
         pauseItem.isEnabled = false
@@ -796,7 +1026,30 @@ if CommandLine.arguments.contains("--self-test") {
     precondition(updateMenu(["update": ["state": "current"]])! == ("检查更新", true))
     precondition(updateMenu(["update": ["state": "available", "version": "0.15.0"]])! == ("更新到 0.15.0…", true))
     precondition(updateMenu(["update": ["state": "downloading"]])!.enabled == false)
-    print("PASS: local endpoint validation, task count and status labels, menu title, owner notifications, invite")
+    let now = Date(timeIntervalSince1970: 1_792_700_000)
+    var withQuota = online
+    withQuota["quota"] = ["source": "codex", "level": "ok", "windows": [
+        ["minutes": 300, "remaining_percent": 83, "resets_at": 1_792_700_000 + 72 * 60 + 30],
+        ["minutes": 10080, "remaining_percent": 8, "resets_at": 1_792_700_000 + 3 * 86400]]]
+    let rows = quotaRows(withQuota, now: now)
+    precondition(rows.map(\.name) == ["5 小时额度", "本周额度"])
+    precondition(rows[0].detail == "剩 83% · 1 小时 12 分后重置")
+    precondition(rows[1].detail.hasPrefix("剩 8% · 周") && rows[1].detail.hasSuffix(" 重置"))
+    precondition(resetText(1_792_700_000 + 20, now: now) == "1 分钟后重置" && resetText(nil, now: now).isEmpty)
+    precondition(windowName(1440) == "1 天额度" && windowName(90) == "90 分钟额度")
+    precondition([quotaTone(83), quotaTone(29), quotaTone(9)] == [.good, .warn, .bad])
+    precondition(quotaFallback(withQuota) == nil && quotaFallback(online) == nil)
+    precondition(quotaFallback(["quota": ["level": "exhausted", "windows": []]])!.text == "额度：已用完，恢复后再接任务")
+    precondition(quotaFallback(["quota": ["level": "ok", "windows": []]])!.tone == .good)
+    precondition(cardHeadline(online).title == "在线，正在分享" && cardHeadline([:]).title == "准备中")
+    precondition(cardHeadline(["phase": "OFFLINE"]).note == "还没有完成设置")
+    precondition(cardHeadline(["launch_failed": "x"]).tone == .bad)
+    precondition(activityLines(online) == ["正在运行：通用任务", "24 小时内开始了 3 个任务"])
+    precondition(activityLines([:]).isEmpty)
+    let card = StatusCard()
+    card.update(withQuota)
+    precondition(card.frame.height > 120 && card.frame.width == StatusCard.width)
+    print("PASS: local endpoint validation, task count and status labels, menu title, owner notifications, invite, status card")
 } else {
     let app = NSApplication.shared
     let delegate = AppDelegate()

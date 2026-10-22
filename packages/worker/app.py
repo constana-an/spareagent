@@ -38,6 +38,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from packages.worker.app_update import Updater
+from packages.worker.codex_limits import quota_status, read_rate_limits
 from packages.worker.lease_client import NodeClient, TransportError, WorkerApiError
 from packages.worker.runtime import (
     ManagedCodex,
@@ -71,6 +72,8 @@ MAX_PARALLEL = 3
 # allowed task, "now" stops them at once, "shutdown" (window closed) keeps a short grace.
 OFFLINE_GRACE = {"finish": 3600.0 + 60, "now": 0.0, "shutdown": SHUTDOWN_GRACE_SECONDS}
 GIT_PROBE_SECONDS = 60.0
+# How often the menu bar's plan usage is re-read from Codex (and after every task).
+LIMITS_INTERVAL_SECONDS = 120.0
 
 
 class AppError(Exception):
@@ -267,6 +270,9 @@ class CodexTools:
 
         return (await probe_login(self.codex_bin)).eligible
 
+    async def rate_limits(self) -> dict[str, Any] | None:
+        return await read_rate_limits(self.codex_bin)
+
     async def login(self) -> None:
         """`codex login` opens the browser for the owner's own ChatGPT sign-in."""
         code, out = await self._run([self.codex_bin, "login"], LOGIN_TIMEOUT_SECONDS)
@@ -335,6 +341,11 @@ class Controller:
         self._client_factory = client_factory or self._default_client
         self._agent_factory = agent_factory or self._default_agent
         self.snap = Snapshot()
+        self._limits: dict[str, Any] | None = None
+        self._limits_at = 0.0
+        self._limits_due = 0.0
+        self._limits_job: asyncio.Task | None = None
+        self._last_running = 0
         self.app_state = load_app_state(directory)
         self._busy = asyncio.Lock()
         self._stop: asyncio.Event | None = None
@@ -476,6 +487,12 @@ class Controller:
             "server_error": s.server_error,
             "connection_error": self._connection_error,
             "update": self.updater.status(),
+            "quota": quota_status(
+                self._limits,
+                self._limits_at,
+                (s.server or {}).get("tasks") or [],
+                time.time(),
+            ),
             "tools": {
                 "git": self.git_ok(),
                 DATA_TOOL: {
@@ -498,6 +515,23 @@ class Controller:
             self.snap.server_error = str(exc)
             if isinstance(exc, TransportError):
                 self._connection_error = connection_problem(exc, client.api_url)
+
+    def refresh_limits(self) -> None:
+        """Re-read plan usage in the background when due, and right after a task ends."""
+        running = self._agent.active if self._agent is not None else 0
+        if running < self._last_running:
+            self._limits_due = 0.0
+        self._last_running = running
+        busy = self._limits_job is not None and not self._limits_job.done()
+        if busy or time.monotonic() < self._limits_due or not self.codex.installed():
+            return
+        self._limits_due = time.monotonic() + LIMITS_INTERVAL_SECONDS
+        self._limits_job = asyncio.create_task(self._read_limits())
+
+    async def _read_limits(self) -> None:
+        limits = await self.codex.rate_limits()
+        if limits is not None:
+            self._limits, self._limits_at = limits, time.time()
 
     async def startup(self) -> None:
         """A previous run may have exited without going offline; make the server agree
@@ -850,6 +884,10 @@ class Controller:
         return f"{base}/#login={data['token']}"
 
     async def shutdown(self) -> None:
+        if self._limits_job is not None:
+            self._limits_job.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._limits_job
         if self.snap.phase in ("ONLINE", "STARTING"):
             await self.go_offline()
         if self._client is not None:

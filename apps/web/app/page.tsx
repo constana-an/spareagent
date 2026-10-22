@@ -9,6 +9,11 @@ import {
   mergeAttachments,
   newlyFinished,
   pastedName,
+  previewKind,
+  statusChip,
+  taskSeconds,
+  taskSteps,
+  taskTitle,
 } from "../lib/task-form.mjs";
 
 type Me = {
@@ -91,6 +96,8 @@ type Task = {
   failure?: { code: string | null; category: string | null } | null;
   network_access?: boolean;
   connection_id?: string;
+  created_at?: string;
+  started_at?: string | null;
 };
 type TaskKind = {
   kind: string;
@@ -330,7 +337,8 @@ export default function Dashboard() {
     [audit, setAudit] = useState<Audit[]>([]),
     [selected, setSelected] = useState<Task | null>(null),
     [events, setEvents] = useState<TimelineEvent[]>([]),
-    [artifacts, setArtifacts] = useState<Artifact[]>([]);
+    [artifacts, setArtifacts] = useState<Artifact[]>([]),
+    [previews, setPreviews] = useState<Record<string, { text?: string; url?: string }>>({});
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [kinds, setKinds] = useState<TaskKind[]>([]),
     [kindSel, setKindSel] = useState(""),
@@ -548,6 +556,43 @@ export default function Dashboard() {
       clearInterval(timer);
     };
   }, [selected?.id]);
+  // The start of each text or image result, shown on the result page before download.
+  const previewIds = artifacts
+    .filter((a) => a.kind === "DELIVERABLE" && previewKind(a.name))
+    .map((a) => a.id)
+    .join();
+  useEffect(() => {
+    setPreviews({});
+    if (!selected || !previewIds) return;
+    let gone = false;
+    const urls: string[] = [];
+    void (async () => {
+      const out: Record<string, { text?: string; url?: string }> = {};
+      for (const a of artifacts.filter((x) => previewIds.split(",").includes(x.id))) {
+        try {
+          const r = await fetch(`/api/tasks/${selected.id}/artifacts/${a.id}/content`, {
+            cache: "no-store",
+          });
+          const blob = r.ok ? await r.blob() : null;
+          if (!blob || blob.size > 2 * 1024 * 1024) continue;
+          if (previewKind(a.name) === "image") {
+            urls.push(URL.createObjectURL(blob));
+            out[a.id] = { url: urls[urls.length - 1] };
+          } else out[a.id] = { text: Array.from(await blob.text()).slice(0, 600).join("") };
+        } catch {}
+      }
+      if (gone) urls.forEach((u) => URL.revokeObjectURL(u));
+      else setPreviews(out);
+    })();
+    return () => {
+      gone = true;
+      urls.forEach((u) => URL.revokeObjectURL(u));
+    };
+  }, [selected?.id, previewIds]);
+  useEffect(() => {
+    if (selected)
+      document.getElementById("result")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [selected?.id]);
   async function download(a: Artifact) {
     const r = await fetch(
       `/api/tasks/${selected!.id}/artifacts/${a.id}/content`,
@@ -650,6 +695,15 @@ export default function Dashboard() {
     );
     document.getElementById("submit")?.scrollIntoView();
   };
+  const when = (iso: string) =>
+    new Date(iso).toLocaleString(lang === "zh" ? "zh-CN" : "en", {
+      month: "numeric",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  const duration = (s: number) =>
+    s < 60 ? t("dur_s", { s }) : t("dur_ms", { m: Math.floor(s / 60), s: s % 60 });
   const enableAlerts = async () => {
     setAlertPerm(await Notification.requestPermission());
   };
@@ -806,6 +860,7 @@ export default function Dashboard() {
             </b>
           </a>
           <a href="#submit">{t("nav_submit")}</a>
+          <a href="#tasks">{t("nav_tasks")}</a>
           <a href="#history">{t("nav_history")}</a>
         </nav>
         <div className="aside-bottom">
@@ -1258,101 +1313,48 @@ export default function Dashboard() {
             </form>
           </details>
         </section>
-        <div className="columns">
-          <section id="requests">
-            <p className="eyebrow">{t("permission_first")}</p>
-            <h2>{t("incoming")}</h2>
-            <p className="muted">{t("incoming_note")}</p>
-            {!incoming.filter((t) => t.group_id === gid).length && (
-              <p className="empty">{t("quiet")}</p>
-            )}
-            {incoming
+        <section id="submit" className="compose">
+          {(() => {
+            const kind =
+              kinds.find((k) => k.kind === (kindSel || "GENERAL")) || kinds[0] || null;
+            const nameOf = (k: TaskKind) =>
+              lang === "zh" ? k.name_zh : k.name_en;
+            const pick = (next: string) => {
+              setKindSel(next);
+              setFiles([]);
+              setAttachError("");
+            };
+            const d = draft && draft.kind === kind?.kind ? draft : null;
+            const liveAllowed =
+              !!group?.authorization?.live_execution_enabled && !!kind?.live_available;
+            // Members get real results by default; trial runs stay under "advanced".
+            const mode = d?.mode
+              ? d.mode === "LIVE" && liveAllowed
+                ? "LIVE"
+                : "SIMULATED"
+              : liveAllowed
+                ? "LIVE"
+                : "SIMULATED";
+            const examples: string[] =
+              (kind && EXAMPLES[kind.kind as keyof typeof EXAMPLES]?.[lang]) || [];
+            const takesFiles = !!kind?.max_attachments;
+            const others = nodes.filter((n) => n.owner_id !== me.user_id);
+            const target =
+              others.find((n) => n.connection_id === d?.connection) ||
+              others.find((n) => n.online) ||
+              others[0];
+            const cap = target?.my_max_tasks_per_day ?? target?.device_max_tasks_per_day;
+            const codeKinds = kinds.filter((k) => k.needs_repository);
+            const cards: (TaskKind | null)[] = [
+              ...kinds.filter((k) => !k.needs_repository),
+              ...(codeKinds.length ? [null] : []),
+            ];
+            const recent = tasks
               .filter((x) => x.group_id === gid)
-              .map((x) => (
-                <article className="request" key={x.id}>
-                  <div className="section-head">
-                    <h3>{x.task_type.replaceAll("_", " ")}</h3>
-                    <span className="pill">{x.execution_mode}</span>
-                  </div>
-                  <p>{x.prompt}</p>
-                  <p className="muted break">
-                    {x.repository_url ? (
-                      <>
-                        {x.repository_url}
-                        <br />
-                        <code>{x.commit_sha}</code>
-                        <br />
-                      </>
-                    ) : null}
-                    {(x.attachments ?? []).map((a) => (
-                      <span key={a.id}>
-                        {a.filename}
-                        <br />
-                      </span>
-                    ))}
-                    {t("hard_timeout_n", { n: x.max_duration_seconds })}
-                  </p>
-                  <div className="actions">
-                    {x.approval_status === "PENDING" &&
-                      !terminal.has(x.status) && (
-                        <>
-                          <button
-                            disabled={busy}
-                            onClick={() =>
-                              void act(
-                                () =>
-                                  api(
-                                    `experimental-tasks/${x.id}/approve`,
-                                    "POST",
-                                  ),
-                                t("task_approved"),
-                              )
-                            }
-                          >
-                            {t("approve_task")}
-                          </button>
-                          <button
-                            className="quiet"
-                            disabled={busy}
-                            onClick={() =>
-                              void act(
-                                () =>
-                                  api(
-                                    `experimental-tasks/${x.id}/reject`,
-                                    "POST",
-                                  ),
-                                t("task_rejected"),
-                              )
-                            }
-                          >
-                            {t("reject")}
-                          </button>
-                        </>
-                      )}
-                    <button className="quiet" onClick={() => setSelected(x)}>
-                      {x.approval_source === "OWNER_STANDING_APPROVAL"
-                        ? t("auto_approved")
-                        : `${t("inspect")} · ${x.approval_status.toLowerCase()}`}
-                    </button>
-                  </div>
-                </article>
-              ))}
-          </section>
-          <section id="submit">
-            <p className="eyebrow">{t("ask_circle")}</p>
-            <h2>{t("submit_review")}</h2>
-            {(() => {
-              const kind =
-                kinds.find((k) => k.kind === (kindSel || "GENERAL")) || kinds[0] || null;
-              const kindName = (k: TaskKind) =>
-                lang === "zh" ? k.name_zh : k.name_en;
-              const d = draft && draft.kind === kind?.kind ? draft : null;
-              const liveAllowed =
-                !!group?.authorization?.live_execution_enabled && !!kind?.live_available;
-              const examples: string[] =
-                (kind && EXAMPLES[kind.kind as keyof typeof EXAMPLES]?.[lang]) || [];
-              const takesFiles = !!kind?.max_attachments;
-              return (
+              .sort((a, b) => Date.parse(b.created_at || "") - Date.parse(a.created_at || ""))
+              .slice(0, 4);
+            return (
+              <div className="compose-grid">
                 <form
                   key={formKey}
                   onDragOver={(e) => {
@@ -1412,84 +1414,118 @@ export default function Dashboard() {
                     }, t("submitted"));
                   }}
                 >
-                  <label>
-                    {t("kind_label")}
-                    <select
-                      value={kind?.kind || ""}
-                      onChange={(e) => {
-                        setKindSel(e.target.value);
-                        setFiles([]);
-                        setAttachError("");
-                      }}
-                    >
-                      {kinds.map((k) => (
-                        <option key={k.kind} value={k.kind}>
-                          {kindName(k)}
-                          {k.status === "OPEN" ? "" : ` · ${t("kind_sim_only")}`}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {kind && <small>{lang === "zh" ? kind.description_zh : kind.name_en}</small>}
-                  <label>
-                    {t("owner_device")}
-                    <select name="connection" required defaultValue={d?.connection || undefined}>
-                      {nodes
-                        .filter((n) => n.owner_id !== me.user_id)
-                        .map((n) => (
-                          <option key={n.connection_id} value={n.connection_id}>
-                            {n.device_label} ·{" "}
-                            {n.online ? t("online") : t("offline")}
-                            {n.requires_approval ? "" : ` · ${t("auto_label")}`}
-                          </option>
-                        ))}
-                    </select>
-                  </label>
-                  {nodes
-                    .filter((n) => n.owner_id !== me.user_id)
-                    .map((n) => (
-                      <small key={`usage-${n.connection_id}`} className="muted">
-                        {t("my_usage", {
-                          d: n.device_label,
-                          n: n.my_tasks_last_24h ?? 0,
-                          m: n.my_minutes_last_24h ?? 0,
-                        })}
-                        {n.my_max_tasks_per_day || n.my_max_minutes_per_day
-                          ? t("my_caps", {
-                              n: n.my_max_tasks_per_day ?? "—",
-                              m: n.my_max_minutes_per_day ?? "—",
-                            })
-                          : t("my_caps_none")}
-                      </small>
-                    ))}
+                  <div className="compose-head">
+                    <h2>{t("compose_title")}</h2>
+                    <span className={`status ${target?.online ? "ok" : "idle"}`}>
+                      {!others.length
+                        ? t("no_device_pill")
+                        : target?.online
+                          ? t("device_online_pill")
+                          : t("device_offline_pill")}
+                    </span>
+                  </div>
+                  <div className="kind-cards" role="group" aria-label={t("kind_label")}>
+                    {cards.map((k) => {
+                      const on = k ? kind?.kind === k.kind : !!kind?.needs_repository;
+                      return (
+                        <button
+                          type="button"
+                          key={k?.kind || "code"}
+                          className={`kind-card${on ? " on" : ""}`}
+                          aria-pressed={on}
+                          onClick={() => !on && pick(k ? k.kind : codeKinds[0].kind)}
+                        >
+                          <strong>{k ? nameOf(k) : t("kind_code")}</strong>
+                          <small>
+                            {k ? (lang === "zh" ? k.description_zh : k.name_en) : t("kind_code_desc")}
+                          </small>
+                          {k && k.status !== "OPEN" && (
+                            <em className="tag">{t("kind_sim_only")}</em>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
                   {kind?.needs_repository && (
                     <>
-                      <label>
-                        {t("public_repo")}
-                        <input
-                          name="repo"
-                          type="url"
-                          required
-                          defaultValue={d?.repo}
-                          placeholder="https://github.com/octocat/Hello-World"
-                        />
-                      </label>
-                      <label>
-                        {t("pinned_commit")}
-                        <input
-                          name="sha"
-                          required
-                          pattern="[a-fA-F0-9]{40}"
-                          maxLength={40}
-                          defaultValue={d?.sha}
-                          placeholder={t("sha_placeholder")}
-                        />
-                      </label>
+                      <div className="segmented" role="group" aria-label={t("kind_code")}>
+                        {codeKinds.map((k) => (
+                          <button
+                            type="button"
+                            key={k.kind}
+                            className={k.kind === kind.kind ? "on" : "quiet"}
+                            aria-pressed={k.kind === kind.kind}
+                            onClick={() => pick(k.kind)}
+                          >
+                            {nameOf(k)}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="form-row">
+                        <label>
+                          {t("public_repo")}
+                          <input
+                            name="repo"
+                            type="url"
+                            required
+                            defaultValue={d?.repo}
+                            placeholder="https://github.com/octocat/Hello-World"
+                          />
+                        </label>
+                        <label>
+                          {t("pinned_commit")}
+                          <input
+                            name="sha"
+                            required
+                            pattern="[a-fA-F0-9]{40}"
+                            maxLength={40}
+                            defaultValue={d?.sha}
+                            placeholder={t("sha_placeholder")}
+                          />
+                        </label>
+                      </div>
                     </>
+                  )}
+                  <label className="field-label">
+                    {t("describe_result")}
+                    <textarea
+                      name="prompt"
+                      required
+                      maxLength={12000}
+                      value={prompt}
+                      onChange={(e) => setPrompt(e.target.value)}
+                      placeholder={t("prompt_placeholder")}
+                    />
+                  </label>
+                  {!!examples.length && (
+                    <div className="examples">
+                      <small>{t("try_examples")}</small>
+                      {examples.map((ex) => (
+                        <button
+                          key={ex}
+                          type="button"
+                          className="quiet chip"
+                          title={ex}
+                          onClick={() => {
+                            if (prompt.trim() && prompt !== ex && !window.confirm(t("replace_prompt")))
+                              return;
+                            setPrompt(ex);
+                          }}
+                        >
+                          {ex}
+                        </button>
+                      ))}
+                    </div>
                   )}
                   {kind && takesFiles && (
                     <div className="field">
-                      {t("attachments")}
+                      <span className="field-label">
+                        {t("attach_label")}{" "}
+                        <small className="inline">
+                          {kind.min_attachments === 0 ? `${t("attach_optional_short")} · ` : ""}
+                          {t("attach_short", { n: kind.max_attachments })}
+                        </small>
+                      </span>
                       <div className={`dropzone${dragging ? " over" : ""}`}>
                         <input
                           id="attach-input"
@@ -1536,24 +1572,14 @@ export default function Dashboard() {
                           {attachError}
                         </small>
                       )}
-                      <small>
-                        {t("attachments_hint", {
-                          types: kind.extensions.map((x) => "." + x).join(" "),
-                          n: kind.max_attachments,
-                        })}
-                        {kind.min_attachments === 0 ? t("attachments_optional") : ""}
-                      </small>
+                      <details className="formats">
+                        <summary>{t("attach_types")}</summary>
+                        <small>{kind.extensions.map((x) => "." + x).join(" ")}</small>
+                      </details>
                     </div>
                   )}
-                  <label className="check">
-                    <input type="checkbox" name="network" defaultChecked={d?.network} />
-                    <span>
-                      {t("needs_network")}
-                      <small> {t("needs_network_hint")}</small>
-                    </span>
-                  </label>
                   {kind?.required_parameters.includes("target_language") && (
-                    <label>
+                    <label className="field-label">
                       {t("target_language")}
                       <select name="target_language" defaultValue={d?.target_language || "en"}>
                         {LANGUAGES.map((l) => (
@@ -1565,91 +1591,211 @@ export default function Dashboard() {
                     </label>
                   )}
                   {kind && kind.deliverable_formats.length > 1 && (
+                    <fieldset className="choice">
+                      <legend className="field-label">{t("result_format")}</legend>
+                      {kind.deliverable_formats.map((x) => (
+                        <label key={x} className="chip-option">
+                          <input
+                            type="radio"
+                            name="format"
+                            value={x}
+                            defaultChecked={x === (d?.format || kind.deliverable_format)}
+                          />
+                          <span>{lbl("fmt", x) === x ? "." + x : lbl("fmt", x)}</span>
+                        </label>
+                      ))}
+                    </fieldset>
+                  )}
+                  <label className="switch">
+                    <input type="checkbox" name="network" defaultChecked={d?.network} />
+                    <span className="track" aria-hidden="true" />
+                    <span>
+                      {t("needs_network")}
+                      <small> {t("needs_network_hint")}</small>
+                    </span>
+                  </label>
+                  <details className="advanced">
+                    <summary>{t("advanced")}</summary>
                     <label>
-                      {t("deliverable_format")}
-                      <select name="format" defaultValue={d?.format || kind.deliverable_format}>
-                        {kind.deliverable_formats.map((x) => (
-                          <option key={x} value={x}>
-                            .{x}
+                      {t("owner_device")}
+                      <select
+                        key={target?.connection_id}
+                        name="connection"
+                        required
+                        defaultValue={target?.connection_id}
+                      >
+                        {others.map((n) => (
+                          <option key={n.connection_id} value={n.connection_id}>
+                            {n.device_label} · {n.online ? t("online") : t("offline")}
+                            {n.requires_approval ? "" : ` · ${t("auto_label")}`}
                           </option>
                         ))}
                       </select>
                     </label>
-                  )}
-                  <label>
-                    {t("review_instructions")}
-                    <textarea
-                      name="prompt"
-                      required
-                      maxLength={12000}
-                      value={prompt}
-                      onChange={(e) => setPrompt(e.target.value)}
-                      placeholder={t("prompt_placeholder")}
-                    />
-                  </label>
-                  {!!examples.length && (
-                    <div className="examples">
-                      <small>{t("examples")}</small>
-                      {examples.map((ex) => (
-                        <button
-                          key={ex}
-                          type="button"
-                          className="quiet chip"
-                          title={ex}
-                          onClick={() => {
-                            if (prompt.trim() && prompt !== ex && !window.confirm(t("replace_prompt")))
-                              return;
-                            setPrompt(ex);
-                          }}
-                        >
-                          {ex}
-                        </button>
-                      ))}
+                    {others.map((n) => (
+                      <small key={`usage-${n.connection_id}`} className="muted">
+                        {t("my_usage", {
+                          d: n.device_label,
+                          n: n.my_tasks_last_24h ?? 0,
+                          m: n.my_minutes_last_24h ?? 0,
+                        })}
+                        {n.my_max_tasks_per_day || n.my_max_minutes_per_day
+                          ? t("my_caps", {
+                              n: n.my_max_tasks_per_day ?? "—",
+                              m: n.my_max_minutes_per_day ?? "—",
+                            })
+                          : t("my_caps_none")}
+                      </small>
+                    ))}
+                    <div className="form-row">
+                      <label>
+                        {t("time_limit")}
+                        <input
+                          name="timeout"
+                          type="number"
+                          min="10"
+                          max={group?.max_task_duration_seconds ?? 600}
+                          defaultValue={d?.timeout ?? Math.min(600, group?.max_task_duration_seconds ?? 600)}
+                          required
+                        />
+                      </label>
+                      <label>
+                        {t("execution")}
+                        {/* Keyed: the default changes once the group and kinds have loaded. */}
+                        <select key={mode} name="mode" defaultValue={mode}>
+                          <option value="LIVE" disabled={!liveAllowed}>
+                            {t("live_option")}
+                          </option>
+                          <option value="SIMULATED">{t("simulated")}</option>
+                        </select>
+                      </label>
                     </div>
-                  )}
-                  <div className="form-row">
-                    <label>
-                      {t("hard_timeout")}
-                      <input
-                        name="timeout"
-                        type="number"
-                        min="10"
-                        max={group?.max_task_duration_seconds ?? 600}
-                        defaultValue={d?.timeout ?? 600}
-                        required
-                      />
-                    </label>
-                    <label>
-                      {t("execution")}
-                      <select
-                        name="mode"
-                        defaultValue={d?.mode === "LIVE" && liveAllowed ? "LIVE" : "SIMULATED"}
-                      >
-                        <option value="SIMULATED">{t("simulated")}</option>
-                        <option value="LIVE" disabled={!liveAllowed}>
-                          {t("live_option")}
-                        </option>
-                      </select>
-                    </label>
+                  </details>
+                  {!liveAllowed && kind && <p className="notice">{t("trial_note")}</p>}
+                  <div className="submit-bar">
+                    <button
+                      disabled={
+                        busy ||
+                        !active ||
+                        !kind ||
+                        files.length < kind.min_attachments ||
+                        !others.length
+                      }
+                    >
+                      {t("submit_task")}
+                    </button>
+                    {target && (
+                      <small>
+                        {cap
+                          ? t("used_today_cap", { n: target.my_tasks_last_24h ?? 0, max: cap })
+                          : t("used_today", { n: target.my_tasks_last_24h ?? 0 })}
+                      </small>
+                    )}
                   </div>
-                  <button
-                    disabled={
-                      busy ||
-                      !active ||
-                      !kind ||
-                      files.length < kind.min_attachments ||
-                      !nodes.some((n) => n.owner_id !== me.user_id)
-                    }
-                  >
-                    {t("request_review")} <span>↗</span>
-                  </button>
-                  <small>{t("submit_note")}</small>
+                  <small className="muted">{t("submit_note")}</small>
                 </form>
-              );
-            })()}
-          </section>
-        </div>
-        <section>
+                <div className="recent" role="region" aria-label={t("recent_tasks")}>
+                  <h3>{t("recent_tasks")}</h3>
+                  {!recent.length && <p className="muted">{t("no_tasks")}</p>}
+                  {recent.map((x) => {
+                    const chip = statusChip(x);
+                    return (
+                      <button className="recent-row" key={x.id} onClick={() => setSelected(x)}>
+                        <span>{taskTitle(x, 18) || kindName(x)}</span>
+                        <span className={`status ${chip.tone}`}>{t(`chip.${chip.key}` as never)}</span>
+                      </button>
+                    );
+                  })}
+                  {!!recent.length && (
+                    <a className="see-all" href="#tasks">
+                      {t("see_all")}
+                    </a>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+        </section>
+        <section id="requests">
+          <p className="eyebrow">{t("permission_first")}</p>
+          <h2>{t("incoming")}</h2>
+          <p className="muted">{t("incoming_note")}</p>
+          {!incoming.filter((t) => t.group_id === gid).length && (
+            <p className="empty">{t("quiet")}</p>
+          )}
+          {incoming
+            .filter((x) => x.group_id === gid)
+            .map((x) => (
+              <article className="request" key={x.id}>
+                <div className="section-head">
+                  <h3>{x.task_type.replaceAll("_", " ")}</h3>
+                  <span className="pill">{x.execution_mode}</span>
+                </div>
+                <p>{x.prompt}</p>
+                <p className="muted break">
+                  {x.repository_url ? (
+                    <>
+                      {x.repository_url}
+                      <br />
+                      <code>{x.commit_sha}</code>
+                      <br />
+                    </>
+                  ) : null}
+                  {(x.attachments ?? []).map((a) => (
+                    <span key={a.id}>
+                      {a.filename}
+                      <br />
+                    </span>
+                  ))}
+                  {t("hard_timeout_n", { n: x.max_duration_seconds })}
+                </p>
+                <div className="actions">
+                  {x.approval_status === "PENDING" &&
+                    !terminal.has(x.status) && (
+                      <>
+                        <button
+                          disabled={busy}
+                          onClick={() =>
+                            void act(
+                              () =>
+                                api(
+                                  `experimental-tasks/${x.id}/approve`,
+                                  "POST",
+                                ),
+                              t("task_approved"),
+                            )
+                          }
+                        >
+                          {t("approve_task")}
+                        </button>
+                        <button
+                          className="quiet"
+                          disabled={busy}
+                          onClick={() =>
+                            void act(
+                              () =>
+                                api(
+                                  `experimental-tasks/${x.id}/reject`,
+                                  "POST",
+                                ),
+                              t("task_rejected"),
+                            )
+                          }
+                        >
+                          {t("reject")}
+                        </button>
+                      </>
+                    )}
+                  <button className="quiet" onClick={() => setSelected(x)}>
+                    {x.approval_source === "OWNER_STANDING_APPROVAL"
+                      ? t("auto_approved")
+                      : `${t("inspect")} · ${x.approval_status.toLowerCase()}`}
+                  </button>
+                </div>
+              </article>
+            ))}
+        </section>
+        <section id="tasks">
           <div className="section-head">
             <h2>{t("history")}</h2>
             <div className="actions">
@@ -1674,162 +1820,278 @@ export default function Dashboard() {
           )}
           {taskHistory
             .filter((x) => x.group_id === gid)
-            .map((x) => (
-              <button
-                className="task-row"
-                key={x.id}
-                onClick={() => setSelected(x)}
-              >
-                <code>{x.id.slice(0, 8)}</code>
-                <span>
-                  {kindName(x)} · {x.execution_mode} ·{" "}
-                  {x.owner_id === me.user_id ? t("your_device") : t("your_request")}
-                </span>
-                <span className="pill">{statusLine(x)}</span>
-              </button>
-            ))}
-        </section>
-        {selected && (
-          <section className="selected">
-            <div className="section-head">
-              <div>
-                <p className="eyebrow">{t("task_n", { id: selected.id.slice(0, 8) })}</p>
-                <h2>
-                  {kindName(selected)} · {statusLine(selected)}
-                </h2>
-              </div>
-              <div className="actions">
-                {terminal.has(selected.status) &&
-                  tasks.some((x) => x.id === selected.id) && (
-                    <button className="quiet" onClick={() => resubmit(selected)}>
-                      {t("resubmit")}
-                    </button>
-                  )}
-                <button className="quiet" onClick={() => setSelected(null)}>
-                  {t("close")}
-                </button>
-              </div>
-            </div>
-            {selected.progress?.percent != null &&
-              ["RESERVED", "RUNNING"].includes(selected.status) && (
-                <progress max={100} value={selected.progress.percent} />
-              )}
-            {selected.failure &&
-              ["FAILED", "TIMED_OUT"].includes(selected.status) && (
-                <p className="error">
-                  {t(`fail_hint.${selected.failure.category || "OTHER"}` as never)}
-                </p>
-              )}
-            <p>{selected.result_summary || t("waiting")}</p>
-            {selected.verification_status === "UNVERIFIED" && (
-              <p className="notice">{t("unverified_note")}</p>
-            )}
-            <p className="muted">
-              {t("exec_verif", {
-                s: lbl("res", selected.status),
-                v: lbl("ver", selected.verification_status),
-              })}
-            </p>
-            <p className="muted">{t("verified_explain")}</p>
-            {!terminal.has(selected.status) && (
-              <button
-                className="danger"
-                disabled={busy}
-                onClick={() =>
-                  void act(
-                    () => api(`tasks/${selected.id}/cancel`, "POST"),
-                    t("cancel_requested"),
-                  )
-                }
-              >
-                {t("cancel_task")}
-              </button>
-            )}
-            {artifacts.some((a) => a.kind === "DELIVERABLE") && (
-              <>
-                <h3>{t("deliverables")}</h3>
-                <div className="downloads">
-                  {artifacts
-                    .filter((a) => a.kind === "DELIVERABLE")
-                    .map((a) => (
-                      <button
-                        key={a.id}
-                        onClick={() => void act(() => download(a), t("sha_checked"))}
-                      >
-                        ↓ {a.name}
-                      </button>
-                    ))}
-                </div>
-              </>
-            )}
-            <div className="downloads">
-              {artifacts
-                .filter((a) => a.kind !== "DELIVERABLE")
-                .map((a) => (
-                  <button
-                    className="quiet"
-                    key={a.id}
-                    onClick={() => void act(() => download(a), t("sha_checked"))}
-                  >
-                    ↓ {lbl("art", a.kind)} <small>{lbl("src", a.source)}</small>
-                  </button>
-                ))}
-            </div>
-            <h3>{t("timeline")}</h3>
-            <ol className="timeline" aria-label="Task timeline">
-              {events.map((e) => (
-                <li key={e.seq}>
-                  <span className="muted">
-                    #{e.seq}{" "}
-                    {e.created_at
-                      ? new Date(e.created_at).toLocaleTimeString()
-                      : ""}
+            .sort((a, b) => Date.parse(b.created_at || "") - Date.parse(a.created_at || ""))
+            .map((x) => {
+              const chip = statusChip(x);
+              return (
+                <button
+                  className={`task-row${selected?.id === x.id ? " current" : ""}`}
+                  key={x.id}
+                  onClick={() => setSelected(x)}
+                >
+                  <span className="task-name">
+                    <strong>{taskTitle(x) || kindName(x)}</strong>
+                    <small>
+                      {kindName(x)}
+                      {x.created_at ? ` · ${when(x.created_at)}` : ""}
+                      {x.owner_id === me.user_id ? ` · ${t("your_device")}` : ""}
+                      {x.execution_mode === "SIMULATED" ? ` · ${t("simulated_short")}` : ""}
+                    </small>
                   </span>
+                  <span className={`status ${chip.tone}`}>{t(`chip.${chip.key}` as never)}</span>
+                </button>
+              );
+            })}
+        </section>
+        {selected && (() => {
+          const chip = statusChip(selected),
+            running = ["RESERVED", "RUNNING", "VERIFYING", "CANCELLING"].includes(selected.status),
+            seconds = taskSeconds(selected, events, Date.now()),
+            device = nodes.find((n) => n.connection_id === selected.connection_id)?.device_label,
+            files = artifacts.filter((a) => a.kind === "DELIVERABLE"),
+            extras = artifacts.filter((a) => a.kind !== "DELIVERABLE"),
+            failed = ["FAILED", "TIMED_OUT"].includes(selected.status),
+            request = selected.requirement || selected.prompt;
+          return (
+            <section className="selected result" id="result">
+              <button className="back quiet" onClick={() => setSelected(null)}>
+                ← {t("back_to_tasks")}
+              </button>
+              <div className="result-head">
+                <div>
+                  <h2>{taskTitle(selected) || kindName(selected)}</h2>
+                  <p className="muted">
+                    {[
+                      kindName(selected),
+                      selected.created_at && t("submitted_at", { time: when(selected.created_at) }),
+                      seconds != null &&
+                        t(running ? "running_for" : "took", { d: duration(seconds) }),
+                      device && t("on_device", { d: device }),
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                </div>
+                <span className={`status ${chip.tone}`}>{t(`chip.${chip.key}` as never)}</span>
+              </div>
+              {running && (
+                <div className="progress-block">
+                  <div className="progress-line">
+                    <strong>{statusLine(selected)}</strong>
+                  </div>
+                  {selected.progress?.percent != null && (
+                    <progress max={100} value={selected.progress.percent} />
+                  )}
+                  <small>{t("running_hint")}</small>
+                </div>
+              )}
+              {!running && !terminal.has(selected.status) && (
+                <p className="note wait">{statusLine(selected)}</p>
+              )}
+              {failed && (
+                <div className="note bad">
+                  <strong>{statusLine(selected)}</strong>
+                  <span>{t(`fail_hint.${selected.failure?.category || "OTHER"}` as never)}</span>
+                </div>
+              )}
+              {selected.status === "SUCCEEDED" && (
+                <div className={`note ${selected.verification_status === "PASSED" ? "ok" : "warn"}`}>
                   <strong>
-                    {e.type in eventKeys ? t(`event.${e.type}` as never) : e.type}
+                    {selected.verification_status === "PASSED" ? t("check_passed") : t("check_format")}
                   </strong>
                   <span>
-                    {e.payload.status === "CANCELLING"
-                      ? t("cancelling_wait")
-                      : e.type === "task.progress"
-                        ? progressText(e.payload.message, lang, t("prog.codex"))
-                        : e.payload.message}
+                    {selected.verification_status === "PASSED"
+                      ? t("check_passed_sub")
+                      : t("check_format_sub")}
                   </span>
-                </li>
-              ))}
-            </ol>
-            {!events.length && (
-              <p className="muted">{t("loading_history")}</p>
-            )}
-            <button
-              className="quiet"
-              disabled={busy}
-              onClick={() =>
-                void act(
-                  async () => {
-                    const report = await api(
-                      `experimental-tasks/${selected.id}/pilot-report`,
-                    );
-                    const url = URL.createObjectURL(
-                      new Blob([JSON.stringify(report, null, 2)], {
-                        type: "application/json",
-                      }),
-                    );
-                    const link = document.createElement("a");
-                    link.href = url;
-                    link.download = `pilot-${selected.id}.json`;
-                    link.click();
-                    setTimeout(() => URL.revokeObjectURL(url), 1000);
-                  },
-                  t("exported"),
-                  false,
-                )
-              }
-            >
-              {t("export_evidence")}
-            </button>
-          </section>
-        )}
+                </div>
+              )}
+              {selected.execution_mode === "SIMULATED" && terminal.has(selected.status) && (
+                <p className="note">{t("trial_result")}</p>
+              )}
+              {!!files.length && (
+                <>
+                  <div className="files-head">
+                    <h3>{t("result_files")}</h3>
+                    {files.length > 1 && (
+                      <button
+                        className="quiet"
+                        disabled={busy}
+                        onClick={() =>
+                          void act(async () => {
+                            for (const a of files) await download(a);
+                          }, t("sha_checked"), false)
+                        }
+                      >
+                        ↓ {t("download_all")}
+                      </button>
+                    )}
+                  </div>
+                  <div className="file-cards">
+                    {files.map((a) => {
+                      const p = previews[a.id];
+                      return (
+                        <article className="file-card" key={a.id}>
+                          <div className="file-card-head">
+                            <span className="break">{a.name}</span>
+                            <button
+                              disabled={busy}
+                              onClick={() => void act(() => download(a), t("sha_checked"), false)}
+                            >
+                              ↓ {t("download")}
+                            </button>
+                          </div>
+                          {p?.text != null && <pre className="preview">{p.text}</pre>}
+                          {p?.url && <img className="preview" src={p.url} alt={a.name || ""} />}
+                        </article>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+              {!files.length && terminal.has(selected.status) && selected.result_summary && (
+                <p>{selected.result_summary}</p>
+              )}
+              <div className="actions result-actions">
+                {terminal.has(selected.status) && tasks.some((x) => x.id === selected.id) && (
+                  <button className="quiet" onClick={() => resubmit(selected)}>
+                    {t("edit_resubmit")}
+                  </button>
+                )}
+                {request && (
+                  <button
+                    className="quiet"
+                    onClick={() =>
+                      void act(() => navigator.clipboard.writeText(request), t("copied"), false)
+                    }
+                  >
+                    {t("copy_requirement")}
+                  </button>
+                )}
+                {!terminal.has(selected.status) && (
+                  <button
+                    className="danger"
+                    disabled={busy}
+                    onClick={() =>
+                      void act(
+                        () => api(`tasks/${selected.id}/cancel`, "POST"),
+                        t("cancel_requested"),
+                      )
+                    }
+                  >
+                    {t("cancel_task")}
+                  </button>
+                )}
+              </div>
+              <details>
+                <summary>{t("your_request_h")}</summary>
+                <p className="request-text">{request}</p>
+                {!!selected.attachments?.length && (
+                  <small>
+                    {t("attachments_list", {
+                      names: selected.attachments.map((a) => a.filename).join("、"),
+                    })}
+                  </small>
+                )}
+                {selected.parameters?.target_language && (
+                  <small>
+                    {t("target_language")}: {t(`lang.${selected.parameters.target_language}` as never)}
+                  </small>
+                )}
+                {selected.repository_url && (
+                  <small className="break">
+                    {selected.repository_url} @ {selected.commit_sha?.slice(0, 12)}
+                  </small>
+                )}
+              </details>
+              <details>
+                <summary>
+                  {t("process_h")}{" "}
+                  <small className="inline">
+                    {taskSteps(events)
+                      .map((s) => lbl("step", s))
+                      .join(" → ")}
+                  </small>
+                </summary>
+                <ol className="timeline" aria-label="Task timeline">
+                  {events.map((e) => (
+                    <li key={e.seq}>
+                      <span className="muted">
+                        {e.created_at
+                          ? new Date(e.created_at).toLocaleTimeString(lang === "zh" ? "zh-CN" : "en")
+                          : ""}
+                      </span>
+                      <strong>
+                        {e.type in eventKeys ? t(`event.${e.type}` as never) : e.type}
+                      </strong>
+                      <span>
+                        {e.payload.status === "CANCELLING"
+                          ? t("cancelling_wait")
+                          : e.type === "task.progress"
+                            ? progressText(e.payload.message, lang, t("prog.codex"))
+                            : e.payload.message}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+                {!events.length && <p className="muted">{t("loading_history")}</p>}
+              </details>
+              <details>
+                <summary>
+                  {t("logs_h")} <small className="inline">{t("logs_sub")}</small>
+                </summary>
+                {!!files.length && selected.result_summary && (
+                  <p className="request-text">{selected.result_summary}</p>
+                )}
+                <p className="muted">
+                  {t("exec_verif", {
+                    s: lbl("res", selected.status),
+                    v: lbl("ver", selected.verification_status),
+                  })}
+                </p>
+                <p className="muted">{t("verified_explain")}</p>
+                <div className="downloads">
+                  {extras.map((a) => (
+                    <button
+                      className="quiet"
+                      key={a.id}
+                      onClick={() => void act(() => download(a), t("sha_checked"), false)}
+                    >
+                      ↓ {lbl("art", a.kind)} <small>{lbl("src", a.source)}</small>
+                    </button>
+                  ))}
+                  <button
+                    className="quiet"
+                    disabled={busy}
+                    onClick={() =>
+                      void act(
+                        async () => {
+                          const report = await api(
+                            `experimental-tasks/${selected.id}/pilot-report`,
+                          );
+                          const url = URL.createObjectURL(
+                            new Blob([JSON.stringify(report, null, 2)], {
+                              type: "application/json",
+                            }),
+                          );
+                          const link = document.createElement("a");
+                          link.href = url;
+                          link.download = `pilot-${selected.id}.json`;
+                          link.click();
+                          setTimeout(() => URL.revokeObjectURL(url), 1000);
+                        },
+                        t("exported"),
+                        false,
+                      )
+                    }
+                  >
+                    {t("export_evidence")}
+                  </button>
+                </div>
+              </details>
+            </section>
+          );
+        })()}
         {metrics && (
           <section aria-label="Pilot observations">
             <p className="eyebrow">{t("measured")}</p>

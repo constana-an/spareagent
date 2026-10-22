@@ -52,6 +52,40 @@ if args[:2] == ["login", "status"]:
     print("Logged in using ChatGPT")
     sys.exit(0)
 
+if args == ["app-server"]:
+    # JSON-RPC over stdio; `$CODEX_HOME/limits.json` overrides the rate-limit result.
+    limits = {
+        "rateLimits": {
+            "primary": {"usedPercent": 17, "windowDurationMins": 300, "resetsAt": 1792712254},
+            "secondary": {"usedPercent": 3, "windowDurationMins": 10080, "resetsAt": 1793299054},
+            "credits": {"hasCredits": True, "balance": "956.07"},
+            "planType": "plus",
+            "rateLimitReachedType": None,
+        }
+    }
+    if home and os.path.exists(os.path.join(home, "limits.json")):
+        limits = json.load(open(os.path.join(home, "limits.json")))
+    if mode == "app_server_wrapper":
+        # Like npm's wrapper: a long-lived child that shares stdout with this process.
+        import subprocess
+
+        subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    for line in sys.stdin:
+        request = json.loads(line)
+        if "id" not in request:
+            continue
+        if request["method"] == "account/rateLimits/read":
+            if mode == "app_server_hang":
+                time.sleep(60)
+            if mode == "app_server_error":
+                reply = {"id": request["id"], "error": {"code": -32601, "message": "unknown"}}
+            else:
+                reply = {"id": request["id"], "result": limits}
+        else:
+            reply = {"id": request["id"], "result": {"userAgent": "fake"}}
+        print(json.dumps(reply), flush=True)
+    sys.exit(0)
+
 if "exec" not in args:
     print("unsupported", file=sys.stderr)
     sys.exit(2)
