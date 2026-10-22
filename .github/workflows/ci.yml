@@ -23,6 +23,12 @@ jobs:
           python-version: '3.12'
       - run: python scripts/build_worker_bundle.py
       - run: python scripts/check_worker_wheel.py output/worker-bundle/spareagent_worker-*-py3-none-any.whl
+      - name: Menu-bar App compiles and passes its self-test
+        if: runner.os == 'macOS'
+        run: |
+          xcrun swiftc -swift-version 5 -O -target "$(uname -m)-apple-macos13.0" \
+            apps/macos/SpareAgent.swift -o "$RUNNER_TEMP/SpareAgent"
+          "$RUNNER_TEMP/SpareAgent" --self-test
       - uses: actions/upload-artifact@v4
         with:
           name: worker-bundle-${{ matrix.os }}
