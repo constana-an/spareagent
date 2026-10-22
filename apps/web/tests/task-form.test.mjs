@@ -7,6 +7,11 @@ import {
   mergeAttachments,
   newlyFinished,
   pastedName,
+  previewKind,
+  statusChip,
+  taskSeconds,
+  taskSteps,
+  taskTitle,
 } from "../lib/task-form.mjs";
 
 const general = { extensions: ["md", "png", "csv"], max_attachments: 2 };
@@ -95,4 +100,50 @@ test("submit again restores the request and lists files to re-add", () => {
 test("every example kind has the same number of examples in both languages", () => {
   for (const [kind, ex] of Object.entries(EXAMPLES))
     assert.equal(ex.zh.length, ex.en.length, kind);
+});
+
+test("a task is named by the first sentence of its request", () => {
+  assert.equal(taskTitle({ requirement: "写一封邮件。语气礼貌。" }), "写一封邮件。");
+  assert.equal(taskTitle({ requirement: "Fix the bug. Then add a test." }), "Fix the bug.");
+  assert.equal(taskTitle({ prompt: "第一行\n第二行" }), "第一行");
+  assert.equal(taskTitle({ requirement: "一".repeat(50) }, 10), "一".repeat(9) + "…");
+  assert.equal(taskTitle({ requirement: "  " }), "");
+});
+
+test("status chips follow the task status and approval", () => {
+  const chip = (status, approval_status = "APPROVED") =>
+    statusChip({ status, approval_status });
+  assert.deepEqual(chip("SUCCEEDED"), { key: "done", tone: "ok" });
+  assert.deepEqual(chip("TIMED_OUT"), { key: "timed_out", tone: "bad" });
+  assert.deepEqual(chip("RUNNING"), { key: "running", tone: "run" });
+  assert.deepEqual(chip("QUEUED", "PENDING"), { key: "approval", tone: "wait" });
+  assert.deepEqual(chip("QUEUED"), { key: "queued", tone: "wait" });
+  assert.deepEqual(chip("CANCELLED"), { key: "cancelled", tone: "idle" });
+});
+
+test("run time counts from the start to the final event, or to now", () => {
+  const task = { started_at: "2026-10-22T10:00:00Z" };
+  const events = [
+    { type: "task.started", created_at: "2026-10-22T10:00:00Z" },
+    { type: "task.succeeded", created_at: "2026-10-22T10:01:12Z" },
+  ];
+  assert.equal(taskSeconds(task, events, Date.parse("2026-10-22T11:00:00Z")), 72);
+  assert.equal(taskSeconds(task, events.slice(0, 1), Date.parse("2026-10-22T10:00:30Z")), 30);
+  assert.equal(taskSeconds({ started_at: null }, events, 0), null);
+});
+
+test("steps list each event kind once, without progress lines", () => {
+  const ev = (type) => ({ type });
+  assert.deepEqual(
+    taskSteps(["created", "queued", "started", "progress", "progress", "verifying", "succeeded"]
+      .map((x) => ev(`task.${x}`))),
+    ["created", "queued", "started", "verifying", "succeeded"],
+  );
+});
+
+test("text and image results get a preview, others do not", () => {
+  assert.equal(previewKind("answer.md"), "text");
+  assert.equal(previewKind("chart.PNG"), "image");
+  assert.equal(previewKind("report.docx"), null);
+  assert.equal(previewKind(null), null);
 });

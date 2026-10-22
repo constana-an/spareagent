@@ -128,3 +128,59 @@ export const EXAMPLES = {
     en: ["Add a --json flag to the command-line tool that prints results as JSON, and update the usage section of the README."],
   },
 };
+
+// A task's name in lists and on its result page: the first line of what the member
+// asked for, shortened. There is no separate title field.
+export function taskTitle(task, max = 40) {
+  const line = (task.requirement || task.prompt || "").trim().split(/\n/)[0].trim();
+  const first = line.split(/(?<=[。！？!?])\s*|(?<=[.])\s+/)[0] || line;
+  const chars = Array.from(first);
+  return chars.length > max ? chars.slice(0, max - 1).join("") + "…" : first;
+}
+
+// The status chip: a translation key under "chip." and a tone for its colour.
+export function statusChip(task) {
+  const s = task.status;
+  if (s === "SUCCEEDED") return { key: "done", tone: "ok" };
+  if (s === "FAILED") return { key: "failed", tone: "bad" };
+  if (s === "TIMED_OUT") return { key: "timed_out", tone: "bad" };
+  if (s === "CANCELLED") return { key: "cancelled", tone: "idle" };
+  if (s === "CANCELLING") return { key: "cancelling", tone: "run" };
+  if (s === "VERIFYING") return { key: "verifying", tone: "run" };
+  if (s === "RESERVED" || s === "RUNNING") return { key: "running", tone: "run" };
+  if (task.approval_status === "PENDING") return { key: "approval", tone: "wait" };
+  return { key: "queued", tone: "wait" };
+}
+
+const FINAL_EVENTS = new Set(["task.succeeded", "task.failed", "task.cancelled", "task.timed_out"]);
+
+// Seconds the device has spent on the task: from its start to the final event, or
+// to `now` while it runs. Null before it starts.
+export function taskSeconds(task, events, now) {
+  if (!task.started_at) return null;
+  const end = [...events].reverse().find((e) => FINAL_EVENTS.has(e.type) && e.created_at);
+  const stop = end ? Date.parse(end.created_at) : now;
+  return Math.max(0, Math.round((stop - Date.parse(task.started_at)) / 1000));
+}
+
+// "Submitted → queued → started → done" from the event stream, each step once.
+export function taskSteps(events) {
+  const steps = [];
+  for (const e of events) {
+    const step = e.type.replace(/^task\./, "");
+    if (step !== "progress" && step !== "cancelling" && steps[steps.length - 1] !== step)
+      steps.push(step);
+  }
+  return steps;
+}
+
+const TEXT_PREVIEW = new Set(["md", "txt", "csv", "json", "html", "py", "js", "ts", "yaml", "yml"]);
+const IMAGE_PREVIEW = new Set(["png", "jpg", "jpeg", "gif", "webp"]);
+
+// Which result files get a preview on the result page.
+export function previewKind(name) {
+  const ext = (name || "").includes(".") ? name.split(".").pop().toLowerCase() : "";
+  if (TEXT_PREVIEW.has(ext)) return "text";
+  if (IMAGE_PREVIEW.has(ext)) return "image";
+  return null;
+}
