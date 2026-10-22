@@ -1,5 +1,7 @@
 # 在自己的 Mac 上安装 SpareAgent
 
+> 更简单的方式：向运营者要一行安装命令（见 [ONE_CLICK_SHARING.md](ONE_CLICK_SHARING.md) 第 1 步），不需要 Apple 命令行工具，也不用编译。本文的本机编译安装是备用方式。
+
 这是免费安装路线：首次在你的 Mac 上编译菜单栏 App，以后双击启动。不需要 Apple Developer Program 会员，也不会提交 Apple 公证。需要 macOS 13 或更新版本，以及与你处理器对应的私有安装包。
 
 ## 首次安装

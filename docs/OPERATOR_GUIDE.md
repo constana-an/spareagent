@@ -16,6 +16,20 @@
 
 入口读取相邻的 `spareagent-private/.env` 和 `compose.yaml`；地址保存于该目录的 `operator.json`。没有这些现有配置或数据库卷时停止，不会另建一个空部署。需要 Python 3.12+；打包还需要可用的 setuptools 69+ 和 wheel。当前 Mac 已具备这些条件。依赖缓存有效时离线复用；缓存不足时从包仓库下载，固定 Python 运行环境仍按原有校验值验证。
 
+## 给提供者发一行安装命令
+
+不付费的推荐安装方式（D-99）。先用维护入口或 `python scripts/build_macos_app.py --arch arm64`（不加 `--source-installer`）生成预编译 App `output/macos-app/SpareAgent-mac-arm64.zip`，然后为每个人单独生成链接：
+
+```sh
+python scripts/owner_install_link.py create --label 小明        # 默认 7 天有效，--days 最多 30
+python scripts/owner_install_link.py list
+python scripts/owner_install_link.py revoke 小明                # 装好后即可撤销
+```
+
+`create` 打印一行 `curl -fsSL https://…:8444/install/<随机目录>/install.sh | bash`，私下发给对方。链接文件放在私有目录的 `private/install/`，由 TLS 代理只读提供，只在 tailnet 内可达；过期的链接在每次运行本工具时删除。链接含注册码：一人一个，不要发到群里。换了新版 App 后，旧链接仍指向旧 ZIP，需要重新生成。
+
+首次启用需要私有目录里的 `nginx.conf` 有 `/install/` 规则、`compose.yaml` 给 `tls` 挂载 `./private/install`，然后重建 `tls` 容器（见私有目录 README）。
+
 ## 只检查或升级源码
 
 在代码目录执行：
