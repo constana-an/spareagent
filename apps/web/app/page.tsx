@@ -1,7 +1,15 @@
 "use client";
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { ClipboardEvent, DragEvent, FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { initialLang, Lang, saveLang, Translate, translator } from "./i18n";
 import { limitsUpdate } from "../lib/preferences.mjs";
+import {
+  draftFrom,
+  EXAMPLES,
+  MAX_UPLOAD,
+  mergeAttachments,
+  newlyFinished,
+  pastedName,
+} from "../lib/task-form.mjs";
 
 type Me = {
   user_id: string;
@@ -81,6 +89,8 @@ type Task = {
   progress?: { percent: number | null; message: string | null } | null;
   queue_position?: number | null;
   failure?: { code: string | null; category: string | null } | null;
+  network_access?: boolean;
+  connection_id?: string;
 };
 type TaskKind = {
   kind: string;
@@ -97,7 +107,6 @@ type TaskKind = {
   deliverable_formats: string[];
   live_available: boolean;
 };
-const MAX_UPLOAD = 20 * 1024 * 1024;
 const LANGUAGES = ["zh-Hans", "en", "ja", "ko", "fr", "de", "es", "ru"];
 async function uploadFile(f: File): Promise<string> {
   if (f.size > MAX_UPLOAD) throw new Error(`${f.name}: > 20 MB`);
@@ -325,6 +334,18 @@ export default function Dashboard() {
   const [kinds, setKinds] = useState<TaskKind[]>([]),
     [kindSel, setKindSel] = useState(""),
     [files, setFiles] = useState<File[]>([]);
+  // The requirement box is controlled so examples and "submit again" can fill it;
+  // the other fields take their defaults from `draft` and remount via `formKey`.
+  const [prompt, setPrompt] = useState(""),
+    [draft, setDraft] = useState<ReturnType<typeof draftFrom> | null>(null),
+    [formKey, setFormKey] = useState(0),
+    [dragging, setDragging] = useState(false),
+    [attachError, setAttachError] = useState("");
+  const [alertPerm, setAlertPerm] = useState<NotificationPermission | "unsupported">(
+      "unsupported",
+    ),
+    [unseen, setUnseen] = useState(0),
+    seenRef = useRef<Map<string, string> | null>(null);
   const [joinChecks, setJoinChecks] = useState<Record<string, boolean>>({}),
     [shareChecks, setShareChecks] = useState<Record<string, boolean>>({});
   const [enrollment, setEnrollment] = useState<{
@@ -398,6 +419,41 @@ export default function Dashboard() {
     const id = setInterval(run, 5000);
     return () => clearInterval(id);
   }, [me, refresh]);
+  useEffect(() => {
+    if ("Notification" in window) setAlertPerm(Notification.permission);
+    const clear = () => {
+      if (!document.hidden) setUnseen(0);
+    };
+    document.addEventListener("visibilitychange", clear);
+    return () => document.removeEventListener("visibilitychange", clear);
+  }, []);
+  useEffect(() => {
+    const base = document.title.replace(/^\(\d+\) /, "");
+    document.title = unseen ? `(${unseen}) ${base}` : base;
+  }, [unseen]);
+  // Tell the member when one of their own requests finishes: a line on the page,
+  // a count in the tab title while the tab is in the background, and a system
+  // notification if they allowed it.
+  useEffect(() => {
+    const { finished, seen } = newlyFinished(seenRef.current, tasks);
+    seenRef.current = seen;
+    if (!finished.length) return;
+    const last = finished[finished.length - 1];
+    setNotice(t("task_finished_notice", { id: last.id.slice(0, 8), s: statusLine(last) }));
+    if (document.hidden) setUnseen((n) => n + finished.length);
+    if (alertPerm !== "granted") return;
+    for (const x of finished) {
+      const n = new Notification(
+        t(x.status === "SUCCEEDED" ? "notify_done" : "notify_failed"),
+        { body: `${kindName(x)} · ${statusLine(x)}`, tag: x.id },
+      );
+      n.onclick = () => {
+        window.focus();
+        setSelected(x);
+        n.close();
+      };
+    }
+  }, [tasks]);
   async function act(
     fn: () => Promise<unknown>,
     message = t("saved"),
@@ -539,6 +595,55 @@ export default function Dashboard() {
   const taskHistory = Array.from(
     new Map([...tasks, ...incoming].map((t) => [t.id, t])).values(),
   );
+  const addFiles = (incoming: File[], kind: TaskKind) => {
+    const { files: next, rejected } = mergeAttachments(files, incoming, kind);
+    setFiles(next);
+    setAttachError(
+      rejected
+        .map((r) => t(`reject_${r.reason}` as never, { name: r.name, n: kind.max_attachments }))
+        .join("；"),
+    );
+  };
+  const dropFiles = (e: DragEvent, kind: TaskKind) => {
+    e.preventDefault();
+    setDragging(false);
+    addFiles(Array.from(e.dataTransfer.files), kind);
+  };
+  // Only a paste that carries files is taken over; pasting text into the
+  // requirement box works as usual.
+  const pasteFiles = (e: ClipboardEvent, kind: TaskKind) => {
+    const pasted = Array.from(e.clipboardData.files);
+    if (!pasted.length) return;
+    e.preventDefault();
+    const now = new Date();
+    addFiles(
+      pasted.map((f, i) =>
+        /^image\.\w+$/.test(f.name) || !f.name
+          ? new File([f], pastedName(f.type, now, i), { type: f.type })
+          : f,
+      ),
+      kind,
+    );
+  };
+  const resubmit = (x: Task) => {
+    const d = draftFrom(x);
+    setKindSel(d.kind);
+    setFiles([]);
+    setAttachError("");
+    setPrompt(d.prompt);
+    setDraft(d);
+    setFormKey((k) => k + 1);
+    setError("");
+    setNotice(
+      d.attachments.length
+        ? t("resubmit_files", { names: d.attachments.join("、") })
+        : t("resubmit_ready"),
+    );
+    document.getElementById("submit")?.scrollIntoView();
+  };
+  const enableAlerts = async () => {
+    setAlertPerm(await Notification.requestPermission());
+  };
   if (loading)
     return (
       <main className="login">
@@ -1228,8 +1333,27 @@ export default function Dashboard() {
                 kinds.find((k) => k.kind === (kindSel || "GENERAL")) || kinds[0] || null;
               const kindName = (k: TaskKind) =>
                 lang === "zh" ? k.name_zh : k.name_en;
+              const d = draft && draft.kind === kind?.kind ? draft : null;
+              const liveAllowed =
+                !!group?.authorization?.live_execution_enabled && !!kind?.live_available;
+              const examples: string[] =
+                (kind && EXAMPLES[kind.kind as keyof typeof EXAMPLES]?.[lang]) || [];
+              const takesFiles = !!kind?.max_attachments;
               return (
                 <form
+                  key={formKey}
+                  onDragOver={(e) => {
+                    if (!takesFiles) return;
+                    e.preventDefault();
+                    setDragging(true);
+                  }}
+                  onDragLeave={(e) => {
+                    const to = e.relatedTarget;
+                    if (!(to instanceof Element && e.currentTarget.contains(to)))
+                      setDragging(false);
+                  }}
+                  onDrop={(e) => kind && takesFiles && dropFiles(e, kind)}
+                  onPaste={(e) => kind && takesFiles && pasteFiles(e, kind)}
                   onSubmit={(e: FormEvent<HTMLFormElement>) => {
                     e.preventDefault();
                     if (!kind) return;
@@ -1268,6 +1392,9 @@ export default function Dashboard() {
                         crypto.randomUUID(),
                       );
                       setFiles([]);
+                      setPrompt("");
+                      setDraft(null);
+                      setFormKey((k) => k + 1);
                       setSelected(created);
                     }, t("submitted"));
                   }}
@@ -1279,6 +1406,7 @@ export default function Dashboard() {
                       onChange={(e) => {
                         setKindSel(e.target.value);
                         setFiles([]);
+                        setAttachError("");
                       }}
                     >
                       {kinds.map((k) => (
@@ -1292,7 +1420,7 @@ export default function Dashboard() {
                   {kind && <small>{lang === "zh" ? kind.description_zh : kind.name_en}</small>}
                   <label>
                     {t("owner_device")}
-                    <select name="connection" required>
+                    <select name="connection" required defaultValue={d?.connection || undefined}>
                       {nodes
                         .filter((n) => n.owner_id !== me.user_id)
                         .map((n) => (
@@ -1329,6 +1457,7 @@ export default function Dashboard() {
                           name="repo"
                           type="url"
                           required
+                          defaultValue={d?.repo}
                           placeholder="https://github.com/octocat/Hello-World"
                         />
                       </label>
@@ -1339,28 +1468,61 @@ export default function Dashboard() {
                           required
                           pattern="[a-fA-F0-9]{40}"
                           maxLength={40}
+                          defaultValue={d?.sha}
                           placeholder={t("sha_placeholder")}
                         />
                       </label>
                     </>
                   )}
-                  {!!kind?.max_attachments && (
-                    <label>
+                  {kind && takesFiles && (
+                    <div className="field">
                       {t("attachments")}
-                      <input
-                        type="file"
-                        multiple={kind.max_attachments > 1}
-                        accept={kind.extensions.map((x) => "." + x).join(",")}
-                        onChange={(e) =>
-                          setFiles(
-                            Array.from(e.target.files || []).slice(
-                              0,
-                              kind.max_attachments,
-                            ),
-                          )
-                        }
-                        required={kind.min_attachments > 0}
-                      />
+                      <div className={`dropzone${dragging ? " over" : ""}`}>
+                        <input
+                          id="attach-input"
+                          className="visually-hidden"
+                          type="file"
+                          multiple={kind.max_attachments > 1}
+                          accept={kind.extensions.map((x) => "." + x).join(",")}
+                          onChange={(e) => {
+                            addFiles(Array.from(e.target.files || []), kind);
+                            e.target.value = "";
+                          }}
+                        />
+                        <span>
+                          {t("drop_hint")}{" "}
+                          <button
+                            type="button"
+                            className="quiet pick"
+                            onClick={() => document.getElementById("attach-input")?.click()}
+                          >
+                            {t("choose_files")}
+                          </button>
+                        </span>
+                        {!!files.length && (
+                          <ul className="file-list">
+                            {files.map((f) => (
+                              <li key={f.name + f.size}>
+                                <span>{f.name}</span>
+                                <small>{Math.max(1, Math.round(f.size / 1024))} KB</small>
+                                <button
+                                  type="button"
+                                  className="quiet"
+                                  aria-label={t("remove_file", { name: f.name })}
+                                  onClick={() => setFiles(files.filter((x) => x !== f))}
+                                >
+                                  ×
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                      {attachError && (
+                        <small className="attach-error" role="alert">
+                          {attachError}
+                        </small>
+                      )}
                       <small>
                         {t("attachments_hint", {
                           types: kind.extensions.map((x) => "." + x).join(" "),
@@ -1368,10 +1530,10 @@ export default function Dashboard() {
                         })}
                         {kind.min_attachments === 0 ? t("attachments_optional") : ""}
                       </small>
-                    </label>
+                    </div>
                   )}
                   <label className="check">
-                    <input type="checkbox" name="network" />
+                    <input type="checkbox" name="network" defaultChecked={d?.network} />
                     <span>
                       {t("needs_network")}
                       <small> {t("needs_network_hint")}</small>
@@ -1380,7 +1542,7 @@ export default function Dashboard() {
                   {kind?.required_parameters.includes("target_language") && (
                     <label>
                       {t("target_language")}
-                      <select name="target_language" defaultValue="en">
+                      <select name="target_language" defaultValue={d?.target_language || "en"}>
                         {LANGUAGES.map((l) => (
                           <option key={l} value={l}>
                             {t(`lang.${l}` as never)}
@@ -1392,7 +1554,7 @@ export default function Dashboard() {
                   {kind && kind.deliverable_formats.length > 1 && (
                     <label>
                       {t("deliverable_format")}
-                      <select name="format" defaultValue={kind.deliverable_format}>
+                      <select name="format" defaultValue={d?.format || kind.deliverable_format}>
                         {kind.deliverable_formats.map((x) => (
                           <option key={x} value={x}>
                             .{x}
@@ -1407,9 +1569,31 @@ export default function Dashboard() {
                       name="prompt"
                       required
                       maxLength={12000}
+                      value={prompt}
+                      onChange={(e) => setPrompt(e.target.value)}
                       placeholder={t("prompt_placeholder")}
                     />
                   </label>
+                  {!!examples.length && (
+                    <div className="examples">
+                      <small>{t("examples")}</small>
+                      {examples.map((ex) => (
+                        <button
+                          key={ex}
+                          type="button"
+                          className="quiet chip"
+                          title={ex}
+                          onClick={() => {
+                            if (prompt.trim() && prompt !== ex && !window.confirm(t("replace_prompt")))
+                              return;
+                            setPrompt(ex);
+                          }}
+                        >
+                          {ex}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <div className="form-row">
                     <label>
                       {t("hard_timeout")}
@@ -1418,21 +1602,18 @@ export default function Dashboard() {
                         type="number"
                         min="10"
                         max={group?.max_task_duration_seconds ?? 600}
-                        defaultValue="600"
+                        defaultValue={d?.timeout ?? 600}
                         required
                       />
                     </label>
                     <label>
                       {t("execution")}
-                      <select name="mode">
+                      <select
+                        name="mode"
+                        defaultValue={d?.mode === "LIVE" && liveAllowed ? "LIVE" : "SIMULATED"}
+                      >
                         <option value="SIMULATED">{t("simulated")}</option>
-                        <option
-                          value="LIVE"
-                          disabled={
-                            !group?.authorization?.live_execution_enabled ||
-                            !kind?.live_available
-                          }
-                        >
+                        <option value="LIVE" disabled={!liveAllowed}>
                           {t("live_option")}
                         </option>
                       </select>
@@ -1443,6 +1624,7 @@ export default function Dashboard() {
                       busy ||
                       !active ||
                       !kind ||
+                      files.length < kind.min_attachments ||
                       !nodes.some((n) => n.owner_id !== me.user_id)
                     }
                   >
@@ -1457,14 +1639,23 @@ export default function Dashboard() {
         <section>
           <div className="section-head">
             <h2>{t("history")}</h2>
-            <button
-              className="quiet"
-              disabled={busy}
-              onClick={() => void act(refresh, t("updated"))}
-            >
-              {t("refresh")}
-            </button>
+            <div className="actions">
+              {alertPerm === "default" && (
+                <button className="quiet" onClick={() => void enableAlerts()}>
+                  {t("notify_enable")}
+                </button>
+              )}
+              <button
+                className="quiet"
+                disabled={busy}
+                onClick={() => void act(refresh, t("updated"))}
+              >
+                {t("refresh")}
+              </button>
+            </div>
           </div>
+          {alertPerm === "granted" && <small className="muted">{t("notify_on")}</small>}
+          {alertPerm === "denied" && <small className="muted">{t("notify_denied")}</small>}
           {!taskHistory.length && (
             <p className="empty">{t("no_tasks")}</p>
           )}
@@ -1494,9 +1685,17 @@ export default function Dashboard() {
                   {kindName(selected)} · {statusLine(selected)}
                 </h2>
               </div>
-              <button className="quiet" onClick={() => setSelected(null)}>
-                {t("close")}
-              </button>
+              <div className="actions">
+                {terminal.has(selected.status) &&
+                  tasks.some((x) => x.id === selected.id) && (
+                    <button className="quiet" onClick={() => resubmit(selected)}>
+                      {t("resubmit")}
+                    </button>
+                  )}
+                <button className="quiet" onClick={() => setSelected(null)}>
+                  {t("close")}
+                </button>
+              </div>
             </div>
             {selected.progress?.percent != null &&
               ["RESERVED", "RUNNING"].includes(selected.status) && (

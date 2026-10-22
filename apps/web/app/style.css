@@ -660,3 +660,71 @@ footer {
 .login .lang {
   margin-top: 14px;
 }
+.field {
+  font-size: 12px;
+  margin: 12px 0;
+}
+.dropzone {
+  margin-top: 5px;
+  padding: 14px 12px;
+  background: #fbfcfa;
+  border: 1px dashed #b9c6bc;
+  border-radius: 6px;
+  color: var(--muted);
+}
+.dropzone.over {
+  border-color: var(--green);
+  background: #eef4e6;
+}
+.dropzone .pick {
+  padding: 2px 8px;
+  margin-left: 4px;
+}
+.file-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+.file-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+  border-top: 1px solid var(--line);
+  color: var(--ink);
+}
+.file-list li span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.file-list button {
+  padding: 0 9px;
+}
+.attach-error {
+  color: #85392d;
+}
+.examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin: -4px 0 12px;
+}
+.examples .chip {
+  max-width: 100%;
+  padding: 4px 10px;
+  border-radius: 24px;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
