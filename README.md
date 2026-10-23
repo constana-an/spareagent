@@ -7,49 +7,95 @@ A small, invite-only, non-commercial experiment. Every task runs on the owner's 
 the owner's own Codex login; credentials never leave that Mac and there is no payment,
 resale or paid fallback.
 
+Current release: **Mac App 0.17.5 (build 25)**. Version and build live in
+[`apps/macos/version.json`](apps/macos/version.json).
+
 ## How it works
 
 | Who | Does | Needs |
 |---|---|---|
-| **Operator** | Runs the private coordinator (API, database, scheduler, verifier, dashboard) and privately hands out the Mac package | Docker; this repository |
-| **Owner** (provides compute) | Runs the local installer once to build `SpareAgent.app` on their Mac, then opens the App, reads the sharing terms and goes online: Codex is installed, the owner signs in to their own ChatGPT, a group and invite link are created. A menu-bar icon controls pause and quit | A Mac, Apple command line tools for the first local build, their own ChatGPT Plus/Pro, and access to the private coordinator (currently Tailscale) |
-| **Member** (uses compute) | Opens the invite link, submits tasks with attachments, follows progress, downloads results | A browser (the dashboard is public via Tailscale Funnel, D-102; without it, Tailscale access) |
+| **Operator** | Runs the private coordinator (API, database, scheduler, verifier, member dashboard), hands out install links and publishes App updates | Docker; this repository; Tailscale |
+| **Owner** (provides compute) | Installs `SpareAgent.app` once, reads the sharing terms and goes online. The App installs Codex if needed, the owner signs in to their own ChatGPT, and a group with an invite link is created. Day to day, the owner works from the menu bar and the owner console | A Mac (Apple Silicon tested), their own ChatGPT Plus/Pro, Tailscale access to the coordinator |
+| **Member** (uses compute) | Opens the invite link, submits tasks with attachments, follows progress, downloads results | Only a browser, on a phone or a computer |
 
-Tasks are approved by the owner's standing approval, dispatched to the owner's Mac, run by
-Codex in a per-task sandboxed folder, checked by the platform and delivered as files.
+Tasks are approved by the owner (one by one, or by the group's standing auto-approval),
+dispatched to the owner's Mac, run by Codex in a per-task sandboxed folder, checked by the
+platform and delivered as files.
 
-The default free installer builds the menu-bar App locally once; later launches use the App directly. No paid Apple developer membership is required. See [local installation](docs/LOCAL_APP_INSTALL.md). This is not Apple notarization; first-install behavior on another Mac remains to be verified.
+### Owner installation
 
-## What members can ask for
+- **Recommended: one-line install link.** The operator runs
+  `scripts/owner_install_link.py create` and privately sends the owner a
+  `curl -fsSL https://…/install.sh | bash` line. It downloads the prebuilt App, checks its
+  checksum and signature, installs it into the owner's Applications folder and opens it. No
+  Apple command line tools, unzipping or building. Each link is personal and expires.
+- **Fallback: free local build.** `SpareAgent-local-install-arm64.zip` builds the menu-bar App
+  on the owner's Mac once ([local installation](docs/LOCAL_APP_INSTALL.md)).
+- **Updates are in-app (D-103).** After `owner_install_link.py publish-update`, owners see
+  "更新到 x.y…" in the menu bar within 6 hours. Nothing installs until they click it; the App
+  stops taking new tasks, lets running ones finish, swaps itself with rollback, reopens and
+  goes back online if it was online before.
 
-| Kind | Delivers |
-|---|---|
-| **General task** (default) | Discussion, writing, translation, tables, edits to uploaded code files, pictures drawn with code (SVG/PNG): `answer.md` + up to 5 files |
-| Translate a document | `.docx` / `.md` / `.txt` in the target language (paragraph count and script checked) |
-| Analyze spreadsheets | `report.md` + charts + cleaned tables from `.csv` / `.xlsx` |
-| Change code / fix / write tests / review | Patch or review of a public repository at a pinned commit |
+Neither path needs a paid Apple developer membership. The App is ad-hoc signed, not notarized,
+so macOS may ask the owner to allow it on first open.
 
-- **Internet (opt-in per task):** a member ticks *needs internet*; only devices whose owner
-  allows it (on by default, can be switched off) run it with web access. File access stays
+## What members get
+
+Members only need the invite link. The dashboard is served through Tailscale Funnel with a
+browser-trusted certificate (D-102), so there is no Tailscale install and no certificate import.
+Owners' devices and the API stay on the tailnet.
+
+- **One kind of request.** Since 0.17.2 every new request from the dashboard is a **general
+  task**: discussion, writing, translation, tables and charts, edits to uploaded code files,
+  pictures drawn with code (SVG/PNG). Up to 5 attachments of 20 MB each (documents, spreadsheets,
+  PDFs, images, source files); the result is `answer.md` plus any files it produces. The API
+  still accepts the older specialized kinds (translate, analyze spreadsheet, code tasks on a
+  public repository at a pinned commit) for existing clients and records.
+- **Internet is per task.** A member turns on *需要联网*; the task only goes to devices whose
+  owner allows internet (on by default) and the answer lists the URLs it used. File access stays
   limited to the task's own folder either way.
-- **Owner controls:** group size (2–5), tasks per 24 h, minutes per task, 1–3 tasks at a
-  time, allowed kinds and tools, auto-approval, invite rotation, member removal, and
-  **per-member usage and caps** (tasks and execution minutes per 24 h).
-- **Member view:** queue position and the reason a task waits, progress, Chinese failure
-  reasons with advice, cancel, download with SHA-256 check, own usage and caps.
-- **Recovery:** a task the owner hands back or that loses its device re-runs once; a paused
-  owner still takes requests, which wait and say why.
-- **HTTPS:** the current package uses Tailscale Serve with a browser-trusted certificate; no manual CA import. Owners' devices and the API stay on the tailnet; the member dashboard alone can be public through Tailscale Funnel (D-102), so members need only a browser. Legacy packages can list several server addresses; the app checks HTTPS readiness and picks a reachable one or the owner’s choice.
+- **Workspace.** A task table with search, a detail pane with Result and Log tabs, previews,
+  download-all with SHA-256 checks, cancel, edit-and-resubmit, browser notifications when a task
+  ends, and the member's own usage and caps. Queue position and the reason a task waits are
+  shown in plain words; failures come with a Chinese reason and advice.
+- **Friend view.** A member who shares no device of their own sees only their tasks, their
+  group and an optional "share your own Mac" section.
+- **Staying signed in.** A session lasts 90 days; opening the same invite link again returns to
+  the same account and history without taking another seat (D-100).
 - Chinese by default, English on request.
+
+## What owners control
+
+- **Menu bar.** State, running tasks and today's count in the title; a card with the plan's
+  5-hour and weekly usage bars (read locally from Codex, nothing leaves the Mac); go online,
+  pause, copy the invite text, show an invite QR code, open at login, restore the last online
+  state, check for updates. macOS notifications for new, finished and failed tasks and lost
+  connections.
+- **Owner console in the App's own window (D-104).** Overview, tasks, members and settings in a
+  sidebar layout. The App version is shown at the bottom of the sidebar.
+- **Sharing presets:** 省着用 (3 tasks a day, 10 min each, 1 at a time, no internet), 标准
+  (5 / 10 min / 1, internet), 放开用 (no task-count or time limit, 2 at a time, internet), or
+  custom: group size (2–5, including the owner), tasks per 24 h, minutes per task (both may be
+  unlimited), 1–3 concurrent tasks, local tools, internet, auto-approval.
+- **Members:** per-member usage over the last 24 h, a note, per-member caps on tasks and
+  execution minutes; **暂时断开** (stops open tasks, keeps the member and the invite code,
+  reversible) or **踢出小组** (stops open tasks, removes the member and rotates the invite code).
+- **Going offline:** finish running tasks first, or stop and hand them back. A handed-back task
+  re-runs once and waits up to 10 minutes for the owner to return. While the owner is paused,
+  members can still submit; their tasks wait and say why.
 
 ## Limits to know
 
-- Results are **structure-checked only** (formats, required files, no active content);
-  nobody checks that an answer or translation is right.
-- All one-click kinds were opened for real execution by operator decision without
-  per-kind acceptance; real-device acceptance is still to be done ([design §7](docs/GENERAL_TASKS_DESIGN.md)).
-- Groups are capped at 5 people by the written authorization the operator relies on.
-- The Mac App currently uses ad-hoc signing for local testing, without Developer ID notarization; first-open security approval may still be required.
+- Results are **structure-checked only** (formats, required files, no active content); nobody
+  checks that an answer or translation is right.
+- All kinds were opened for real execution by operator decision without per-kind acceptance;
+  real-device acceptance is still to be done ([design §7](docs/GENERAL_TASKS_DESIGN.md)).
+- Groups are capped at 5 people by the written authorization the operator relies on. The cap is
+  per group, so the operator also limits how many owners receive an install link.
+- The App is not notarized (see [macOS release](docs/MACOS_RELEASE.md) for the Developer ID path,
+  which has not been used yet). Only Apple Silicon has been tested.
+- When the operator has not switched on real execution, tasks run as simulations and deliver
+  placeholder files.
 
 ## Documentation
 
@@ -57,38 +103,42 @@ The default free installer builds the menu-bar App locally once; later launches 
 |---|---|
 | Owners | [docs/ONE_CLICK_SHARING.md](docs/ONE_CLICK_SHARING.md) |
 | Members | [docs/MEMBER_GUIDE.md](docs/MEMBER_GUIDE.md) |
-| Design of task kinds, execution, internet, recovery | [docs/GENERAL_TASKS_DESIGN.md](docs/GENERAL_TASKS_DESIGN.md) |
+| Operating the existing Mac deployment | [docs/OPERATOR_GUIDE.md](docs/OPERATOR_GUIDE.md) |
+| Setting up a private Mac deployment | [docs/MAC_PRIVATE_DEPLOYMENT.md](docs/MAC_PRIVATE_DEPLOYMENT.md) |
+| Building and signing the Mac App | [docs/MACOS_RELEASE.md](docs/MACOS_RELEASE.md), [docs/LOCAL_APP_INSTALL.md](docs/LOCAL_APP_INSTALL.md) |
+| Task kinds, execution, internet, recovery | [docs/GENERAL_TASKS_DESIGN.md](docs/GENERAL_TASKS_DESIGN.md) |
+| Architecture | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | Every decision and why | [docs/DECISIONS.md](docs/DECISIONS.md) (D-90 onwards for the current release) |
 | API | [contracts/openapi.yaml](contracts/openapi.yaml) |
-| Private Mac deployment | [docs/MAC_PRIVATE_DEPLOYMENT.md](docs/MAC_PRIVATE_DEPLOYMENT.md) |
-| Maintain the existing Mac deployment | [docs/OPERATOR_GUIDE.md](docs/OPERATOR_GUIDE.md) |
 
-## Operator: build the Mac package
+## Operator quick reference
 
-For the existing private Mac deployment, double-click `scripts/SpareAgent-Operator.command`.
-It reads the saved configuration, backs up data, starts or restores services, checks HTTPS,
-and builds or reuses the private source installer. It preserves the real-execution switch
-and does not run inference. Use `--rebuild` when service images need rebuilding from the
-current source. See [operator maintenance](docs/OPERATOR_GUIDE.md).
-
-For separate packaging or legacy deployments:
+Day-to-day maintenance of the existing deployment: double-click
+`scripts/SpareAgent-Operator.command`. It reads the saved configuration, backs up data, starts
+or restores services, checks HTTPS and builds or reuses the owner packages. It keeps the
+real-execution switch as it is and runs no inference; add `--rebuild` to rebuild service images
+from the current source. Details in the [operator guide](docs/OPERATOR_GUIDE.md).
 
 ```sh
-python scripts/build_worker_bundle.py \
-  --network "lan:局域网=https://LAN_IP:18443,https://LAN_IP:13443" \
-  --network "tailscale:Tailscale=https://TS_IP:18443,https://TS_IP:13443" \
-  --signup-code-file private/signup-code.txt --ca-file ca.pem
+python scripts/owner_install_link.py create --label NAME   # personal install link, 7 days by default
+python scripts/owner_install_link.py list
+python scripts/owner_install_link.py revoke NAME
+python scripts/owner_install_link.py publish-update        # offer the built App to registered devices
 ```
 
-`output/worker-bundle/SpareAgent-mac.zip` contains the signup code: share it privately.
-On macOS, follow with `python scripts/build_macos_app.py --arch arm64` to produce the
-desktop App ZIP with bundled Python. Only Apple Silicon has been tested on this Mac;
-the Intel build option remains unverified on an Intel device.
-The server must list each extra dashboard address in `FRIENDS_WEB_EXTRA_ORIGINS`, listen on
-it, and its certificate must cover it. Real execution is switched by `EXPERIMENT_LIVE_ENABLED`
-plus an operator-verified authorization ([ONE_CLICK_SHARING.md](docs/ONE_CLICK_SHARING.md)).
+Before `publish-update`, raise `version` and `build` in `apps/macos/version.json` and build the
+App (`python scripts/build_macos_app.py --arch arm64`); devices compare the build number and a
+lower build is refused. Releases that add a migration (for example
+`0018_member_controls_and_unlimited_limits`) need a database backup and migration before the
+new server and App go out.
+
+Real execution needs both `EXPERIMENT_LIVE_ENABLED` and an operator-verified authorization
+([ONE_CLICK_SHARING.md](docs/ONE_CLICK_SHARING.md)). Extra dashboard addresses must be listed in
+`FRIENDS_WEB_EXTRA_ORIGINS`, served, and covered by the certificate.
 
 ## Development
+
+Requires Docker (Compose v2), `make`, `curl` and `python3`.
 
 ```bash
 cp .env.example .env
@@ -97,200 +147,37 @@ make migrate && make seed-dev
 make lint && make test
 ```
 
-`make test` runs about 600 tests (unit, integration, end-to-end acceptance script with the
-real Worker agent) against an isolated database; Docker-sandbox and network tests are
-skipped when their prerequisites are missing. The web dashboard (`apps/web`) has its own
-`npm run typecheck`, `npm test` and `npm run build`.
+`make test` runs the unit, integration and end-to-end acceptance tests (with the real Worker
+agent) in containers against an isolated database; Docker-sandbox and network tests are skipped
+when their prerequisites are missing. Other targets: `make e2e-remote` (remote workers, one
+killed mid-run), `make e2e-code` (sandboxed code execution and verifier), `make e2e-experimental`,
+`make validate-openapi`. The dashboard in `apps/web` has its own `npm run typecheck`, `npm test`
+and `npm run build`.
 
----
-
-# History: earlier milestones
-
-The sections below record how the project got here (weeks 1–6). Some describe setups that
-have since changed; the sections above describe the current release.
-
-## Week 6: friends install the Worker only
-
-Friends need the official Codex CLI and a standalone SpareAgent Worker (Python 3.12+
-with Git); **no backend, database, Redis or Docker installation**. The operator runs the
-private coordinator. Bob can request a review through the dashboard without a Worker.
-
-### Device roles: 1 号 is the service host; 2 号、3 号等 are users
-
-| Device | Role | Runs |
-|---|---|---|
-| **#1 / 1 号** | Main service host / operator | API, database, Redis, Scheduler, Verifier, Dashboard and private HTTPS ingress. |
-| **#2, #3, etc. / 2 号、3 号等** | Users | Browser access to #1; official Codex CLI and SpareAgent Worker only when volunteering their own device. No backend installation. |
-
-These are device labels, not database user IDs. The operator's administrative identity
-does not occupy a participant slot. (Week 6 was capped at two users; one-click groups now
-allow up to five.)
-
-Week 6 used LAN HTTPS. The current release also supports a Tailscale address next to the
-LAN one (see *Networks* above). Since D-102 only the member dashboard port may be served through Tailscale Funnel; the API and devices remain tailnet-only.
-See the [Mac deployment and shutdown record](docs/MAC_PRIVATE_DEPLOYMENT.md) for setup
-boundaries, HTTPS changes and preserving data when stopping containers. The local stack
-was validated and then stopped at the owner's request; this is not a continuously hosted
-service or a completed real two-user experiment.
-
-### Worker installation
-
-The operator builds `python scripts/build_worker_bundle.py` and privately distributes the
-reviewed macOS script, small worker wheel and SHA-256. On the friend's Mac:
-
-```sh
-bash setup-worker-macos.sh ./spareagent_worker-0.12.0-py3-none-any.whl OPERATOR_SHA256
-export PATH="$HOME/.local/share/spareagent-worker/bin:$PATH"
-codex login  # your own ChatGPT Plus login
-spareagent-worker pilot-check
-```
-
-`pilot-check` performs **no inference** and changes no sharing/LIVE switches. It separates
-automatic blockers from required owner/operator confirmations. Setup does not start the
-Worker or enable LIVE. All subscription-consuming checks remain manually opted in;
-no API keys, purchased/granted Credits or paid fallback. The first **real two-device Alice/Bob execution succeeded on 2026-10-19**, with
-explicit owner confirmation of distinct physical devices and subscription-only funding.
-Its code-review content remains **UNVERIFIED** and requires human assessment. The LIVE
-window was closed after the run; later subscription-consuming tasks require a new opt-in.
-
-Read the [first two-person test plan](docs/TWO_PERSON_TEST_PLAN.md),
-[controlled runbook](docs/WEEK6_PILOT_RUNBOOK.md),
-[readiness and status](docs/WEEK6_STATUS.md), [security review](docs/WEEK6_SECURITY_REVIEW.md),
-[metrics definitions](docs/WEEK6_METRICS.md) and
-[real pilot record](reports/week6_two_device_pilot.json).
-The Docker quick start below is for the **operator/developer**, not friends.
+For demos and tests, a prompt marker injects mock faults: `[mock:transient]` (first attempt
+fails, the retry succeeds), `[mock:fail]` (permanent failure), `[mock:bad-patch]` (verification
+fails).
 
 ## Policy invariants (enforced in code and tests)
+
 - `PERSONAL_SUBSCRIPTION` resources are never scheduled for marketplace tasks and never routed by
-  the gateway — enforced by DB CHECK constraints **and** `services/scheduler/policy.py`. There is
-  no subscription resale, pooling or SIWC code in this repository.
+  the gateway, enforced by DB CHECK constraints and `services/scheduler/policy.py`. There is no
+  subscription resale or pooling code in this repository.
 - Public eligibility can only be granted by an ADMIN through an audited endpoint.
 - `DEV_AUTH_ONLY=true` is refused at startup unless `APP_ENV=local`, and is honoured only for
   localhost requests.
-- Secrets are redacted from logs, events and artifacts; budgets are integer cents.
+- Secrets are redacted from logs, events and artifacts.
 
-## Quick start
-Requires Docker (Compose v2), `make`, `curl`, `python3`.
-```bash
-cp .env.example .env
-docker compose up --build -d
-make migrate && make seed-dev
-make lint && make test && make smoke
-```
-API docs: http://localhost:8000/docs · health: `/healthz`, `/readyz`.
+## History
 
-| Target | What it does |
-|---|---|
-| `make up` / `make down` | start (waits for health) / stop the stack |
-| `make migrate` | apply `db/migrations/NNNN_*.sql` transactionally (seed files excluded) |
-| `make seed-dev` | load `0002_seed_dev.sql` (local only, repeatable) |
-| `make lint` | ruff check + ruff format --check + OpenAPI/event-schema validation |
-| `make test` | full pytest suite in the `test` container, isolated DB `spareagent_test`, coverage gate 80 % |
-| `make smoke` | `scripts/smoke.sh` against the running stack |
-| `make clean` | stop and delete volumes |
+The project was built in weekly milestones; each status file records what was true at the time.
 
-## Layout
-```
-apps/api/            FastAPI app: config, routes, schemas, middleware (auth, request id)
-services/tasks/      task service, repository, state machine (only writer of tasks.status)
-services/scheduler/  eligibility policy, dispatcher, lease service, scoring
-services/execution/  orchestrator, mock verifier, local worker process
-services/gateway/    model aliases + chat gateway
-services/metering/   integer-cent estimator, usage recording (deduplicated)
-services/artifacts/  content-addressed local store with traversal protection
-services/registry/   admin-only resource approval
-packages/provider_sdk/  adapter protocol, types, deterministic MockProviderAdapter
-packages/worker/     spareagent-worker CLI: state, HTTPS node client, agent loop
-services/registry/node_auth.py  enrollment + node credentials (W2)
-services/execution/remote.py    server side of the remote lease protocol (W2)
-services/scheduler/runner.py    central expiry/retry/reconciliation loop (W2)
-services/execution/{repository_manager,sandbox,code_adapter,catalog,patch_policy}.py  (W3)
-services/verification/          independent platform verifier (W3)
-sandbox/Dockerfile              sandbox image: python3 + node 22 only (W3)
-db/                  models (mirror of SQL), migrator, migrations
-tests/               unit / integration / e2e
-```
-
-## Demo (seeded consumer `11111111-1111-4111-8111-111111111111`)
-Create a task (202, `status` = `QUEUED`):
-```bash
-curl -i http://localhost:8000/v1/tasks -H 'Content-Type: application/json' -H 'X-Dev-User-ID: 11111111-1111-4111-8111-111111111111' -H 'Idempotency-Key: example-task-0001' -d '{"task_type":"WRITE_TESTS","repository_url":"https://github.com/example/public-fixture","commit_sha":"0123456789abcdef0123456789abcdef01234567","prompt":"Write two tests for the demo fixture","max_budget_cents":500,"max_duration_seconds":120}'
-```
-```json
-{"id":"<uuid>","status":"QUEUED","task_type":"WRITE_TESTS","max_budget_cents":500,"created_at":"2026-10-18T04:07:23.1Z","result_summary":null}
-```
-Stream events (closes after the terminal event; add `-H 'Last-Event-ID: 3'` to replay from seq 4):
-```bash
-curl -N -H 'X-Dev-User-ID: 11111111-1111-4111-8111-111111111111' http://localhost:8000/v1/tasks/TASK_UUID/events
-```
-```
-id: 1
-event: task.created
-data: {"task_id":"<uuid>","seq":1,"type":"task.created","timestamp":"...","payload":{"status":"CREATED"}}
-... task.queued, task.reserved, task.started, task.progress x2, task.verifying ...
-id: 8
-event: task.succeeded
-data: {"task_id":"<uuid>","seq":8,"type":"task.succeeded","timestamp":"...","payload":{"from":"VERIFYING","status":"SUCCEEDED","result_summary":"Mock WRITE_TESTS result ...","artifact_count":4}}
-```
-Artifacts (descriptors; content via `/v1/tasks/TASK_UUID/artifacts/ARTIFACT_UUID/content`):
-```bash
-curl -H 'X-Dev-User-ID: 11111111-1111-4111-8111-111111111111' http://localhost:8000/v1/tasks/TASK_UUID/artifacts
-```
-Gateway mock (200 `chat.completion`; header `X-SpareAgent-Billable: false`):
-```bash
-curl http://localhost:8000/v1/chat/completions -H 'Content-Type: application/json' -H 'X-Dev-User-ID: 11111111-1111-4111-8111-111111111111' -d '{"model":"mock-chat","stream":false,"messages":[{"role":"user","content":"Say hello"}]}'
-```
-```json
-{"id":"chatcmpl-<hex>","object":"chat.completion","created":1792303643,"model":"mock-chat","choices":[{"index":0,"message":{"role":"assistant","content":"This is a deterministic mock response from mock-chat-v1 (no model was called). Digest ..."},"finish_reason":"stop"}],"usage":{"prompt_tokens":7,"completion_tokens":26,"total_tokens":33}}
-```
-`"stream": true` → 422 `UNSUPPORTED_STREAMING`; unknown model → 404 `MODEL_NOT_FOUND`.
-
-### Week 2: remote workers
-Remote nodes run `spareagent-worker` (installed by `pip install .`), connect **outbound over
-HTTPS** with node-scoped credentials and never receive database credentials.
-```bash
-make up && make migrate && make seed-dev
-make e2e-remote          # 3 worker containers, 10 tasks, one SIGKILLed mid-run
-cat reports/week2_e2e_report.json
-```
-Manual flow: an admin (dev seed `55555555-5555-4555-8555-555555555555`) mints a single-use
-token, then the node registers and starts:
-```bash
-curl -s http://localhost:8000/v1/enrollment-tokens -H 'Content-Type: application/json' -H 'X-Dev-User-ID: 55555555-5555-4555-8555-555555555555' -d '{"resource_id":"33333333-3333-4333-8333-333333333333"}'
-```
-```bash
-spareagent-worker register --api-url https://localhost:8443 --ca-file ca.pem --resource-id 33333333-3333-4333-8333-333333333333 --name node-1 --enrollment-token sa_enr_...
-```
-(`ca.pem`: `docker compose cp api-tls:/certs/ca.pem ca.pem`.) Protocol details:
-`docs/ARCHITECTURE.md` §11; decisions D-20..D-32 in `docs/DECISIONS.md`; status in
-`docs/WEEK2_STATUS.md`.
-
-## Week 3: sandboxed code execution (disabled by default)
-Allow-listed fixture repositories (pinned commits) can be fixed by a deterministic executor that
-runs trusted tests in a hardened, network-less Docker sandbox; a separate platform verifier
-re-applies the patch to a clean checkout and re-runs the tests before the task can succeed.
-```bash
-make e2e-code            # python + typescript fixes, isolation probe, forged-patch rejection
-cat reports/week3_e2e_report.json
-```
-Details: `docs/ARCHITECTURE.md` §12, decisions D-33..D-43, status and **residual risks** in
-`docs/WEEK3_STATUS.md`. Do not enable `CODE_EXECUTION_ENABLED` for real workloads.
-
-## Mock fault injection (tests/demo only)
-Put a marker in the prompt: `[mock:transient]` (attempt 1 fails, retry succeeds), `[mock:fail]`
-(permanent failure), `[mock:bad-patch]` (verification fails).
-
-## Week 5 private friends beta
-
-`apps/web/` provides the invite-only Next.js dashboard for owner-controlled experimental
-reviews. [Owner validation](docs/WEEK5_LOCAL_CODEX_RUNBOOK.md),
-[two-participant runbook](docs/WEEK5_FRIENDS_BETA_RUNBOOK.md), and
-[actual status/evidence](docs/WEEK5_STATUS.md) describe setup and manual activation.
-Use `FRIENDS_AUTH_ENABLED=true` for browser sessions and `docker compose --profile web up
---build -d web` after migrating. LIVE remains off by default and is never run in CI.
-
-LIVE results now enter the existing independent verifier: integrity, fresh pinned checkout,
-clean patch application and trusted fixture tests. Unsupported repositories and reviews
-carry explicit `UNVERIFIED` provenance; structural checks never imply semantic correctness.
-The real owner-only check succeeded on 2026-10-18; the owner confirmed subscription-only
-usage and unchanged Credits. No real Alice/Bob subscription run has been performed.
+| Milestone | What it added | Record |
+|---|---|---|
+| Week 1 | Task API, event stream, mock executor and gateway | [WEEK1.md](docs/WEEK1.md) |
+| Week 2 | Remote workers over outbound HTTPS with node credentials | [WEEK2_STATUS.md](docs/WEEK2_STATUS.md) |
+| Week 3 | Sandboxed code execution and an independent verifier (off by default) | [WEEK3_STATUS.md](docs/WEEK3_STATUS.md) |
+| Week 4 | Experimental Codex subscription sharing | [WEEK4_SUBSCRIPTION_STATUS.md](docs/WEEK4_SUBSCRIPTION_STATUS.md) |
+| Week 5 | Invite-only friends dashboard; first real owner-only run (2026-10-18) | [WEEK5_STATUS.md](docs/WEEK5_STATUS.md) |
+| Week 6 | Friends install only the Worker; first real two-device run (2026-10-19) | [WEEK6_STATUS.md](docs/WEEK6_STATUS.md), [security review](docs/WEEK6_SECURITY_REVIEW.md) |
+| Since | One-click Mac App, general tasks, public member dashboard, in-app updates, owner console | [DECISIONS.md](docs/DECISIONS.md) D-90 onwards |
