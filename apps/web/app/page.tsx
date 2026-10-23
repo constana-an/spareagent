@@ -874,6 +874,9 @@ export default function Dashboard() {
         </button>
       </main>
     );
+  // A member who shares no device of their own only needs their tasks and group; device,
+  // authorization, observation and audit panels are for owners.
+  const friendView = !devices.length && !incoming.length;
   return (
     <div className="shell">
       <aside>
@@ -885,7 +888,7 @@ export default function Dashboard() {
         </div>
         <nav>
           <a href="#tasks">{t("nav_tasks")}</a>
-          <a href="#requests">
+          {!friendView && <a href="#requests">
             {t("nav_requests")}{" "}
             <b>
               {
@@ -895,10 +898,10 @@ export default function Dashboard() {
                 ).length
               }
             </b>
-          </a>
-          <a href="#overview">{t("nav_overview")}</a>
-          <a href="#devices">{t("nav_devices")}</a>
-          <a href="#history">{t("nav_history")}</a>
+          </a>}
+          <a href="#overview">{t(friendView ? "nav_group" : "nav_overview")}</a>
+          <a href="#devices">{t(friendView ? "nav_share_mac" : "nav_devices")}</a>
+          {!friendView && <a href="#history">{t("nav_history")}</a>}
         </nav>
         <div className="aside-bottom">
           <span className="dot" /> {t("private_experiment")}
@@ -1762,7 +1765,7 @@ export default function Dashboard() {
               })}
             </span>
           </div>
-          <div>
+          {!friendView && <div>
             <p className="eyebrow">{t("authorization")}</p>
             <strong>
               {group?.authorization?.authorization_reference || t("not_recorded")}
@@ -1774,7 +1777,7 @@ export default function Dashboard() {
                   })
                 : t("operator_review")}
             </p>
-          </div>
+          </div>}
         </section>
         {group && !active && (
           <section>
@@ -1797,7 +1800,7 @@ export default function Dashboard() {
             </button>
           </section>
         )}
-        <div className="stats">
+        {!friendView && <div className="stats">
           <article>
             <span>{t("stat_devices")}</span>
             <strong>
@@ -1828,17 +1831,28 @@ export default function Dashboard() {
             <strong className="unavailable">{t("not_available")}</strong>
             <small>{t("check_usage")}</small>
           </article>
-        </div>
+        </div>}
         <section id="devices">
-          <div className="section-head">
-            <div>
-              <p className="eyebrow">{t("owner_controls")}</p>
-              <h2>{t("your_devices")}</h2>
+          {friendView ? (
+            <div className="section-head">
+              <div>
+                <h2>{t("share_mac_h")}</h2>
+                <p className="muted">{t("share_mac_note")}</p>
+              </div>
             </div>
-            <span className="muted">{t("one_at_time")}</span>
-          </div>
-          {!devices.length && (
-            <p className="empty">{t("no_device")}</p>
+          ) : (
+            <>
+              <div className="section-head">
+                <div>
+                  <p className="eyebrow">{t("owner_controls")}</p>
+                  <h2>{t("your_devices")}</h2>
+                </div>
+                <span className="muted">{t("one_at_time")}</span>
+              </div>
+              {!devices.length && (
+                <p className="empty">{t("no_device")}</p>
+              )}
+            </>
           )}
           {devices.map((d) => {
             const u = usage.find((x) => x.connection_id === d.connection.id),
@@ -2135,7 +2149,7 @@ export default function Dashboard() {
             </form>
           </details>
         </section>
-        {metrics && (
+        {metrics && !friendView && (
           <section aria-label="Pilot observations">
             <p className="eyebrow">{t("measured")}</p>
             <h2>{t("pilot_obs")}</h2>
@@ -2209,7 +2223,7 @@ export default function Dashboard() {
             <p className="muted">{t("metrics_note")}</p>
           </section>
         )}
-        <section id="history">
+        {!friendView && <section id="history">
           <p className="eyebrow">{t("traceable")}</p>
           <h2>{t("audit_h")}</h2>
           {!audit.length ? (
@@ -2244,9 +2258,9 @@ export default function Dashboard() {
               </table>
             </div>
           )}
-        </section>
+        </section>}
         <footer>
-          {t("footer")} <span>{t("footer_note")}</span>
+          {t("footer")} {!friendView && <span>{t("footer_note")}</span>}
         </footer>
       </main>
     </div>

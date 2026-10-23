@@ -125,6 +125,7 @@ h3.sub{font-size:13px;margin:14px 0 6px}
   <button class="nav" type="button" data-view="settings"><span data-t="view_settings"></span></button>
   <div class="side-foot">
     <span id="device_title"></span>
+    <small id="app_version"></small>
     <button class="lang" id="lang" type="button"></button>
   </div>
 </aside>
@@ -391,7 +392,7 @@ zh: {
  inv_step_open:(l)=>`打开这个链接，勾选同意即可加入：${l}`,
  inv_step_browser:(l)=>`用浏览器打开这个链接（手机或电脑都可以，不用装任何软件），勾选同意即可加入：${l}`,
  inv_step_submit:"在网页里提交任务，结果做好后可以直接下载。", inv_tail:"这个链接只给你，请不要转发。",
- brand_console:"SpareAgent 控制台", view_overview:"概览", view_tasks:"任务", view_members:"成员", view_settings:"设置",
+ app_version:(v,b)=>`版本 ${v}（build ${b}）`, brand_console:"SpareAgent 控制台", view_overview:"概览", view_tasks:"任务", view_members:"成员", view_settings:"设置",
  col_task:"任务", col_member:"成员", col_elapsed:"已运行", col_progress:"进度", col_time:"时间", col_event:"事件",
  col_submitted:"提交时间", col_status:"状态", log_title:"日志", log_received:(k,m)=>`收到任务 ${k}（${m}）`,
  log_started:(k)=>`开始执行 ${k}`, log_joined:(m)=>`${m} 加入`, log_none:"还没有记录。",
@@ -517,7 +518,7 @@ en: {
  inv_step_open:(l)=>`Open this link and accept the terms to join: ${l}`,
  inv_step_browser:(l)=>`Open this link in a browser (phone or computer, nothing to install) and accept the terms to join: ${l}`,
  inv_step_submit:"Submit tasks on the web page and download the results when they are ready.", inv_tail:"This link is just for you; please don't forward it.",
- brand_console:"SpareAgent Console", view_overview:"Overview", view_tasks:"Tasks", view_members:"Members", view_settings:"Settings",
+ app_version:(v,b)=>`Version ${v} (build ${b})`, brand_console:"SpareAgent Console", view_overview:"Overview", view_tasks:"Tasks", view_members:"Members", view_settings:"Settings",
  col_task:"Task", col_member:"Member", col_elapsed:"Running", col_progress:"Progress", col_time:"Time", col_event:"Event",
  col_submitted:"Submitted", col_status:"Status", log_title:"Log", log_received:(k,m)=>`Received ${k} (${m})`,
  log_started:(k)=>`Started ${k}`, log_joined:(m)=>`${m} joined`, log_none:"Nothing yet.",
@@ -581,6 +582,7 @@ function render(){
   const ph=S.phase, srv=S.server, sharing=srv&&srv.sharing, busy=ph==="STARTING"||ph==="STOPPING";
   $("footer").textContent=t(S.desktop_app?"footer_app":"footer");
   $("device_title").textContent=S.device_label||"";
+  $("app_version").textContent=S.app_version?t("app_version",S.app_version,S.update&&S.update.current_build):"";
   const onboarding=!S.consented&&ph!=="ONLINE";
   show($("consent"),onboarding); show($("terms"),!onboarding);
   $("go").disabled=busy||!KEY;

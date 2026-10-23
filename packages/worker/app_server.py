@@ -123,6 +123,7 @@ class AppServer:
             **c.snapshot(),
             "desktop_protocol": 1,
             "desktop_app": os.environ.get("SPAREAGENT_NATIVE_APP") == "1",
+            "app_version": os.environ.get("SPAREAGENT_APP_VERSION") or None,
         }
 
     async def _desktop_pause(self, mode: str) -> None:

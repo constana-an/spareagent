@@ -342,6 +342,17 @@ def test_dns_rebinding_host_is_refused(server):
     )
 
 
+async def test_state_reports_the_app_version(tmp_path, monkeypatch):
+    c, _, _ = make_controller(tmp_path)
+    srv = AppServer(c, asyncio.get_running_loop())
+    try:
+        assert (await srv._call("state", {}))["app_version"] is None
+        monkeypatch.setenv("SPAREAGENT_APP_VERSION", "0.17.3")
+        assert (await srv._call("state", {}))["app_version"] == "0.17.3"
+    finally:
+        srv.httpd.server_close()
+
+
 async def test_desktop_pause_never_starts_an_offline_device(tmp_path):
     codex = FakeCodex()
     c, log, agent_runs = make_controller(tmp_path, codex)

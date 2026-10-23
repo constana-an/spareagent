@@ -660,6 +660,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
         var environment = ProcessInfo.processInfo.environment
         environment["SPAREAGENT_NATIVE_APP"] = "1"
         environment["SPAREAGENT_APP_BUILD"] = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+        environment["SPAREAGENT_APP_VERSION"] = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
         process.environment = environment
         process.currentDirectoryURL = resources
         let pipe = Pipe()
