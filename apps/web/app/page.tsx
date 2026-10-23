@@ -1811,8 +1811,7 @@ export default function Dashboard() {
                     d.last_heartbeat &&
                     Date.now() - Date.parse(d.last_heartbeat) < 30000,
                 )
-                .length.toString()
-                .padStart(2, "0")}
+                .length}
             </strong>
             <small>{t("stat_devices_sub")}</small>
           </article>
@@ -1820,9 +1819,7 @@ export default function Dashboard() {
             <span>{t("stat_tasks")}</span>
             <strong>
               {usage
-                .reduce((n, u) => n + u.tasks_started_last_24h, 0)
-                .toString()
-                .padStart(2, "0")}
+                .reduce((n, u) => n + u.tasks_started_last_24h, 0)}
             </strong>
             <small>{t("stat_tasks_sub")}</small>
           </article>
