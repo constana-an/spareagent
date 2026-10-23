@@ -865,7 +865,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
             updateAppPath = path
             defaults.set(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "",
                          forKey: "updatedFrom")
-            NSApp.terminate(nil)
+            // Quit from the run loop, not directly: this runs inside a main-queue block, and while
+            // AppKit waits for the shutdown reply (.terminateLater) the main queue stays
+            // blocked, so the reply and the worker's exit would never be handled.
+            NSApp.perform(#selector(NSApplication.terminate(_:)), with: nil, afterDelay: 0)
         } else if state == "failed" {
             updatePending = false
             defaults.removeObject(forKey: "resumeAfterUpdate")

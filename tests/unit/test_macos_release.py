@@ -120,7 +120,7 @@ def test_stapling_and_gatekeeper_follow_only_accepted_notarization(
 
 
 def test_app_version_comes_from_one_file(build, tmp_path):
-    assert build.app_version() == ("0.17.4", 24)
+    assert build.app_version() == ("0.17.5", 25)
     bad = tmp_path / "version.json"
     for data in (
         {"version": "0.16", "build": 18},
@@ -131,3 +131,13 @@ def test_app_version_comes_from_one_file(build, tmp_path):
         bad.write_text(json.dumps(data))
         with pytest.raises(ValueError):
             build.app_version(bad)
+
+
+def test_update_quits_from_the_run_loop_not_a_main_queue_block():
+    # showUpdate runs inside a DispatchQueue.main.async completion. Calling NSApp.terminate
+    # there blocks the main queue while AppKit waits for the shutdown reply, so the App hung
+    # on "正在暂停分享并退出…" during in-app updates.
+    source = (Path(__file__).resolve().parents[2] / "apps/macos/SpareAgent.swift").read_text()
+    body = source.split("func showUpdate(", 1)[1].split("\n    func ", 1)[0]
+    assert "NSApp.terminate(nil)" not in body
+    assert "#selector(NSApplication.terminate(_:)), with: nil, afterDelay: 0" in body
