@@ -140,13 +140,18 @@ async def owner(c, node, method, path, **kw) -> httpx.Response:
     )
 
 
-async def join(ctx, code, status=200) -> tuple[httpx.AsyncClient, dict]:
+async def join(ctx, code, status=200, *, nickname=None) -> tuple[httpx.AsyncClient, dict]:
     """A newcomer opens the invite link in their own browser."""
     transport = httpx.ASGITransport(app=create_app(ctx.settings, ctx))
     c = httpx.AsyncClient(transport=transport, base_url="http://localhost")
     resp = await c.post(
         "/v1/friends/join-code",
-        json={"code": code, "terms_version": TERMS, "acknowledgements": JOIN_ACKS},
+        json={
+            "code": code,
+            "terms_version": TERMS,
+            "acknowledgements": JOIN_ACKS,
+            **({"nickname": nickname} if nickname is not None else {}),
+        },
         headers=ORIGIN,
     )
     assert resp.status_code == status, resp.text
@@ -164,6 +169,43 @@ async def submit_as(browser, status, connection_id, mode="LIVE") -> dict:
 
 
 # ====================================================================== happy path
+async def test_nickname_reaches_owner_and_survives_rejoining(oc, octx):
+    node = await signup_device(oc)
+    status = await go_online(oc, node)
+    bob, me = await join(octx, status["invite_code"], nickname="  小李  ")
+    try:
+
+        async def nickname():
+            panel = await ok(await owner(oc, node, "GET", ""))
+            return next(m["nickname"] for m in panel["members"] if m["user_id"] == me["user_id"])
+
+        assert await nickname() == "小李"
+        body = {
+            "code": status["invite_code"],
+            "terms_version": TERMS,
+            "acknowledgements": JOIN_ACKS,
+        }
+        for invalid in (" ", "李" * 41, "小\x00李", "小\n李", 123):
+            response = await bob.post(
+                "/v1/friends/join-code", json={**body, "nickname": invalid}, headers=ORIGIN
+            )
+            assert response.status_code == 422
+        assert await nickname() == "小李"
+
+        await expire_sessions(octx, me["user_id"])
+        rejoined = await ok(await bob.post("/v1/friends/join-code", json=body, headers=ORIGIN))
+        assert rejoined["user_id"] == me["user_id"] and await nickname() == "小李"
+        await ok(
+            await bob.post(
+                "/v1/friends/join-code", json={**body, "nickname": "小李的新昵称"}, headers=ORIGIN
+            )
+        )
+        assert await nickname() == "小李的新昵称"
+        assert len(await members_of(oc, node)) == 2
+    finally:
+        await bob.aclose()
+
+
 async def test_one_click_online_invite_auto_approve_and_offline(oc, octx):
     node = await signup_device(oc)
     status = await go_online(oc, node)

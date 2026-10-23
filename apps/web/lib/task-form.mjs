@@ -3,6 +3,18 @@
 
 export const MAX_UPLOAD = 20 * 1024 * 1024;
 
+const FAILURE_ACTIONS = {
+  INPUT: "edit", TIMEOUT: "edit", WAIT_TIMEOUT: "owner", OUTPUT_LIMIT: "edit",
+  DEVICE_INTERRUPTED: "retry", CHECK_FAILED: "edit", AUTHORIZATION: "owner",
+  LOGIN: "owner", USAGE_LIMIT: "owner", REFUSED: "edit", OTHER: "retry",
+};
+
+export function failureGuidance(task) {
+  const category = task.failure?.category || (task.status === "TIMED_OUT" ? "TIMEOUT" : "OTHER");
+  const known = Object.hasOwn(FAILURE_ACTIONS, category) ? category : "OTHER";
+  return { category: known, action: FAILURE_ACTIONS[known] };
+}
+
 // Files picked, dropped or pasted all pass through here, so the kind's type list,
 // the 20 MB cap and the attachment count apply the same way. The same file added
 // twice is kept once.

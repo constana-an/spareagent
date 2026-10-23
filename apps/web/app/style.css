@@ -302,6 +302,14 @@ section {
   color: #8b433a;
   border-color: #e0c7bf;
 }
+.failure-guidance {
+  padding: 16px;
+  margin-bottom: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.failure-guidance strong { color: var(--bad); }
+.failure-guidance details { margin-top: 12px; overflow-wrap: anywhere; }
 .actions {
   display: flex;
   gap: 8px;
@@ -478,21 +486,22 @@ footer {
 }
 .login {
   max-width: 550px;
-  margin: 8vh auto;
+  margin: 2vh auto;
+  padding: 24px 42px;
 }
 .login .mark {
-  margin-bottom: 35px;
+  margin-bottom: 18px;
 }
 .login h1 {
   font-family: Georgia, serif;
-  font-size: 40px;
-  margin-bottom: 24px;
+  font-size: 32px;
+  margin-bottom: 16px;
 }
 .login > p {
   color: var(--muted);
 }
 .login form {
-  margin: 30px 0;
+  margin: 16px 0;
 }
 .login form button {
   width: 100%;

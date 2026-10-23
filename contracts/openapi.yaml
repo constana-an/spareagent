@@ -1521,7 +1521,8 @@ paths:
         required: true
         content:
           application/json:
-            schema: {type: object, additionalProperties: true}
+            schema:
+              $ref: '#/components/schemas/JoinWithInviteCode'
       responses:
         '200':
           description: Joined and signed in
@@ -1902,6 +1903,7 @@ components:
       type: object
       properties:
         access_paused: {type: boolean, default: false}
+        nickname: {type: ['string', 'null'], maxLength: 40}
         user_id:
           type: string
           format: uuid
@@ -2840,6 +2842,7 @@ components:
               joined_at: {type: ['string', 'null'], format: date-time}
               is_owner: {type: boolean}
               access_paused: {type: boolean, default: false}
+              nickname: {type: ['string', 'null'], maxLength: 40}
               tasks_last_24h: {type: integer}
               minutes_last_24h: {type: number}
               max_tasks_per_day: {type: ['integer', 'null']}
@@ -2882,6 +2885,15 @@ components:
         dashboard_url: {type: string}
         public_dashboard: {type: boolean, description: Members can open the dashboard without Tailscale (D-102)}
         invite_code: {type: ['string', 'null'], description: Returned only when a new code was just issued}
+    JoinWithInviteCode:
+      type: object
+      additionalProperties: false
+      required: [code, terms_version, acknowledgements]
+      properties:
+        code: {type: string, minLength: 12, maxLength: 32}
+        nickname: {type: ['string', 'null'], minLength: 1, maxLength: 40, pattern: '^[^\x00-\x1f\x7f]+$', description: 'Member-provided nickname, trimmed; omission preserves an existing name.'}
+        terms_version: {type: string}
+        acknowledgements: {type: object, additionalProperties: {type: boolean}}
     FriendsIdentity:
       properties:
         user_id:

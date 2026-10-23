@@ -198,7 +198,7 @@ func quotaFallback(_ state: [String: Any]) -> (text: String, tone: Tone)? {
     switch quota["level"] as? String {
     case "exhausted": return ("额度：已用完，恢复后再接任务", .bad)
     case "low": return ("额度：快用完了", .warn)
-    default: return ("额度：正常（暂时读不到具体百分比）", .good)
+    default: return ("额度：未知，暂时无法读取；请查看 ChatGPT 用量页面", .idle)
     }
 }
 
@@ -363,7 +363,11 @@ final class StatusCard: NSView {
             add(bar, fullWidth: true, gap: 8)
         }
         if let fallback = quotaFallback(state) {
-            add(text(fallback.text, color: fallback.tone == .good ? .secondaryLabelColor : fallback.tone.color), gap: 10)
+            add(text(fallback.text, color: fallback.tone == .idle ? .secondaryLabelColor : fallback.tone.color), gap: 10)
+        }
+        if let quota = state["quota"] as? [String: Any], let checked = quota["checked_at"] as? Double {
+            let date = Date(timeIntervalSince1970: checked).formatted(date: .numeric, time: .shortened)
+            add(text("上次读取：\(date)", color: .secondaryLabelColor), gap: 6)
         }
         let lines = activityLines(state)
         if !lines.isEmpty {
@@ -1132,7 +1136,8 @@ if CommandLine.arguments.contains("--self-test") {
     precondition([quotaTone(83), quotaTone(29), quotaTone(9)] == [.good, .warn, .bad])
     precondition(quotaFallback(withQuota) == nil && quotaFallback(online) == nil)
     precondition(quotaFallback(["quota": ["level": "exhausted", "windows": []]])!.text == "额度：已用完，恢复后再接任务")
-    precondition(quotaFallback(["quota": ["level": "ok", "windows": []]])!.tone == .good)
+    precondition(quotaFallback(["quota": ["level": "unknown", "windows": []]])!.tone == .idle)
+    precondition(quotaFallback(["quota": ["level": "ok", "windows": []]])!.text.hasPrefix("额度：未知"))
     precondition(cardHeadline(online).title == "在线，正在分享" && cardHeadline([:]).title == "准备中")
     precondition(cardHeadline(["phase": "OFFLINE"]).note == "还没有完成设置")
     precondition(cardHeadline(["launch_failed": "x"]).tone == .bad)

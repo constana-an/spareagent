@@ -623,6 +623,7 @@ class SelfServeSharingService:
             "members": [
                 {
                     "user_id": m.user_id,
+                    "nickname": m.nickname,
                     "status": m.status,
                     "access_paused": m.access_paused,
                     "joined_at": m.joined_at,
@@ -699,6 +700,8 @@ class SelfServeSharingService:
         code: str,
         acknowledgements: dict[str, bool],
         terms_version: str,
+        *,
+        nickname: str | None = None,
     ) -> tuple[uuid.UUID, str, uuid.UUID]:
         """Join a self-serve group with its invite code. Without a dashboard session a new
         participant account is created. Returns (user_id, role, group_id)."""
@@ -722,6 +725,8 @@ class SelfServeSharingService:
             if principal is not None:
                 member = await self.participation._membership(session, group.id, principal.user_id)
                 if member is not None and member.status == "ACTIVE":
+                    if nickname is not None:
+                        member.nickname = nickname
                     return principal.user_id, principal.role, group.id
             if await self._member_count(session, group.id) >= group.max_members:
                 raise conflict("GROUP_FULL", f"Group is limited to {group.max_members} members")
@@ -738,6 +743,8 @@ class SelfServeSharingService:
                 session.add(member)
             member.status, member.removed_at = "ACTIVE", None
             member.access_paused = False
+            if nickname is not None:
+                member.nickname = nickname
             member.joined_at, member.terms_version = now, terms_version
             member.acknowledgements = {k: True for k in JOIN_ACKNOWLEDGEMENTS}
             _audit(session, principal.user_id, "self_serve.join", "group", group.id)

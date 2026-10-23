@@ -8,6 +8,7 @@ import { limitsUpdate } from "../lib/preferences.mjs";
 import {
   draftFrom,
   EXAMPLES,
+  failureGuidance,
   MAX_UPLOAD,
   mergeAttachments,
   newlyFinished,
@@ -330,9 +331,10 @@ export default function Dashboard() {
     setLang(next);
     saveLang(next);
   };
-  const [loginTab, setLoginTab] = useState<"signin" | "join">("signin"),
+  const [loginTab, setLoginTab] = useState<"signin" | "join">("join"),
     [returning, setReturning] = useState(false),
     [joinCode, setJoinCode] = useState(""),
+    [joinNickname, setJoinNickname] = useState(""),
     [joinAcksLogin, setJoinAcksLogin] = useState<Record<string, boolean>>({});
   const [me, setMe] = useState<Me | null>(null),
     [loading, setLoading] = useState(true),
@@ -357,6 +359,7 @@ export default function Dashboard() {
     [query, setQuery] = useState(""),
     [tab, setTab] = useState<"result" | "log">("result");
   const [connectionChoice, setConnectionChoice] = useState("");
+  const [executionChoice, setExecutionChoice] = useState<"LIVE" | "SIMULATED" | null>(null);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [kinds, setKinds] = useState<TaskKind[]>([]),
     [files, setFiles] = useState<File[]>([]);
@@ -367,6 +370,12 @@ export default function Dashboard() {
     [formKey, setFormKey] = useState(0),
     [dragging, setDragging] = useState(false),
     [attachError, setAttachError] = useState("");
+  useEffect(() => {
+    if (!composing) return;
+    const form = document.getElementById("submit");
+    form?.scrollIntoView({ block: "start" });
+    form?.querySelector<HTMLTextAreaElement>('textarea[name="prompt"]')?.focus({ preventScroll: true });
+  }, [composing, formKey]);
   const [alertPerm, setAlertPerm] = useState<NotificationPermission | "unsupported">(
       "unsupported",
     ),
@@ -429,6 +438,8 @@ export default function Dashboard() {
     if (join) {
       setJoinCode(join);
       setLoginTab("join");
+    } else if (login) {
+      setLoginTab("signin");
     } else if (!login) {
       // A member whose session ran out rejoins with the invite code, not an operator code.
       try {
@@ -664,7 +675,7 @@ export default function Dashboard() {
     if (x.status === "RETRY_PENDING") return t("st_retrying");
     if (x.status === "VERIFYING") return t("st_verifying");
     if (x.failure && ["FAILED", "TIMED_OUT"].includes(x.status))
-      return `${t(`fail.${x.failure.category || "OTHER"}` as never)}${x.failure.code ? ` (${x.failure.code})` : ""}`;
+      return t(`fail.${failureGuidance(x).category}` as never);
     if (x.status === "SUCCEEDED")
       return x.verification_status === "PASSED"
         ? t("st_verified")
@@ -707,6 +718,7 @@ export default function Dashboard() {
   const resubmit = (x: Task) => {
     const d = draftFrom(x);
     setConnectionChoice("");
+    setExecutionChoice(null);
     setFiles([]);
     setAttachError("");
     setPrompt([d.prompt, d.repo ? `Repository: ${d.repo} @ ${d.sha}` : "",
@@ -720,7 +732,6 @@ export default function Dashboard() {
         ? t("resubmit_files", { names: d.attachments.join("、") })
         : t("resubmit_ready"),
     );
-    document.getElementById("submit")?.scrollIntoView();
   };
   const when = (iso: string) =>
     new Date(iso).toLocaleString(lang === "zh" ? "zh-CN" : "en", {
@@ -767,20 +778,20 @@ export default function Dashboard() {
           <button
             type="button"
             role="tab"
-            aria-selected={loginTab === "signin"}
-            className={loginTab === "signin" ? "" : "quiet"}
-            onClick={() => setLoginTab("signin")}
-          >
-            {t("tab_signin")}
-          </button>
-          <button
-            type="button"
-            role="tab"
             aria-selected={loginTab === "join"}
             className={loginTab === "join" ? "" : "quiet"}
             onClick={() => setLoginTab("join")}
           >
             {t("tab_join")}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={loginTab === "signin"}
+            className={loginTab === "signin" ? "" : "quiet"}
+            onClick={() => setLoginTab("signin")}
+          >
+            {t("tab_signin")}
           </button>
         </div>
         {loginTab === "signin" ? (
@@ -826,6 +837,7 @@ export default function Dashboard() {
                   setMe(
                     await api<Me>("friends/join-code", "POST", {
                       code: joinCode.trim(),
+                      nickname: joinNickname || undefined,
                       terms_version: TERMS_VERSION,
                       acknowledgements: joinAcksLogin,
                     }),
@@ -848,6 +860,19 @@ export default function Dashboard() {
                   placeholder="ABCD-EFGH-JKLM"
                 />
               </label>
+              <label>
+                {t("member_nickname")}
+                <input
+                  name="nickname"
+                  value={joinNickname}
+                  onChange={(e) => setJoinNickname(e.target.value)}
+                  autoComplete="nickname"
+                  required={!returning}
+                  maxLength={40}
+                  aria-describedby="nickname-hint"
+                />
+              </label>
+              <small id="nickname-hint">{t(returning ? "nickname_return_hint" : "nickname_hint")}</small>
               <Checks
                 names={joinAcks}
                 values={joinAcksLogin}
@@ -951,7 +976,7 @@ export default function Dashboard() {
               type="button"
               className={composing ? "quiet" : ""}
               aria-expanded={composing}
-              onClick={() => { setConnectionChoice(""); setComposing(!composing); }}
+              onClick={() => { setConnectionChoice(""); setExecutionChoice(null); setComposing(!composing); }}
             >
               {composing ? t("close_compose") : `＋ ${t("new_task")}`}
             </button>
@@ -984,10 +1009,11 @@ export default function Dashboard() {
             const kind = kinds.find((k) => k.kind === "GENERAL") || null;
             const d = draft && draft.kind === kind?.kind ? draft : null;
             const liveAllowed =
-              !!group?.authorization?.live_execution_enabled && !!kind?.live_available;
+              me.live_enabled && !!group?.authorization?.live_execution_enabled && !!kind?.live_available;
             // Members get real results by default; trial runs stay under "advanced".
-            const mode = d?.mode
-              ? d.mode === "LIVE" && liveAllowed
+            const requestedMode = executionChoice || d?.mode;
+            const mode = requestedMode
+              ? requestedMode === "LIVE" && liveAllowed
                 ? "LIVE"
                 : "SIMULATED"
               : liveAllowed
@@ -1248,8 +1274,7 @@ export default function Dashboard() {
                       </label>
                       <label>
                         {t("execution")}
-                        {/* Keyed: the default changes once the group and kinds have loaded. */}
-                        <select key={mode} name="mode" defaultValue={mode}>
+                        <select name="mode" value={mode} onChange={(e) => setExecutionChoice(e.target.value as "LIVE" | "SIMULATED")}>
                           <option value="LIVE" disabled={!liveAllowed}>
                             {t("live_option")}
                           </option>
@@ -1258,7 +1283,7 @@ export default function Dashboard() {
                       </label>
                     </div>
                   </details>
-                  {!liveAllowed && kind && <p className="notice">{t("trial_note")}</p>}
+                  {kind && <p className="notice" role="status">{t(mode === "LIVE" ? "live_note" : liveAllowed ? "trial_selected_note" : "trial_note")}</p>}
                   {submitHint && <p id="submit-hint" className="notice" role="status">{submitHint}</p>}
                   <div className="submit-bar">
                     <button
@@ -1272,7 +1297,7 @@ export default function Dashboard() {
                         !others.length
                       }
                     >
-                      {t("submit_task")}
+                      {t(mode === "LIVE" ? "submit_live" : "submit_trial")}
                     </button>
                     {target && (
                       <small>
@@ -1370,6 +1395,7 @@ export default function Dashboard() {
               files = artifacts.filter((a) => a.kind === "DELIVERABLE"),
               extras = artifacts.filter((a) => a.kind !== "DELIVERABLE"),
               failed = ["FAILED", "TIMED_OUT"].includes(selected.status),
+              failure = failureGuidance(selected),
               request = selected.requirement || selected.prompt,
               finished = [...events]
                 .reverse()
@@ -1499,9 +1525,25 @@ export default function Dashboard() {
                         </div>
                       )}
                       {failed && (
-                        <p className="line bad">
-                          {t(`fail_hint.${selected.failure?.category || "OTHER"}` as never)}
-                        </p>
+                        <div className="failure-guidance" role="status">
+                          <strong>{t("task_not_completed")} · {t(`fail.${failure.category}` as never)}</strong>
+                          <p>{t(`fail_hint.${failure.category}` as never)}</p>
+                          <div className="actions">
+                            {failure.action !== "owner" && tasks.some((x) => x.id === selected.id) && (
+                              <button onClick={() => resubmit(selected)}>
+                                {t(failure.action === "edit" ? "edit_before_retry" : "prepare_retry")}
+                              </button>
+                            )}
+                            <button className="quiet" onClick={() => setTab("log")}>{t("view_log")}</button>
+                          </div>
+                          {(selected.failure?.code || selected.result_summary) && (
+                            <details>
+                              <summary>{t("technical_details")}</summary>
+                              {selected.failure?.code && <p>{selected.failure.code}</p>}
+                              {selected.result_summary && <p className="request-text">{selected.result_summary}</p>}
+                            </details>
+                          )}
+                        </div>
                       )}
                       {selected.status === "SUCCEEDED" && (
                         <p className={`line ${selected.verification_status === "PASSED" ? "ok" : "warn"}`}>
@@ -1559,7 +1601,7 @@ export default function Dashboard() {
                           </table>
                         </>
                       )}
-                      {!files.length && terminal.has(selected.status) && selected.result_summary && (
+                      {!failed && !files.length && terminal.has(selected.status) && selected.result_summary && (
                         <p className="request-text">{selected.result_summary}</p>
                       )}
                       {!files.length && !running && !terminal.has(selected.status) && (
