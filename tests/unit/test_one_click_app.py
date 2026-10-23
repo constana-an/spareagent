@@ -277,6 +277,25 @@ async def test_cancel_aborts_a_slow_start(tmp_path):
 
 
 # ------------------------------------------------------------------ local server
+async def test_member_notes_persist_locally_and_reject_unknown_members(tmp_path):
+    c, log, _ = make_controller(tmp_path)
+    c.snap.server = {"members": [{"user_id": "member-a", "is_owner": False}]}
+    server = AppServer(c, asyncio.get_running_loop())
+    try:
+        state = await server._call("member-note", {"user_id": "member-a", "note": "  小明  "})
+        assert state["member_notes"] == {"member-a": "小明"}
+        restarted, _, _ = make_controller(tmp_path)
+        assert restarted.snapshot()["member_notes"] == {"member-a": "小明"}
+        assert log == []  # Names never leave the owner's device.
+        for user, note in [("unknown", "小红"), ("member-a", "a" * 41), ("member-a", 42)]:
+            with pytest.raises(AppError, match="invalid_input"):
+                c.set_member_note(user, note)
+        c.set_member_note("member-a", "")
+        assert c.snapshot()["member_notes"] == {}
+    finally:
+        server.httpd.server_close()
+
+
 @pytest.fixture
 def server(tmp_path):
     loop = asyncio.new_event_loop()

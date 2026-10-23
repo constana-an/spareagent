@@ -120,7 +120,7 @@ def test_stapling_and_gatekeeper_follow_only_accepted_notarization(
 
 
 def test_app_version_comes_from_one_file(build, tmp_path):
-    assert build.app_version() == ("0.17.0", 19)
+    assert build.app_version() == ("0.17.1", 20)
     bad = tmp_path / "version.json"
     for data in (
         {"version": "0.16", "build": 18},

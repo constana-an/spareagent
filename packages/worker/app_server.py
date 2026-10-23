@@ -98,6 +98,8 @@ class AppServer:
             await c.update_settings(body)
         elif route == "invite":
             await c.rotate_invite()
+        elif route == "member-note":
+            c.set_member_note(str(body.get("user_id", "")), body.get("note", ""))
         elif route == "member-limits":
             await c.set_member_limits(
                 str(body.get("user_id", "")),

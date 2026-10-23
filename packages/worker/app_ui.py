@@ -67,6 +67,7 @@ th{text-align:left;font-weight:500;font-size:12px;color:var(--muted);background:
 td{padding:9px 16px;border-bottom:1px solid var(--line);vertical-align:middle}
 tbody tr:last-child td{border-bottom:0}
 td.empty{color:var(--muted)}
+.task-summary{display:block;max-width:440px;overflow-wrap:anywhere}.member-id{display:block;font-size:11px}
 .nowrap{white-space:nowrap}
 .prog{display:flex;align-items:center;gap:8px}.prog .bar{flex:1;min-width:60px;margin:0}
 .st{font-weight:600}.st.ok{color:var(--ok)}.st.run{color:var(--accent)}.st.wait{color:var(--warn)}.st.bad{color:var(--err)}.st.idle{color:var(--muted)}
@@ -380,7 +381,9 @@ zh: {
  quota_fb_ok:"正常（暂时读不到具体百分比）", quota_fb_low:"快用完了", quota_fb_exhausted:"已用完，恢复后再接任务",
  now_title:"现在", now_idle:"空闲", now_running:(n)=>`运行 ${n}`, now_sub:(q,n,m)=>`排队 ${q} · 24 小时内 ${n} 个任务 · ${m} 分钟`,
  members_count:(n,m)=>`${n} / ${m}`, owner_name:"你（主人）", member_name:(id)=>`成员 ${id}`, m_used_short:(n,m)=>`${n} 个 · ${m} 分钟`,
- m_capped:"已单独限额", limits_btn:"限额",
+ m_capped:"已单独限额", limits_btn:"备注与限额", member_note:"备注名（最多 40 字）", save_note:"保存备注",
+ member_note_hint:"备注只保存在这台 Mac，留空可清除。", tool_ready:"已允许 · 可用", tool_pending:"已允许 · 待安装", tool_blocked:"未允许使用",
+ data_readiness:"数据处理工具", view_tools:"查看本机工具",
  invite_sub_public:"朋友用浏览器打开链接、勾选同意就能加入。", invite_sub_tailscale:"朋友先登录 Tailscale，再打开链接、勾选同意加入。",
  show_link:"显示链接", tasks_none:"还没有任务。",
  settings_title:"分享设置", anytime:"随时可改", preset_save:"省着用", preset_standard:"标准", preset_open:"放开用", preset_custom:"自定义",
@@ -501,7 +504,9 @@ en: {
  quota_fb_ok:"OK (exact percentages unavailable)", quota_fb_low:"Running low", quota_fb_exhausted:"Used up; tasks resume after it resets",
  now_title:"Now", now_idle:"Idle", now_running:(n)=>`${n} running`, now_sub:(q,n,m)=>`${q} queued · ${n} tasks, ${m} min in 24 h`,
  members_count:(n,m)=>`${n} / ${m}`, owner_name:"You (owner)", member_name:(id)=>`Member ${id}`, m_used_short:(n,m)=>`${n} tasks · ${m} min`,
- m_capped:"own cap", limits_btn:"Limits",
+ m_capped:"own cap", limits_btn:"Name & limits", member_note:"Name on this Mac (up to 40 characters)", save_note:"Save name",
+ member_note_hint:"Names stay on this Mac. Leave empty to clear.", tool_ready:"Allowed · ready", tool_pending:"Allowed · installation needed", tool_blocked:"Not allowed",
+ data_readiness:"Data tools", view_tools:"View device tools",
  invite_sub_public:"Friends open the link in a browser and accept the terms to join.", invite_sub_tailscale:"Friends sign in to Tailscale, then open the link and accept the terms.",
  show_link:"Show link", tasks_none:"No tasks yet.",
  settings_title:"Sharing settings", anytime:"Change any time", preset_save:"Light", preset_standard:"Standard", preset_open:"Generous", preset_custom:"Custom",
@@ -668,7 +673,12 @@ function renderMetrics(srv){
 }
 function memberName(srv,id){
   const m=(srv.members||[]).find(m=>m.user_id===id);
-  return m&&m.is_owner?t("you"):t("member_name",String(id||"").slice(0,8));
+  return m&&m.is_owner?t("you"):(S.member_notes||{})[id]||t("member_name",String(id||"").slice(0,8));
+}
+function taskSummary(x){
+  const text=String(x.requirement||x.prompt||"").trim().split(/\n/)[0];
+  const chars=Array.from(text);
+  return chars.length>56?chars.slice(0,55).join("")+"…":text||kindLabel(x);
 }
 function renderRunning(srv){
   const body=$("running_rows"); body.innerHTML="";
@@ -680,7 +690,7 @@ function renderRunning(srv){
     const p=x.progress&&x.progress.percent, prog=el("span","prog");
     if(p!=null){const bar=el("span","bar"),fill=el("i");fill.style.width=p+"%";bar.append(fill);prog.append(bar,el("small",null,p+"%"))}
     else prog.append(el("small",null,label("s_",x.status)));
-    body.append(cells(el("tr"),kindLabel(x),memberName(srv,x.requester_id),el_,prog))});
+    body.append(cells(el("tr"),taskSummary(x),memberName(srv,x.requester_id),el_,prog))});
 }
 function renderLog(srv){
   // What the server reports: tasks received and started, and members joining. Newest first.
@@ -720,11 +730,13 @@ function renderSwitches(srv){
   (srv.kinds||[]).filter(x=>x.offered&&x.status!=="DISABLED").forEach(x=>{
     const need=x.required_tools.filter(r=>r!=="code"&&r!=="doc");
     const missing=need.filter(r=>!hasTool(srv,r));
-    const sub=missing.length?t("needs")+missing.map(r=>t("tool_"+r).split("（")[0].split(" (")[0]).join("、")+t("missing_tool"):"";
+    const sub=t(!allowed.has(x.kind)||need.some(r=>!tools.includes(r))?"tool_blocked":missing.length?"tool_pending":"tool_ready")+" · "+(missing.length?t("needs")+missing.map(r=>t("tool_"+r).split("（")[0].split(" (")[0]).join("、")+t("missing_tool"):"");
     k.append(switchRow(lang==="zh"?x.name_zh:x.name_en,sub,allowed.has(x.kind),v=>{
       const next=offeredKinds(srv).filter(n=>n===x.kind?v:allowed.has(n));
       if(!next.length){localErr={code:"invalid_input",detail:t("r_kinds")};render();return}
-      act("settings",sharingBody(srv,{allowed_task_types:next}))}))});
+      act("settings",sharingBody(srv,{allowed_task_types:next}))}));
+    if(missing.includes("python-data")){const b=el("button","s",t("view_tools"));b.type="button";b.onclick=()=>showView("settings");k.append(b)}
+  });
 }
 const PRESETS={save:{tasks:3,minutes:10,concurrency:1,network:false},standard:{tasks:5,minutes:10,concurrency:1,network:true},
   open:{tasks:10,minutes:30,concurrency:2,network:true}};
@@ -756,10 +768,11 @@ async function applyPreset(n){
 let openEditor=null;
 function renderMembers(srv){
   const g=srv.group, body=$("member_rows");
-  if(body.contains(document.activeElement))return;  // the owner is typing a member's limit
+  if(body.contains(document.activeElement)&&document.activeElement.matches("input,textarea,select"))return;
   body.innerHTML="";
   srv.members.forEach(m=>{
-    const name=el("span");name.append(el("span","av",m.is_owner?t("you"):m.user_id.slice(0,2)),m.is_owner?t("owner_name"):t("member_name",m.user_id.slice(0,8)));
+    const name=el("span");name.append(el("span","av",m.is_owner?t("you"):Array.from(memberName(srv,m.user_id)).slice(0,2).join("")),m.is_owner?t("owner_name"):memberName(srv,m.user_id));
+    if(!m.is_owner)name.append(el("small","member-id",m.user_id.slice(0,8)));
     const tr=el("tr");
     if(m.is_owner){body.append(cells(tr,name,fmt(m.joined_at),"—",""));return}
     const used=el("span",null,t("m_used_short",m.tasks_last_24h||0,m.minutes_last_24h||0));
@@ -771,6 +784,11 @@ function renderMembers(srv){
     body.append(cells(tr,name,fmt(m.joined_at),used,btn));
     if(openEditor!==m.user_id)return;
     const ed=el("tr","editor"), td=el("td"), row=el("div","row");td.colSpan=4;
+    const noteRow=el("div","row"), noteLabel=el("label",null,t("member_note")), note=el("input");
+    note.type="text";note.maxLength=40;note.value=(S.member_notes||{})[m.user_id]||"";noteLabel.append(note);
+    const noteSave=el("button","s",t("save_note"));noteSave.type="button";
+    noteSave.onclick=()=>{note.blur();act("member-note",{user_id:m.user_id,note:note.value})};
+    noteRow.append(noteLabel,noteSave);td.append(noteRow,el("small",null,t("member_note_hint")));
     const field=(key,max,label)=>{const l=el("label",null,label);const i=el("input");i.type="number";i.min="1";i.max=String(max);
       i.placeholder=t("m_no_cap");i.value=m[key]??"";l.append(i);row.append(l);return i};
     const ti=field("max_tasks_per_day",50,t("m_task_cap")), mi=field("max_minutes_per_day",1440,t("m_min_cap"));
@@ -799,7 +817,8 @@ function renderTasks(srv){
   const tasks=srv.tasks||[];
   if(!tasks.length){emptyRow(body,4,t("tasks_none"));return}
   tasks.forEach(x=>{
-    const [cls,text]=taskChip(x), name=el("span",null,kindLabel(x));
+    const [cls,text]=taskChip(x), name=el("span","task-summary",taskSummary(x));
+    name.append(el("small","member-id",kindLabel(x)));
     if(x.execution_mode==="SIMULATED")name.append(el("small",null," · "+t("m_SIMULATED")));
     body.append(cells(el("tr"),name,memberName(srv,x.requester_id),fmt(x.created_at),el("span","st "+cls,text)))});
 }
@@ -831,7 +850,8 @@ function renderKinds(srv){
     c.type="checkbox"; c.dataset.kind=k.kind; c.checked=allowed.has(k.kind);
     c.addEventListener("change",()=>settingsEditing=true);
     const name=document.createElement("span"); name.textContent=lang==="zh"?k.name_zh:k.name_en;
-    const st=document.createElement("small"); st.textContent=t("ks_"+k.status);
+    const st=document.createElement("small");
+    st.textContent=t(!allowed.has(k.kind)||k.required_tools.some(x=>!((srv.sharing&&srv.sharing.allowed_tools)||TOOL_ORDER).includes(x))?"tool_blocked":k.required_tools.some(x=>!hasTool(srv,x))?"tool_pending":"tool_ready");
     const need=k.required_tools.filter(x=>x!=="code"&&x!=="doc");
     l.append(c,name,st);
     if(need.length){const n=document.createElement("small");
@@ -845,7 +865,8 @@ function renderTools(srv){
     const l=document.createElement("label"); const c=document.createElement("input");
     c.type="checkbox"; c.dataset.tool=tool; c.checked=allowed.has(tool); c.title=t("allow");
     c.addEventListener("change",()=>{settingsEditing=true;
-      if(tool==="network"&&c.checked&&!confirm(t("network_confirm")))c.checked=false});
+      if(tool==="network"&&c.checked&&!confirm(t("network_confirm")))c.checked=false;
+      renderToolStates()});
     const name=document.createElement("span"); name.textContent=t("tool_"+tool);
     const st=document.createElement("small"); st.id="tool_state_"+tool;
     l.append(c,name,st);
@@ -861,7 +882,8 @@ function renderToolStates(){
   if(!st||!b)return;
   const label={READY:t("installed"),MISSING:t("not_installed"),INSTALLING:t("installing")+" "+(d.detail||""),
     FAILED:t("install_failed")+(d.detail||""),UNAVAILABLE:t("not_installed")}[d.state]||d.state;
-  st.textContent=label;
+  const allowed=document.querySelector('input[data-tool="python-data"]')?.checked;
+  st.textContent=t(!allowed?"tool_blocked":d.state==="READY"?"tool_ready":"tool_pending")+" · "+label;
   b.classList.toggle("hidden",d.state==="UNAVAILABLE"||d.state==="INSTALLING");
   b.textContent=d.state==="READY"?t("remove_btn"):t("install_btn",d.size_mb||40);
   b.onclick=()=>act(d.state==="READY"?"remove-tool":"install-tool",{tool:"python-data"});

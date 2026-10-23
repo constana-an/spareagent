@@ -1,4 +1,6 @@
 "use client";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { ClipboardEvent, DragEvent, FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { initialLang, Lang, saveLang, Translate, translator } from "./i18n";
 import { FileIcon, TaskIcon } from "./icons";
@@ -174,7 +176,7 @@ type Metrics = {
 type TimelineEvent = {
   seq: number;
   type: string;
-  created_at?: string;
+  timestamp?: string;
   payload: { status?: string; message?: string };
 };
 // Fixed device progress lines in Chinese; Codex's own free-text updates are summarised.
@@ -301,6 +303,14 @@ function Checks({
     </div>
   );
 }
+function Answer({ text, copyLabel, onCopy }: { text: string; copyLabel: string; onCopy: () => void }) {
+  return <article className="chat-message assistant-message">
+    <div className="answer-heading"><small>SpareAgent</small>
+      <button className="quiet" onClick={onCopy}>{copyLabel}</button>
+    </div>
+    <div className="markdown-answer"><Markdown remarkPlugins={[remarkGfm]} skipHtml>{text}</Markdown></div>
+  </article>;
+}
 export default function Dashboard() {
   const [lang, setLang] = useState<Lang>("zh");
   useEffect(() => setLang(initialLang()), []);
@@ -345,6 +355,7 @@ export default function Dashboard() {
     [composing, setComposing] = useState(false),
     [query, setQuery] = useState(""),
     [tab, setTab] = useState<"result" | "log">("result");
+  const [connectionChoice, setConnectionChoice] = useState("");
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [kinds, setKinds] = useState<TaskKind[]>([]),
     [kindSel, setKindSel] = useState(""),
@@ -588,7 +599,7 @@ export default function Dashboard() {
             urls.push(URL.createObjectURL(blob));
             out[a.id].url = urls[urls.length - 1];
           } else if (previewKind(a.name) === "text")
-            out[a.id].text = Array.from(await blob.text()).slice(0, 600).join("");
+            out[a.id].text = await blob.text();
         } catch {}
       }
       if (gone) urls.forEach((u) => URL.revokeObjectURL(u));
@@ -601,8 +612,11 @@ export default function Dashboard() {
   }, [selected?.id, previewIds]);
   useEffect(() => {
     setTab("result");
-    if (selected)
-      document.getElementById("result")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (selected) {
+      const detail = document.getElementById("result");
+      detail?.scrollIntoView({ behavior: "smooth", block: "start" });
+      detail?.focus({ preventScroll: true });
+    }
   }, [selected?.id]);
   async function download(a: Artifact) {
     const r = await fetch(
@@ -692,6 +706,7 @@ export default function Dashboard() {
   };
   const resubmit = (x: Task) => {
     const d = draftFrom(x);
+    setConnectionChoice("");
     setKindSel(d.kind);
     setFiles([]);
     setAttachError("");
@@ -932,7 +947,7 @@ export default function Dashboard() {
               type="button"
               className={composing ? "quiet" : ""}
               aria-expanded={composing}
-              onClick={() => setComposing(!composing)}
+              onClick={() => { setConnectionChoice(""); setComposing(!composing); }}
             >
               {composing ? t("close_compose") : `＋ ${t("new_task")}`}
             </button>
@@ -987,9 +1002,12 @@ export default function Dashboard() {
             const takesFiles = !!kind?.max_attachments;
             const others = nodes.filter((n) => n.owner_id !== me.user_id);
             const target =
-              others.find((n) => n.connection_id === d?.connection) ||
+              others.find((n) => n.connection_id === (connectionChoice || d?.connection)) ||
               others.find((n) => n.online) ||
               others[0];
+            const submitHint = !active ? t("submit_join_first")
+              : !others.length ? t(nodes.some((n) => n.owner_id === me.user_id) ? "submit_owner_only" : "submit_no_devices")
+              : !target?.online ? t("submit_device_offline") : "";
             const cap = target?.my_max_tasks_per_day ?? target?.device_max_tasks_per_day;
             const codeKinds = kinds.filter((k) => k.needs_repository);
             const cards: (TaskKind | null)[] = [
@@ -1270,10 +1288,10 @@ export default function Dashboard() {
                     <label>
                       {t("owner_device")}
                       <select
-                        key={target?.connection_id}
                         name="connection"
                         required
-                        defaultValue={target?.connection_id}
+                        value={target?.connection_id || ""}
+                        onChange={(e) => setConnectionChoice(e.target.value)}
                       >
                         {others.map((n) => (
                           <option key={n.connection_id} value={n.connection_id}>
@@ -1323,8 +1341,10 @@ export default function Dashboard() {
                     </div>
                   </details>
                   {!liveAllowed && kind && <p className="notice">{t("trial_note")}</p>}
+                  {submitHint && <p id="submit-hint" className="notice" role="status">{submitHint}</p>}
                   <div className="submit-bar">
                     <button
+                      aria-describedby={submitHint ? "submit-hint" : undefined}
                       disabled={
                         busy ||
                         !active ||
@@ -1436,8 +1456,10 @@ export default function Dashboard() {
                 .reverse()
                 .find((e) => /^task\.(succeeded|failed|cancelled|timed_out)$/.test(e.type));
             const totalSize = files.reduce((n, a) => n + (previews[a.id]?.size || 0), 0);
+            const answerFile = files.find((a) => a.name === "answer.md") || files.find((a) => /\.(md|txt)$/i.test(a.name || ""));
+            const answerText = answerFile ? previews[answerFile.id]?.text : null;
             return (
-              <div className="detail" id="result">
+              <div className="detail" id="result" tabIndex={-1} aria-label={taskTitle(selected) || kindName(selected)}>
                 <div className="detail-info">
                   <div className="detail-head">
                     <h2>{taskTitle(selected) || kindName(selected)}</h2>
@@ -1459,7 +1481,7 @@ export default function Dashboard() {
                     <dt>{t("col_submitted")}</dt>
                     <dd>{selected.created_at ? when(selected.created_at) : "—"}</dd>
                     <dt>{t("col_duration")}</dt>
-                    <dd>{seconds != null ? duration(seconds) : "—"}</dd>
+                    <dd>{seconds != null ? duration(seconds) : terminal.has(selected.status) ? t("duration_unavailable") : "—"}</dd>
                     <dt>{t("col_device")}</dt>
                     <dd>{device || "—"}</dd>
                     <dt>{t("col_request")}</dt>
@@ -1547,6 +1569,8 @@ export default function Dashboard() {
                   </div>
                   {tab === "result" ? (
                     <div role="tabpanel">
+                      {answerText && <Answer text={answerText} copyLabel={t("copy_answer")} onCopy={() =>
+                        void act(() => navigator.clipboard.writeText(answerText), t("copied"), false)} />}
                       {running && (
                         <div className="progress-block">
                           {selected.progress?.percent != null && (
@@ -1593,12 +1617,12 @@ export default function Dashboard() {
                                         <FileIcon name={a.name} size={22} />
                                         <span className="break">{a.name}</span>
                                       </span>
-                                      {p?.text != null && <pre className="preview">{p.text}</pre>}
+                                      {a.id !== answerFile?.id && p?.text != null && <pre className="preview">{Array.from(p.text).slice(0, 600).join("")}</pre>}
                                       {p?.url && <img className="preview" src={p.url} alt={a.name || ""} />}
                                     </td>
                                     <td className="nowrap">{p?.size != null ? bytes(p.size) : "—"}</td>
                                     <td className="nowrap">
-                                      {finished?.created_at ? whenShort(finished.created_at) : "—"}
+                                      {finished?.timestamp ? whenShort(finished.timestamp) : "—"}
                                     </td>
                                     <td>
                                       <button
@@ -1643,8 +1667,8 @@ export default function Dashboard() {
                             return (
                               <tr key={e.seq}>
                                 <td className="nowrap">
-                                  {e.created_at
-                                    ? new Date(e.created_at).toLocaleTimeString(lang === "zh" ? "zh-CN" : "en")
+                                  {e.timestamp
+                                    ? new Date(e.timestamp).toLocaleTimeString(lang === "zh" ? "zh-CN" : "en")
                                     : ""}
                                 </td>
                                 <td>

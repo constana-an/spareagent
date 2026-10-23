@@ -468,6 +468,7 @@ class Controller:
             "registered": load_state(self.directory) is not None,
             "consented": bool(self.app_state.get("consented_at")),
             "device_label": self.app_state.get("device_label") or default_device_label(),
+            "member_notes": self.app_state.get("member_notes", {}),
             "subscription_type": self.app_state.get("subscription_type") or "PLUS",
             "invite_code": code,
             "invite_link": f"{dashboard}/#join={code}" if dashboard and code else None,
@@ -873,6 +874,19 @@ class Controller:
                 raise AppError("invalid_input", key)
             clean[key] = value
         await self._owner_call("set_member_limits", user_id, clean)
+
+    def set_member_note(self, user_id: str, note: str) -> None:
+        members = (self.snap.server or {}).get("members", [])
+        if not any(str(m["user_id"]) == user_id and not m.get("is_owner") for m in members):
+            raise AppError("invalid_input", "member")
+        if not isinstance(note, str) or len(note.strip()) > 40:
+            raise AppError("invalid_input", "note")
+        notes = dict(self.app_state.get("member_notes", {}))
+        if note.strip():
+            notes[user_id] = note.strip()
+        else:
+            notes.pop(user_id, None)
+        self._save(member_notes=notes)
 
     async def remove_member(self, user_id: str) -> None:
         await self._owner_call("remove_member", user_id)

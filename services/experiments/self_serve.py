@@ -634,6 +634,7 @@ class SelfServeSharingService:
                     if t.execution_profile == "CODEX_LIVE"
                     else "SIMULATED",
                     "requester_id": c.requester_id,
+                    "requirement": t.prompt,
                     "approval_status": c.status,
                     "approval_source": c.consent_source,
                     "created_at": t.created_at,

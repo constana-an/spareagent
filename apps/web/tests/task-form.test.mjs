@@ -17,6 +17,17 @@ import {
 const general = { extensions: ["md", "png", "csv"], max_attachments: 2 };
 const file = (name, size = 10) => ({ name, size });
 
+test("SSE timestamp fixes completed duration and missing history never keeps a finished clock running", () => {
+  const task = { status: "SUCCEEDED", started_at: "2026-10-22T20:46:00Z" };
+  const events = [{ type: "task.succeeded", timestamp: "2026-10-22T20:46:12Z" }];
+  assert.equal(taskSeconds(task, events, Date.parse("2026-10-22T21:00:00Z")), 12);
+  assert.equal(taskSeconds(task, events, Date.parse("2026-10-23T21:00:00Z")), 12);
+  assert.equal(taskSeconds(task, [], Date.now()), null);
+  assert.equal(taskSeconds({ ...task, status: "RUNNING" }, [], Date.parse("2026-10-22T20:46:30Z")), 30);
+  assert.equal(taskSeconds({ ...task, started_at: null }, events, Date.now()), null);
+  assert.equal(taskSeconds(task, [{ type: "task.succeeded", timestamp: "bad" }], Date.now()), null);
+});
+
 test("attachments keep allowed types within the size and count limits", () => {
   const { files, rejected } = mergeAttachments(
     [file("a.md")],
@@ -122,10 +133,10 @@ test("status chips follow the task status and approval", () => {
 });
 
 test("run time counts from the start to the final event, or to now", () => {
-  const task = { started_at: "2026-10-22T10:00:00Z" };
+  const task = { status: "RUNNING", started_at: "2026-10-22T10:00:00Z" };
   const events = [
-    { type: "task.started", created_at: "2026-10-22T10:00:00Z" },
-    { type: "task.succeeded", created_at: "2026-10-22T10:01:12Z" },
+    { type: "task.started", timestamp: "2026-10-22T10:00:00Z" },
+    { type: "task.succeeded", timestamp: "2026-10-22T10:01:12Z" },
   ];
   assert.equal(taskSeconds(task, events, Date.parse("2026-10-22T11:00:00Z")), 72);
   assert.equal(taskSeconds(task, events.slice(0, 1), Date.parse("2026-10-22T10:00:30Z")), 30);

@@ -112,6 +112,7 @@ class TaskSummary(BaseModel):
     task_type: str
     execution_mode: str
     requester_id: uuid.UUID
+    requirement: str = ""
     approval_status: str
     approval_source: str | None
     created_at: datetime
