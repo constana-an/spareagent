@@ -1098,6 +1098,29 @@ paths:
           $ref: '#/components/responses/ApiError'
         '404':
           $ref: '#/components/responses/ApiError'
+  /v1/experimental-tasks/{task_id}/conversation:
+    get:
+      operationId: getTaskConversation
+      description: Stored conversation turns, restricted to the requester and authorized group owner.
+      parameters:
+      - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: Conversation in creation order
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ExperimentalTask'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
   /v1/experimental-tasks/{task_id}/approve:
     post:
       operationId: approveExperimentalTask
@@ -2596,6 +2619,7 @@ components:
             - {type: 'null'}
         repository_url: {anyOf: [{type: string, pattern: '^https://github\.com/'}, {type: 'null'}]}
         commit_sha: {anyOf: [{type: string, pattern: '^[a-fA-F0-9]{40}$'}, {type: 'null'}]}
+        parent_task_id: {type: [string, 'null'], format: uuid, description: 'Finished task belonging to this requester, group and device'}
         attachments: {type: array, maxItems: 5, items: {type: string, format: uuid}}
         parameters: {type: object, maxProperties: 10, additionalProperties: {type: string, maxLength: 100}}
         deliverable:
@@ -2651,6 +2675,8 @@ components:
         items: {type: array, items: {$ref: '#/components/schemas/TaskKind'}}
     ExperimentalTask:
       properties:
+        parent_task_id: {type: [string, 'null'], format: uuid}
+        conversation_id: {type: [string, 'null'], format: uuid}
         id:
           type: string
           format: uuid

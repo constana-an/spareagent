@@ -3,6 +3,15 @@ export type Lang = "zh" | "en";
 type Vars = Record<string, string | number>;
 
 const en = {
+  conversation_label: 'Conversation',
+  conversation_load_failed: 'Could not load the conversation.',
+  retry_load: 'Try again',
+  you_label: 'You',
+  view_turn_files: 'View files from this turn',
+  continue_conversation: 'Continue conversation',
+  followup_title: 'Continue conversation',
+  context_reused: 'Earlier messages, original attachments and recent result files will be included.',
+
   lang_toggle: "中文",
   opening: "Opening your private workspace…",
   login_eyebrow: "SPAREAGENT / FRIENDS BETA",
@@ -456,6 +465,15 @@ const en = {
 type Key = keyof typeof en;
 
 const zh: Record<Key, string> = {
+  conversation_label: '对话',
+  conversation_load_failed: '未能加载对话。',
+  retry_load: '重新加载',
+  you_label: '你',
+  view_turn_files: '查看本轮文件',
+  continue_conversation: '继续对话',
+  followup_title: '继续对话',
+  context_reused: '会带上此前的对话、原附件和最近的结果文件。',
+
   lang_toggle: "English",
   opening: "正在打开你的私人工作区…",
   login_eyebrow: "SPAREAGENT / 好友内测",
