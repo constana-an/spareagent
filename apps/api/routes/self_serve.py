@@ -12,6 +12,7 @@ from apps.api.dependencies import get_ctx, parse_uuid_or_404
 from apps.api.middleware.node_auth import get_node_principal
 from apps.api.schemas.self_serve import (
     DashboardLoginOut,
+    MemberAccessIn,
     MemberLimitsIn,
     OnlineIn,
     SettingsIn,
@@ -86,7 +87,9 @@ async def go_offline(
 async def put_settings(
     body: SettingsIn, request: Request, node: NodePrincipal = Depends(get_node_principal)
 ) -> SharingStatusOut:
-    return _out(await svc(request).update_settings(node.worker_id, body.model_dump()))
+    return _out(
+        await svc(request).update_settings(node.worker_id, body.model_dump(exclude_unset=True))
+    )
 
 
 @router.post(
@@ -113,6 +116,21 @@ async def remove_member(
 ) -> SharingStatusOut:
     uid = parse_uuid_or_404(user_id, "MEMBER_NOT_FOUND")
     return _out(await svc(request).remove_member(node.worker_id, uid), response)
+
+
+@router.put(
+    "/workers/me/sharing/members/{user_id}/access",
+    operation_id="setOneClickMemberAccess",
+    response_model=SharingStatusOut,
+)
+async def set_member_access(
+    user_id: str,
+    body: MemberAccessIn,
+    request: Request,
+    node: NodePrincipal = Depends(get_node_principal),
+) -> SharingStatusOut:
+    uid = parse_uuid_or_404(user_id, "MEMBER_NOT_FOUND")
+    return _out(await svc(request).set_member_access(node.worker_id, uid, paused=body.paused))
 
 
 @router.put(

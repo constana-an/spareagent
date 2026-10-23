@@ -74,6 +74,28 @@ def snap(**overrides) -> DispatchSnapshot:
     return dataclasses.replace(base, **overrides)
 
 
+def test_unlimited_is_not_a_large_number_or_a_zero_allowance():
+    settings = dict(
+        group_max_tasks_per_day=None,
+        owner_max_tasks_per_day=None,
+        group_max_task_duration_seconds=None,
+        owner_max_task_duration_seconds=None,
+        task_max_duration_seconds=None,
+        tasks_started_last_24h=1_000_000_000,
+    )
+    assert ExperimentalSharingPolicy.evaluate(snap(**settings), mode=Mode.LIVE).allowed
+    for change, expected in [
+        ({"owner_max_tasks_per_day": 0}, Reason.DAILY_LIMIT),
+        ({"owner_max_task_duration_seconds": 600}, Reason.DURATION_LIMIT),
+        (
+            {"member_max_tasks_per_day": 1, "member_tasks_started_last_24h": 1},
+            Reason.MEMBER_DAILY_LIMIT,
+        ),
+    ]:
+        decision = ExperimentalSharingPolicy.evaluate(snap(**(settings | change)), mode=Mode.LIVE)
+        assert expected in decision.reasons
+
+
 def auth(**kw) -> AuthorizationSnapshot:
     return dataclasses.replace(snap().authorization, **kw)
 

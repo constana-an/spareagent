@@ -74,7 +74,7 @@ class LeaseTask(BaseModel):
     repository_url: str | None
     commit_sha: str | None
     prompt: str
-    max_duration_seconds: int
+    max_duration_seconds: int | None
     max_budget_cents: int
     deliverable: dict[str, str] | None = None
     parameters: dict[str, str] = Field(default_factory=dict)

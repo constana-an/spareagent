@@ -55,11 +55,12 @@ async def test_oversized_stream_fails_and_reaps_process(tmp_path):
     assert runtime._procs == {}
 
 
-async def test_runtime_allows_only_one_process(tmp_path):
+@pytest.mark.parametrize("timeout", [2, None])
+async def test_runtime_allows_only_one_process(tmp_path, timeout):
     runtime = program(
         tmp_path, 'import time\nprint(\'{"type":"turn.started"}\',flush=True)\ntime.sleep(30)\n'
     )
-    first = asyncio.create_task(collect(runtime, tmp_path))
+    first = asyncio.create_task(collect(runtime, tmp_path, timeout=timeout))
     for _ in range(100):
         if runtime._procs:
             break

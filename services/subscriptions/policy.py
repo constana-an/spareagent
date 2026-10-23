@@ -27,6 +27,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 
+from packages.common.limits import exceeds_limit, minimum_limit
+
 EXPERIMENTAL_SCOPE = "EXPERIMENTAL_SHARED_SUBSCRIPTION"
 PERSONAL_SUBSCRIPTION = "PERSONAL_SUBSCRIPTION"
 
@@ -122,16 +124,16 @@ class DispatchSnapshot:
     experiment_enabled: bool
     task_scope: str
     task_type: str
-    task_max_duration_seconds: int
+    task_max_duration_seconds: int | None
     requester_id: uuid.UUID
     owner_id: uuid.UUID
     # group
     group_status: str
     group_sharing_enabled: bool
     group_allowed_task_types: frozenset[str]
-    group_max_task_duration_seconds: int
+    group_max_task_duration_seconds: int | None
     group_max_concurrent_tasks: int
-    group_max_tasks_per_day: int
+    group_max_tasks_per_day: int | None
     active_member_ids: frozenset[uuid.UUID]
     authorization: AuthorizationSnapshot | None
     # owner preferences / consent
@@ -139,9 +141,9 @@ class DispatchSnapshot:
     consent_accepted: bool
     allow_paid_credits: bool
     owner_allowed_task_types: frozenset[str]
-    owner_max_task_duration_seconds: int
+    owner_max_task_duration_seconds: int | None
     owner_max_concurrent_tasks: int
-    owner_max_tasks_per_day: int
+    owner_max_tasks_per_day: int | None
     task_consent_status: str  # PENDING / APPROVED / REJECTED / WITHDRAWN
     # runtime
     resource_type: str
@@ -293,15 +295,18 @@ class ExperimentalSharingPolicy:
             allowed_types &= s.authorization.scope_task_types
         if s.task_type not in allowed_types:
             r.append(Reason.TASK_TYPE_NOT_ALLOWED)
-        if s.task_max_duration_seconds > min(
-            s.group_max_task_duration_seconds, s.owner_max_task_duration_seconds
+        if exceeds_limit(
+            s.task_max_duration_seconds,
+            s.group_max_task_duration_seconds,
+            s.owner_max_task_duration_seconds,
         ):
             r.append(Reason.DURATION_LIMIT)
         if s.node_at_capacity or s.active_tasks_on_connection >= min(
             s.group_max_concurrent_tasks, s.owner_max_concurrent_tasks
         ):
             r.append(Reason.CONCURRENCY_LIMIT)
-        if s.tasks_started_last_24h >= min(s.group_max_tasks_per_day, s.owner_max_tasks_per_day):
+        daily_limit = minimum_limit(s.group_max_tasks_per_day, s.owner_max_tasks_per_day)
+        if daily_limit is not None and s.tasks_started_last_24h >= daily_limit:
             r.append(Reason.DAILY_LIMIT)
         if (
             s.member_max_tasks_per_day is not None

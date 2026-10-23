@@ -107,6 +107,8 @@ class AppServer:
             )
         elif route == "remove-member":
             await c.remove_member(str(body.get("user_id", "")))
+        elif route == "member-access":
+            await c.set_member_access(str(body.get("user_id", "")), body.get("paused"))
         elif route == "install-tool":
             c.start_tool_install(str(body.get("tool", "")))
         elif route == "remove-tool":

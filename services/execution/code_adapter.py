@@ -154,7 +154,9 @@ class CodeExecutionAdapter:
                     checkout.path,
                     list(recipe.test_command),
                     run_id=request.attempt_id,
-                    timeout=min(self.sandbox.limits.timeout_seconds, request.max_duration_seconds),
+                    timeout=min(self.sandbox.limits.timeout_seconds, request.max_duration_seconds)
+                    if request.max_duration_seconds is not None
+                    else self.sandbox.limits.timeout_seconds,
                     cancel_event=cancel,
                 )
             except SandboxError as exc:

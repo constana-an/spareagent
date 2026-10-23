@@ -35,6 +35,7 @@ from db.models import (
     Task,
     WorkerNode,
 )
+from packages.common.limits import exceeds_limit
 from services.context import AppContext
 from services.errors import DomainError, conflict, forbidden, not_found
 from services.scheduler import lease_service
@@ -194,6 +195,7 @@ class ExperimentalParticipationService:
                 raise conflict("GROUP_FULL", f"Group is limited to {group.max_members} members")
             if existing is not None:
                 existing.status, existing.removed_at = "INVITED", None
+                existing.access_paused = False
                 existing.invited_by, existing.invited_at = principal.user_id, utcnow()
                 member = existing
             else:
@@ -575,7 +577,11 @@ class ExperimentalParticipationService:
             await self._require_active_member(session, group_id, principal.user_id)
             for key in LIMIT_FIELDS:
                 value = prefs_in.get(key)
-                if value is not None and value > getattr(group, key):
+                if (
+                    key in prefs_in
+                    and (value is not None or key != "max_concurrent_tasks")
+                    and exceeds_limit(value, getattr(group, key))
+                ):
                     raise DomainError(
                         422,
                         "LIMIT_ABOVE_GROUP_MAXIMUM",
@@ -597,7 +603,7 @@ class ExperimentalParticipationService:
                     raise conflict("SHARING_ACTIVE", "Pause or revoke before switching groups")
                 prefs.group_id = group_id
             for key in LIMIT_FIELDS:
-                if prefs_in.get(key) is not None:
+                if key in prefs_in and (prefs_in[key] is not None or key != "max_concurrent_tasks"):
                     setattr(prefs, key, prefs_in[key])
             if types is not None:
                 prefs.allowed_task_types = sorted(set(types))
@@ -807,6 +813,9 @@ class ExperimentalParticipationService:
         async with self.ctx.sessionmaker() as session, session.begin():
             group = await self._group(session, body["group_id"])
             await self._require_active_member(session, group.id, principal.user_id)
+            member = await self._membership(session, group.id, principal.user_id)
+            if member.access_paused:
+                raise forbidden("MEMBER_ACCESS_PAUSED", "The owner temporarily disconnected you")
             conn = await session.get(SubscriptionConnection, body["connection_id"])
             prefs = await session.get(SubscriptionSharingPreference, body["connection_id"])
             if (
@@ -824,8 +833,10 @@ class ExperimentalParticipationService:
             allowed = set(group.allowed_task_types) & set(prefs.allowed_task_types)
             if kind.kind not in allowed:
                 raise DomainError(422, "TASK_TYPE_NOT_ALLOWED", "Task type not allowed")
-            if body["max_duration_seconds"] > min(
-                group.max_task_duration_seconds, prefs.max_task_duration_seconds
+            if exceeds_limit(
+                body["max_duration_seconds"],
+                group.max_task_duration_seconds,
+                prefs.max_task_duration_seconds,
             ):
                 raise DomainError(422, "DURATION_LIMIT", "Duration exceeds the allowed limit")
             live = body.get("execution_mode") == "LIVE"

@@ -440,6 +440,8 @@ async def test_capability_settings_and_tool_state_reach_the_page(tmp_path):
         "allowed_task_types": ["TRANSLATE_DOCUMENT"],
         "allowed_tools": ["doc", "git"],
     }
+    await c.update_settings({"max_tasks_per_day": None, "max_task_minutes": None})
+    assert sent[-1] == {"max_tasks_per_day": None, "max_task_duration_seconds": None}
     with pytest.raises(AppError):
         await c.update_settings({"allowed_tools": "doc"})
     snap = c.snapshot()

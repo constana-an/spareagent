@@ -56,6 +56,7 @@ class GroupCreate(Strict):
 
 
 class MemberOut(BaseModel):
+    access_paused: bool = False
     user_id: uuid.UUID
     status: str
     invited_at: datetime
@@ -89,8 +90,8 @@ class GroupOut(BaseModel):
     sharing_enabled: bool
     max_members: int
     max_concurrent_tasks: int
-    max_tasks_per_day: int
-    max_task_duration_seconds: int
+    max_tasks_per_day: int | None
+    max_task_duration_seconds: int | None
     allowed_task_types: list[str]
     created_at: datetime
     members: list[MemberOut] = []
@@ -209,8 +210,8 @@ class PreferencesOut(BaseModel):
     consent_terms_version: str | None
     consent_accepted_at: datetime | None
     max_concurrent_tasks: int
-    max_tasks_per_day: int
-    max_task_duration_seconds: int
+    max_tasks_per_day: int | None
+    max_task_duration_seconds: int | None
     allowed_task_types: list[str]
     require_owner_approval: bool
     advance_consent_requester_ids: list[str]
@@ -277,7 +278,7 @@ class NodeOut(BaseModel):
     auth_state: str
     online: bool
     allowed_task_types: list[str]
-    max_task_duration_seconds: int
+    max_task_duration_seconds: int | None
     requires_approval: bool
     my_tasks_last_24h: int = 0
     my_minutes_last_24h: float = 0.0
@@ -327,7 +328,7 @@ class ExperimentalTaskCreate(Strict):
         Annotated[StrictStr, Field(max_length=100)],
     ] = Field(default_factory=dict, max_length=10)
     deliverable: DeliverableIn | None = None
-    max_duration_seconds: Annotated[StrictInt, Field(ge=10, le=3600)]
+    max_duration_seconds: Annotated[StrictInt, Field(ge=10, le=3600)] | None
     group_id: uuid.UUID
     connection_id: uuid.UUID
     # LIVE runs on the owner's own Codex CLI and needs every Milestone D gate.
@@ -441,7 +442,7 @@ class ExperimentalTaskOut(BaseModel):
     parameters: dict[str, str] = Field(default_factory=dict)
     deliverable: dict[str, str] | None = None
     network_access: bool = False
-    max_duration_seconds: int
+    max_duration_seconds: int | None
     verification_status: str = "NOT_RUN"
     approval_status: str
     approval_source: str | None

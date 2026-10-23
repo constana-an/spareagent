@@ -52,7 +52,7 @@ def task_deadline_passed(
             seconds = 600
             if requeued:
                 start = max(task.created_at, task.updated_at)
-    return now >= start + timedelta(seconds=seconds)
+    return seconds is not None and now >= start + timedelta(seconds=seconds)
 
 
 async def started_attempts(session: AsyncSession, task_id: uuid.UUID) -> int:

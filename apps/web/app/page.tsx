@@ -31,8 +31,9 @@ type Group = {
   status: string;
   sharing_enabled: boolean;
   max_members: number;
-  max_task_duration_seconds: number;
-  members: { user_id: string; status: string }[];
+  max_tasks_per_day: number | null;
+  max_task_duration_seconds: number | null;
+  members: { user_id: string; status: string; access_paused?: boolean }[];
   authorization: null | {
     authorization_reference: string;
     expires_at: string;
@@ -42,8 +43,8 @@ type Group = {
 type Prefs = {
   group_id: string;
   sharing_state: string;
-  max_tasks_per_day: number;
-  max_task_duration_seconds: number;
+  max_tasks_per_day: number | null;
+  max_task_duration_seconds: number | null;
   auto_approve_members?: boolean;
 };
 type Device = {
@@ -65,7 +66,7 @@ type Node = {
   device_label: string;
   online: boolean;
   requires_approval: boolean;
-  max_task_duration_seconds: number;
+  max_task_duration_seconds: number | null;
   my_tasks_last_24h?: number;
   my_minutes_last_24h?: number;
   my_max_tasks_per_day?: number | null;
@@ -83,7 +84,7 @@ type Task = {
   repository_url: string | null;
   commit_sha: string | null;
   attachments?: { id: string; filename: string; size_bytes: number }[];
-  max_duration_seconds: number;
+  max_duration_seconds: number | null;
   approval_status: string;
   approval_source: string | null;
   owner_id: string;
@@ -861,6 +862,7 @@ export default function Dashboard() {
             </form>
           </>
         )}
+        {member?.access_paused && <p className="notice" role="status">{t("member_access_paused")}</p>}
         {error && (
           <p role="alert" className="error">
             {error}
@@ -996,10 +998,13 @@ export default function Dashboard() {
               others.find((n) => n.connection_id === (connectionChoice || d?.connection)) ||
               others.find((n) => n.online) ||
               others[0];
-            const submitHint = !active ? t("submit_join_first")
+            const submitHint = member?.access_paused ? t("member_access_paused") : !active ? t("submit_join_first")
               : !others.length ? t(nodes.some((n) => n.owner_id === me.user_id) ? "submit_owner_only" : "submit_no_devices")
               : !target?.online ? t("submit_device_offline") : "";
             const cap = target?.my_max_tasks_per_day ?? target?.device_max_tasks_per_day;
+            const durationCaps = [group?.max_task_duration_seconds, target?.max_task_duration_seconds]
+              .filter((n): n is number => n != null);
+            const durationCap = durationCaps.length ? Math.min(...durationCaps) : null;
             return (
               <div className="compose-body">
                 <form
@@ -1036,7 +1041,7 @@ export default function Dashboard() {
                           group_id: gid,
                           connection_id: f.get("connection"),
                           requirement: f.get("prompt"),
-                          max_duration_seconds: Number(f.get("timeout")),
+                          max_duration_seconds: String(f.get("timeout") || "").trim() ? Number(f.get("timeout")) : null,
                           execution_mode: f.get("mode"),
                           ...(f.get("network") === "on" ? { network_access: true } : {}),
                           attachments: ids,
@@ -1232,9 +1237,10 @@ export default function Dashboard() {
                           name="timeout"
                           type="number"
                           min="10"
-                          max={group?.max_task_duration_seconds ?? 600}
-                          defaultValue={d?.timeout ?? Math.min(600, group?.max_task_duration_seconds ?? 600)}
-                          required
+                          max={durationCap ?? undefined}
+                          defaultValue={d ? d.timeout ?? "" : durationCap == null ? "" : Math.min(600, durationCap)}
+                          placeholder={t("unlimited")}
+                          required={durationCap != null}
                         />
                       </label>
                       <label>
@@ -1257,6 +1263,7 @@ export default function Dashboard() {
                       disabled={
                         busy ||
                         !active ||
+                        !!member?.access_paused ||
                         !kind ||
                         files.length < kind.min_attachments ||
                         !others.length
@@ -1677,7 +1684,7 @@ export default function Dashboard() {
                       <br />
                     </span>
                   ))}
-                  {t("hard_timeout_n", { n: x.max_duration_seconds })}
+                  {x.max_duration_seconds == null ? t("no_execution_timeout") : t("hard_timeout_n", { n: x.max_duration_seconds })}
                 </p>
                 <div className="actions">
                   {x.approval_status === "PENDING" &&
@@ -1900,7 +1907,7 @@ export default function Dashboard() {
                   <span>
                     {t("tasks_rolling", {
                       n: u?.tasks_started_last_24h || 0,
-                      max: d.preferences?.max_tasks_per_day ?? "—",
+                      max: d.preferences?.max_tasks_per_day ?? t("unlimited"),
                     })}
                   </span>
                   <span>
@@ -1940,8 +1947,9 @@ export default function Dashboard() {
                           type="number"
                           min="1"
                           max="50"
-                          defaultValue={d.preferences?.max_tasks_per_day ?? 3}
-                          required
+                          defaultValue={d.preferences ? d.preferences.max_tasks_per_day ?? "" : 3}
+                          placeholder={t("unlimited")}
+                          required={group?.max_tasks_per_day != null}
                         />
                       </label>
                       <label>
@@ -1950,11 +1958,10 @@ export default function Dashboard() {
                           name="duration"
                           type="number"
                           min="10"
-                          max={group?.max_task_duration_seconds ?? 600}
-                          defaultValue={
-                            d.preferences?.max_task_duration_seconds ?? 600
-                          }
-                          required
+                          max={group?.max_task_duration_seconds ?? undefined}
+                          defaultValue={d.preferences ? d.preferences.max_task_duration_seconds ?? "" : 600}
+                          placeholder={t("unlimited")}
+                          required={group?.max_task_duration_seconds != null}
                         />
                       </label>
                     </div>

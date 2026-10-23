@@ -261,5 +261,9 @@ class NodeClient:
     async def remove_member(self, user_id: str) -> dict[str, Any]:
         return (await self.call("DELETE", f"/v1/workers/me/sharing/members/{user_id}")).json()
 
+    async def set_member_access(self, user_id: str, paused: bool) -> dict[str, Any]:
+        path = f"/v1/workers/me/sharing/members/{user_id}/access"
+        return (await self.call("PUT", path, json={"paused": paused})).json()
+
     async def dashboard_login(self) -> dict[str, Any]:
         return (await self.call("POST", "/v1/workers/me/sharing/dashboard-login")).json()

@@ -224,8 +224,8 @@ h3.sub{font-size:13px;margin:14px 0 6px}
     <h2 data-t="limits_title"></h2>
     <div class="row">
       <label><span data-t="max_members"></span><input id="max_members" type="number" min="2"></label>
-      <label><span data-t="max_tasks"></span><input id="max_tasks" type="number" min="1" max="50"></label>
-      <label><span data-t="max_minutes"></span><input id="max_minutes" type="number" min="1" max="60"></label>
+      <label><span data-t="max_tasks"></span><input id="max_tasks" type="number" min="1" max="50" data-placeholder="unlimited"></label>
+      <label><span data-t="max_minutes"></span><input id="max_minutes" type="number" min="1" max="60" data-placeholder="unlimited"></label>
       <label><span data-t="concurrency"></span><input id="concurrency" type="number" min="1" max="3"></label>
     </div>
     <h3 class="sub" data-t="tools_title"></h3>
@@ -299,12 +299,15 @@ zh: {
  limits_title:"小组与任务设置", max_members:"小组人数上限（含你自己）",
  max_tasks:"每 24 小时最多任务数", max_minutes:"单个任务最长（分钟）",
  auto_approve:"自动批准小组成员的任务", save:"保存", saved:"已保存",
- usage:(n,m)=>`过去 24 小时已接 ${n} / ${m} 个任务`, cap:(c)=>`（服务器上限 ${c} 人）`,
- members_title:"成员", member:"成员", joined:"加入时间", you:"你", remove:"移除",
+ usage:(n,m)=>m==null?`过去 24 小时已接 ${n} 个任务 · 数量不限`:`过去 24 小时已接 ${n} / ${m} 个任务`, cap:(c)=>`（服务器上限 ${c} 人）`,
+ members_title:"成员", member:"成员", joined:"加入时间", you:"你", remove:"踢出小组",
  m_used:"过去 24 小时", m_used_val:(n,m)=>`${n} 个任务 · ${m} 分钟`, m_task_cap:"每日任务上限", m_min_cap:"每日分钟上限",
  m_no_cap:"不单独限制", m_cap_range:"任务上限 1–50，分钟上限 1–1440，留空表示不单独限制。",
  m_caps_help:"按成员单独限额：在你这台电脑上，每个成员每 24 小时最多用多少个任务、多少分钟执行时间。留空表示只受上面的整体上限约束。超出后，该成员的新任务会排队并显示原因，额度恢复或你调高后自动继续；正在运行的任务不受影响。",
- confirm_remove:"移除该成员？其未完成的任务会被取消，邀请码也会更换。",
+ confirm_remove:"将该成员踢出小组？未完成任务会停止，邀请码会更换；再次加入需要重新邀请。",
+ disconnect_member:"暂时断开", reconnect_member:"恢复连接", member_paused:"已暂时断开",
+ confirm_disconnect:"暂时断开该成员？未完成任务会停止，成员记录和邀请码会保留，可随时恢复连接。", unlimited:"不限（留空）",
+ sc_CANNOT_CHANGE_OWNER:"不能断开你自己。", sc_MEMBER_ACCESS_PAUSED:"主人已暂时断开你的连接，请联系主人恢复。",
  tasks_title:"最近的任务", time:"时间", kind:"类型", status:"状态", approval:"批准",
  approved_auto:"自动批准", approved_owner:"你批准", pending:"等待批准", rejected:"已拒绝",
  open_dashboard:"打开网页控制台",
@@ -350,8 +353,8 @@ zh: {
  network_confirm:"允许联网后，成员的任务可以访问互联网：网站会看到你的 IP 地址，任务也能访问你家里网络中的其他设备，恶意需求还可能诱导 Codex 把成员上传的材料发给别人（你电脑上的其他文件仍然读不到）。确定允许吗？", "tool_python-data":"数据处理（pandas、matplotlib、openpyxl）",
  installed:"已安装", not_installed:"未安装", installing:"正在安装…", install_failed:"安装失败：",
  install_btn:(n)=>`安装（约 ${n} MB）`, remove_btn:"删除", git_hint:"未安装时仍可上线，只接文档和表格任务；上线时会弹出 Apple 命令行工具安装窗口，装好后自动接代码任务", allow:"允许",
- r_members:(a,b)=>`小组人数需在 ${a}–${b} 之间。`, r_tasks:"每 24 小时任务数需在 1–50 之间。",
- r_minutes:"单个任务时长需在 1–60 分钟之间。", r_integer:"请填写整数。",
+ r_members:(a,b)=>`小组人数需在 ${a}–${b} 之间。`, r_tasks:"任务数填写 1–50，留空表示不限。",
+ r_minutes:"单个任务时长填写 1–60 分钟，留空表示不限。", r_integer:"请填写整数。",
  sc_code:(c)=>`（错误代码 ${c}）`,
  sc_MEMBER_LIMIT_OUT_OF_RANGE:"小组人数超出允许范围：不能少于当前成员数，也不能超过服务器上限。",
  sc_GROUP_FULL:"小组已满，请先调高人数上限。", sc_GROUP_DISABLED:"这个小组已被停用，请联系运营者。",
@@ -395,7 +398,7 @@ zh: {
  left_suffix:"剩余", quota_short_ok:"正常", quota_short_low:"快用完", quota_short_exhausted:"已用完",
  m_running:"执行中", m_queued:(n)=>`排队 ${n}`, m_day:"24 小时内任务", m_minutes:(m)=>`执行 ${m} 分钟`,
  sw_auto:"自动接单", sw_auto_sub:"成员的任务在上限内自动批准", sw_network:"允许联网", sw_network_sub:"成员勾选「需要联网」的任务可以上网",
- preset_line:(n,m,c)=>`每天 ${n} 个任务 · 单个 ${m} 分钟 · 同时 ${c} 个`, invite_code:"邀请码",
+ preset_line:(n,m,c)=>`${n==null?"任务数量不限":`每天 ${n} 个任务`} · ${m==null?"单次时间不限":`单个 ${m} 分钟`} · 同时 ${c} 个`, invite_code:"邀请码",
  conn_ok:"已连接服务器", conn_down:"连不上服务器"
 },
 en: {
@@ -434,12 +437,15 @@ en: {
  limits_title:"Group and task settings", max_members:"Maximum members (including you)",
  max_tasks:"Maximum tasks per 24 hours", max_minutes:"Maximum minutes per task",
  auto_approve:"Approve my group's tasks automatically", save:"Save", saved:"Saved",
- usage:(n,m)=>`${n} / ${m} tasks in the last 24 hours`, cap:(c)=>` (server cap ${c})`,
+ usage:(n,m)=>m==null?`${n} tasks in the last 24 hours · no task-count limit`:`${n} / ${m} tasks in the last 24 hours`, cap:(c)=>` (server cap ${c})`,
  members_title:"Members", member:"Member", joined:"Joined", you:"You", remove:"Remove",
  m_used:"Last 24 h", m_used_val:(n,m)=>`${n} tasks · ${m} min`, m_task_cap:"Tasks per day", m_min_cap:"Minutes per day",
  m_no_cap:"no own cap", m_cap_range:"Tasks 1–50, minutes 1–1440; leave empty for no own cap.",
  m_caps_help:"Per-member caps on this Mac per rolling 24 hours. Empty means only the overall limits above apply. Over a cap, that member's new tasks wait with the reason and continue when usage frees up or you raise the cap; running tasks are not affected.",
- confirm_remove:"Remove this member? Their unfinished tasks are cancelled and the invite code changes.",
+ confirm_remove:"Remove this member from the group? Their unfinished tasks are cancelled and the invite code changes.",
+ disconnect_member:"Disconnect temporarily", reconnect_member:"Reconnect", member_paused:"Temporarily disconnected",
+ confirm_disconnect:"Disconnect this member temporarily? Unfinished tasks will stop. Membership and the invite code stay unchanged; you can reconnect them any time.", unlimited:"Unlimited (leave empty)",
+ sc_CANNOT_CHANGE_OWNER:"You cannot disconnect yourself.", sc_MEMBER_ACCESS_PAUSED:"The owner temporarily disconnected you. Ask them to reconnect you.",
  tasks_title:"Recent tasks", time:"Time", kind:"Type", status:"Status", approval:"Approval",
  approved_auto:"Automatic", approved_owner:"By you", pending:"Pending", rejected:"Rejected",
  open_dashboard:"Open web dashboard",
@@ -485,8 +491,8 @@ en: {
  network_confirm:"With internet allowed, members' tasks can reach the internet: websites see your IP address, tasks can reach other devices on your home network, and a malicious request could get Codex to send the member's uploaded files elsewhere (other files on this Mac stay unreadable). Allow it?", "tool_python-data":"Data tools (pandas, matplotlib, openpyxl)",
  installed:"Installed", not_installed:"Not installed", installing:"Installing…", install_failed:"Install failed: ",
  install_btn:(n)=>`Install (~${n} MB)`, remove_btn:"Remove", git_hint:"You can go online without them and take document and table tasks; going online offers the Apple command line tools, and code tasks start once they are installed", allow:"Allow",
- r_members:(a,b)=>`Members must be between ${a} and ${b}.`, r_tasks:"Tasks per 24 hours must be between 1 and 50.",
- r_minutes:"Minutes per task must be between 1 and 60.", r_integer:"Enter whole numbers.",
+ r_members:(a,b)=>`Members must be between ${a} and ${b}.`, r_tasks:"Enter 1–50 tasks, or leave empty for no limit.",
+ r_minutes:"Enter 1–60 minutes, or leave empty for no limit.", r_integer:"Enter whole numbers.",
  sc_code:(c)=>` (error code ${c})`,
  brand:"SpareAgent", btn_pause:"Pause sharing",
  title_OFFLINE:"Not sharing", title_ONLINE:"Online, sharing", title_STARTING:"Going online…", title_STOPPING:"Going offline…", title_ERROR:"Couldn't go online",
@@ -519,7 +525,7 @@ en: {
  m_running:"Running", m_queued:(n)=>`${n} queued`, m_day:"Tasks in 24 h", m_minutes:(m)=>`${m} min of work`,
  sw_auto:"Accept tasks automatically", sw_auto_sub:"Members' tasks are approved within your limits", sw_network:"Allow internet",
  sw_network_sub:"Tasks marked “needs internet” may go online",
- preset_line:(n,m,c)=>`${n} tasks a day · ${m} min each · ${c} at a time`, invite_code:"Invite code",
+ preset_line:(n,m,c)=>`${n==null?"No task-count limit":`${n} tasks a day`} · ${m==null?"No per-task time limit":`${m} min each`} · ${c} at a time`, invite_code:"Invite code",
  conn_ok:"Connected", conn_down:"Server unreachable"
 }};
 const ONLINE_STEPS=["codex_install","git_check","codex_login","signup","owner_check","server_online","worker_start"];
@@ -555,6 +561,7 @@ function applyStatic(){
   document.documentElement.lang=lang==="zh"?"zh-CN":"en";
   document.title=t("title");
   document.querySelectorAll("[data-t]").forEach(el=>{el.textContent=t(el.dataset.t)});
+  document.querySelectorAll("[data-placeholder]").forEach(el=>{el.placeholder=t(el.dataset.placeholder)});
   $("lang").textContent=t("lang");
   document.querySelectorAll(".ack").forEach(ul=>{ul.innerHTML="";
     for(let i=1;i<=8;i++){const li=document.createElement("li");li.textContent=t("ack_"+i);ul.appendChild(li)}});
@@ -613,7 +620,7 @@ function render(){
     if(!settingsEditing){
       $("max_members").value=g.max_members; $("max_members").max=g.member_cap;
       $("max_members").min=Math.max(2,srv.members.length);
-      $("max_tasks").value=g.max_tasks_per_day; $("max_minutes").value=Math.round(g.max_task_duration_seconds/60);
+      $("max_tasks").value=g.max_tasks_per_day??""; $("max_minutes").value=g.max_task_duration_seconds==null?"":Math.round(g.max_task_duration_seconds/60);
       $("auto").checked=sharing?sharing.auto_approve_members:true;
       $("concurrency").value=(sharing&&sharing.max_concurrent_tasks)||1;
       renderTools(srv);
@@ -680,7 +687,7 @@ function renderRunning(srv){
   $("running").querySelector("h2").textContent=t("running_title")+(live.length?` (${live.length})`:"");
   if(!live.length){emptyRow(body,4,t("none_running"));return}
   live.forEach(x=>{
-    const el_=x.started_at?mmss((Date.now()-Date.parse(x.started_at))/1000)+" / "+mmss(x.max_duration_seconds||0):"—";
+    const el_=x.started_at?mmss((Date.now()-Date.parse(x.started_at))/1000)+" / "+(x.max_duration_seconds==null?t("unlimited"):mmss(x.max_duration_seconds)):"—";
     const p=x.progress&&x.progress.percent, prog=el("span","prog");
     if(p!=null){const bar=el("span","bar"),fill=el("i");fill.style.width=p+"%";bar.append(fill);prog.append(bar,el("small",null,p+"%"))}
     else prog.append(el("small",null,label("s_",x.status)));
@@ -703,7 +710,7 @@ function renderLog(srv){
 }
 function sharingBody(srv,change){
   const sh=srv.sharing||{}, g=srv.group;
-  return {max_members:g.max_members,max_tasks_per_day:g.max_tasks_per_day,max_task_minutes:Math.round(g.max_task_duration_seconds/60),
+  return {max_members:g.max_members,max_tasks_per_day:g.max_tasks_per_day,max_task_minutes:g.max_task_duration_seconds==null?null:Math.round(g.max_task_duration_seconds/60),
     max_concurrent_tasks:sh.max_concurrent_tasks||1,auto_approve_members:sh.auto_approve_members!==false,
     allowed_tools:sh.allowed_tools||TOOL_ORDER,...change};
 }
@@ -725,11 +732,11 @@ function renderSwitches(srv){
   const edit=el("button","s",t("view_tools"));edit.type="button";edit.onclick=()=>showView("settings");a.append(edit);
 }
 const PRESETS={save:{tasks:3,minutes:10,concurrency:1,network:false},standard:{tasks:5,minutes:10,concurrency:1,network:true},
-  open:{tasks:10,minutes:30,concurrency:2,network:true}};
+  open:{tasks:null,minutes:null,concurrency:2,network:true}};
 function currentPreset(srv){
   const g=srv.group, sh=srv.sharing||{}, tools=sh.allowed_tools||TOOL_ORDER;
   return Object.keys(PRESETS).find(n=>{const p=PRESETS[n];return g.max_tasks_per_day===p.tasks&&
-    Math.round(g.max_task_duration_seconds/60)===p.minutes&&(sh.max_concurrent_tasks||1)===p.concurrency&&
+    (g.max_task_duration_seconds==null?null:Math.round(g.max_task_duration_seconds/60))===p.minutes&&(sh.max_concurrent_tasks||1)===p.concurrency&&
     tools.includes("network")===p.network})||"custom";
 }
 function renderPresets(srv){
@@ -740,7 +747,7 @@ function renderPresets(srv){
   [...box.children].forEach(b=>{b.classList.toggle("on",b.dataset.preset===cur);b.setAttribute("aria-pressed",b.dataset.preset===cur)});
   const g=srv.group, sh=srv.sharing||{};
   $("preset_summary").textContent=(cur==="custom"?t("preset_custom")+" · ":"")+t("preset_line",g.max_tasks_per_day,
-    Math.round(g.max_task_duration_seconds/60),sh.max_concurrent_tasks||1);
+    g.max_task_duration_seconds==null?null:Math.round(g.max_task_duration_seconds/60),sh.max_concurrent_tasks||1);
 }
 async function applyPreset(n){
   const srv=S&&S.server; if(!srv)return;
@@ -758,15 +765,20 @@ function renderMembers(srv){
   srv.members.forEach(m=>{
     const name=el("span");name.append(el("span","av",m.is_owner?t("you"):Array.from(memberName(srv,m.user_id)).slice(0,2).join("")),m.is_owner?t("owner_name"):memberName(srv,m.user_id));
     if(!m.is_owner)name.append(el("small","member-id",m.user_id.slice(0,8)));
+    if(m.access_paused)name.append(el("small","member-id",t("member_paused")));
     const tr=el("tr");
     if(m.is_owner){body.append(cells(tr,name,fmt(m.joined_at),"—",""));return}
     const used=el("span",null,t("m_used_short",m.tasks_last_24h||0,m.minutes_last_24h||0));
     const cap=m.max_tasks_per_day||g.max_tasks_per_day, mini=el("span","mini"), fill=el("i");
-    fill.style.width=Math.min(100,100*(m.tasks_last_24h||0)/Math.max(1,cap))+"%";mini.append(fill);used.append(mini);
+    fill.style.width=Math.min(100,100*(m.tasks_last_24h||0)/Math.max(1,cap))+"%";mini.append(fill);if(cap!=null)used.append(mini);
     if(m.max_tasks_per_day||m.max_minutes_per_day)used.append(el("small",null," · "+t("m_capped")));
     const btn=el("button","s",t("limits_btn"));btn.type="button";
     btn.onclick=()=>{openEditor=openEditor===m.user_id?null:m.user_id;renderMembers(srv)};
-    body.append(cells(tr,name,fmt(m.joined_at),used,btn));
+    const actions=el("div","row"), access=el("button","s",t(m.access_paused?"reconnect_member":"disconnect_member"));access.type="button";
+    access.onclick=()=>{if(m.access_paused||confirm(t("confirm_disconnect")))act("member-access",{user_id:m.user_id,paused:!m.access_paused})};
+    const rm=el("button","s",t("remove"));rm.type="button";
+    rm.onclick=()=>{if(confirm(t("confirm_remove"))){openEditor=null;act("remove-member",{user_id:m.user_id})}};
+    actions.append(btn,access,rm);body.append(cells(tr,name,fmt(m.joined_at),used,actions));
     if(openEditor!==m.user_id)return;
     const ed=el("tr","editor"), td=el("td"), row=el("div","row");td.colSpan=4;
     const noteRow=el("div","row"), noteLabel=el("label",null,t("member_note")), note=el("input");
@@ -783,9 +795,7 @@ function renderMembers(srv){
       const bad=[[b.max_tasks_per_day,50],[b.max_minutes_per_day,1440]].some(([x,hi])=>x!==null&&(!Number.isInteger(x)||x<1||x>hi));
       if(bad){localErr={code:"invalid_input",detail:t("m_cap_range")};render();return}
       openEditor=null;act("member-limits",b)};
-    const rm=el("button","s",t("remove"));rm.type="button";
-    rm.onclick=()=>{if(confirm(t("confirm_remove"))){openEditor=null;act("remove-member",{user_id:m.user_id})}};
-    row.append(save,rm);td.append(row,el("small",null,t("m_caps_help")));ed.append(td);body.append(ed)});
+    row.append(save);td.append(row,el("small",null,t("m_caps_help")));ed.append(td);body.append(ed)});
 }
 function taskChip(x){
   if(x.status==="SUCCEEDED")return ["ok",label("s_",x.status)];
@@ -907,17 +917,17 @@ $("copy").onclick=async()=>{try{await copyText(inviteMessage(S.invite_link,!(S.s
   setTimeout(()=>$("copy").textContent=t("copy"),1500)}catch(e){}};
 function checkLimits(v){
   const lo=Math.max(2,S&&S.server?S.server.members.length:2), hi=S&&S.server?S.server.group.member_cap:v.max_members;
-  if(![v.max_members,v.max_tasks_per_day,v.max_task_minutes].every(Number.isInteger))return t("r_integer");
+  if(![v.max_members,v.max_tasks_per_day,v.max_task_minutes].every(x=>x==null||Number.isInteger(x)))return t("r_integer");
   if(v.max_members<lo||v.max_members>hi)return t("r_members",lo,hi);
-  if(v.max_tasks_per_day<1||v.max_tasks_per_day>50)return t("r_tasks");
-  if(v.max_task_minutes<1||v.max_task_minutes>60)return t("r_minutes");
+  if(v.max_tasks_per_day!=null&&(v.max_tasks_per_day<1||v.max_tasks_per_day>50))return t("r_tasks");
+  if(v.max_task_minutes!=null&&(v.max_task_minutes<1||v.max_task_minutes>60))return t("r_minutes");
   if(!Number.isInteger(v.max_concurrent_tasks)||v.max_concurrent_tasks<1||v.max_concurrent_tasks>3)return t("r_concurrency");
   return "";
 }
 function setFlash(text,ms){flash=text;render();if(ms)setTimeout(()=>{flash="";render()},ms)}
 $("save").onclick=async()=>{
-  const v={max_members:Number($("max_members").value),max_tasks_per_day:Number($("max_tasks").value),
-    max_task_minutes:Number($("max_minutes").value),auto_approve_members:$("auto").checked,
+  const v={max_members:Number($("max_members").value),max_tasks_per_day:$("max_tasks").value.trim()===""?null:Number($("max_tasks").value),
+    max_task_minutes:$("max_minutes").value.trim()===""?null:Number($("max_minutes").value),auto_approve_members:$("auto").checked,
     max_concurrent_tasks:Number($("concurrency").value)};
   const tools=[...document.querySelectorAll("#tools input[data-tool]")];
   if(tools.length)v.allowed_tools=tools.filter(c=>c.checked).map(c=>c.dataset.tool);

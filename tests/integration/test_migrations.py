@@ -37,6 +37,7 @@ async def test_migration_applied_once_and_rerun_is_noop(migrated_database):
         "0014_general_tasks",
         "0015_network_on_by_default",
         "0016_member_limits",
+        "0018_member_controls_and_unlimited_limits",
     ]
 
 
@@ -55,6 +56,7 @@ def test_seed_files_are_not_schema_migrations():
         "0014_general_tasks",
         "0015_network_on_by_default",
         "0016_member_limits",
+        "0018_member_controls_and_unlimited_limits",
     ]
     assert [m.version for m in discover(include_seed=True)] == [
         "0002_seed_dev",

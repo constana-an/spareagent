@@ -5,7 +5,7 @@ export function limitsUpdate(connectionId, groupId, form) {
   return {
     connection_id: connectionId,
     group_id: groupId,
-    max_tasks_per_day: Number(form.get("daily")),
-    max_task_duration_seconds: Number(form.get("duration")),
+    max_tasks_per_day: String(form.get("daily") || "").trim() ? Number(form.get("daily")) : null,
+    max_task_duration_seconds: String(form.get("duration") || "").trim() ? Number(form.get("duration")) : null,
   };
 }

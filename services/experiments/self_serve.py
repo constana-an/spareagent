@@ -373,7 +373,7 @@ class SelfServeSharingService:
                 else None
             )
             for key in ("max_tasks_per_day", "max_task_duration_seconds"):
-                if body.get(key) is not None:
+                if key in body:
                     setattr(group, key, body[key])
                     if prefs is not None:
                         setattr(prefs, key, body[key])
@@ -388,7 +388,7 @@ class SelfServeSharingService:
                 "self_serve.settings",
                 "group",
                 group.id,
-                **{k: v for k, v in body.items() if v is not None},
+                **body,
             )
         return await self.status(worker_id)
 
@@ -503,6 +503,37 @@ class SelfServeSharingService:
             )
         return await self.status(worker_id)
 
+    async def set_member_access(
+        self, worker_id: uuid.UUID, user_id: uuid.UUID, *, paused: bool
+    ) -> dict[str, Any]:
+        """Keep membership and the invite code; disconnecting cancels unfinished work."""
+        self._require_enabled()
+        async with self.ctx.sessionmaker() as session, session.begin():
+            owner_id, group = await self._owner_group(session, worker_id, lock=True)
+            if user_id == owner_id:
+                raise DomainError(422, "CANNOT_CHANGE_OWNER", "The owner cannot be disconnected")
+            member = await self.participation._membership(session, group.id, user_id)
+            if member is None or member.status == "REMOVED":
+                raise not_found("MEMBER_NOT_FOUND", "Member not found")
+            member.access_paused = paused
+            if paused:
+                await self.participation._cancel_tasks(
+                    session,
+                    (ExperimentalTaskConsent.group_id == group.id)
+                    & (ExperimentalTaskConsent.requester_id == user_id),
+                    "MEMBER_ACCESS_PAUSED",
+                )
+            _audit(
+                session,
+                owner_id,
+                "self_serve.member.access",
+                "group",
+                group.id,
+                user=user_id,
+                paused=paused,
+            )
+        return await self.status(worker_id)
+
     async def dashboard_login(self, worker_id: uuid.UUID) -> dict[str, Any]:
         """A one-time dashboard sign-in code for the owner of this device."""
         from db.models import FriendsLoginInvite
@@ -593,6 +624,7 @@ class SelfServeSharingService:
                 {
                     "user_id": m.user_id,
                     "status": m.status,
+                    "access_paused": m.access_paused,
                     "joined_at": m.joined_at,
                     "is_owner": m.user_id == owner_id,
                     "tasks_last_24h": int(per_member.get(m.user_id, {}).get("tasks", 0)),
@@ -705,6 +737,7 @@ class SelfServeSharingService:
                 )
                 session.add(member)
             member.status, member.removed_at = "ACTIVE", None
+            member.access_paused = False
             member.joined_at, member.terms_version = now, terms_version
             member.acknowledgements = {k: True for k in JOIN_ACKNOWLEDGEMENTS}
             _audit(session, principal.user_id, "self_serve.join", "group", group.id)
