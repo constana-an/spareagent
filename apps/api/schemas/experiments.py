@@ -324,6 +324,7 @@ class ExperimentalTaskCreate(Strict):
     repository_url: StrictStr | None = Field(default=None, max_length=200)
     commit_sha: StrictStr | None = None
     attachments: list[uuid.UUID] = Field(default_factory=list, max_length=5)
+    parent_task_id: uuid.UUID | None = None
     parameters: dict[
         Annotated[StrictStr, Field(pattern=r"^[a-z_]{1,32}$")],
         Annotated[StrictStr, Field(max_length=100)],
@@ -372,6 +373,7 @@ class ExperimentalTaskCreate(Strict):
             "group_id": self.group_id,
             "connection_id": self.connection_id,
             "execution_mode": self.execution_mode,
+            **({"parent_task_id": self.parent_task_id} if self.parent_task_id else {}),
             # Only when asked, so idempotency digests of other requests are unchanged.
             **({"network_access": True} if self.network_access else {}),
         }
@@ -426,6 +428,8 @@ class DecisionOut(BaseModel):
 
 class ExperimentalTaskOut(BaseModel):
     id: uuid.UUID
+    parent_task_id: uuid.UUID | None = None
+    conversation_id: uuid.UUID | None = None
     status: str
     task_type: str
     kind: str

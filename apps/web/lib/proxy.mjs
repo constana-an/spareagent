@@ -13,7 +13,7 @@ const routes = [
   ["POST", "^sharing/(enable|pause|revoke)$"],
   ["GET", "^experimental-tasks(/nodes)?$"],
   ["POST", "^experimental-tasks$"],
-  ["GET", `^experimental-tasks/${uuid}(/pilot-report)?$`],
+  ["GET", `^experimental-tasks/${uuid}(/pilot-report|/conversation)?$`],
   ["POST", `^experimental-tasks/${uuid}/(approve|reject)$`],
   ["GET", `^tasks/${uuid}/(events|artifacts)$`],
   ["GET", `^tasks/${uuid}/artifacts/${uuid}/content$`],

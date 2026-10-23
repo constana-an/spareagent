@@ -129,6 +129,8 @@ async def _task_out(request: Request, view: ExperimentalTaskView) -> Experimenta
         )
     return ExperimentalTaskOut(
         id=t.id,
+        parent_task_id=(t.spec or {}).get("parent_task_id"),
+        conversation_id=(t.spec or {}).get("conversation_id", t.id),
         status=t.status,
         task_type=t.task_type,
         kind=t.task_type,
@@ -587,6 +589,40 @@ async def get_task(
 ) -> ExperimentalTaskOut:
     tid = parse_uuid_or_404(task_id, "TASK_NOT_FOUND")
     return await _task_out(request, await svc(request).get_task(principal, tid))
+
+
+@router.get(
+    "/experimental-tasks/{task_id}/conversation",
+    operation_id="getTaskConversation",
+    response_model=ExperimentalTaskList,
+)
+async def conversation(
+    task_id: str, request: Request, principal: Principal = Depends(get_principal)
+) -> ExperimentalTaskList:
+    tid = parse_uuid_or_404(task_id, "TASK_NOT_FOUND")
+    view = await svc(request).get_task(principal, tid)
+    root = (view.task.spec or {}).get("conversation_id", str(tid))
+    from sqlalchemy import or_
+
+    from db.models import Task
+
+    async with get_ctx(request).sessionmaker() as session:
+        rows = list(
+            (
+                await session.execute(
+                    select(Task)
+                    .where(
+                        Task.consumer_id == view.task.consumer_id,
+                        or_(Task.id == root, Task.spec["conversation_id"].astext == root),
+                    )
+                    .order_by(Task.created_at, Task.id)
+                )
+            ).scalars()
+        )
+    items = []
+    for task in rows:
+        items.append(await _task_out(request, await svc(request).get_task(principal, task.id)))
+    return ExperimentalTaskList(items=items)
 
 
 @router.post(

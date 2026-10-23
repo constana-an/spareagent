@@ -8,13 +8,15 @@ code paths as the in-process local worker, so both execution modes share one lif
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import time
 import uuid
+from types import SimpleNamespace
 from typing import Any
 
 from sqlalchemy import select
 
-from db.models import Resource, Task, TaskAttempt, TaskUpload, WorkerNode
+from db.models import Artifact, Resource, Task, TaskAttempt, TaskUpload, WorkerNode
 from packages.provider_sdk.mock import CODE_MODEL, PROVIDER_NAME
 from packages.provider_sdk.types import ArtifactPayload, UsageReport
 from services.context import AppContext
@@ -24,6 +26,7 @@ from services.observability import redact
 from services.registry.node_auth import NodePrincipal
 from services.scheduler.dispatcher import Dispatcher, execution_request
 from services.scheduler.lease_service import ACTIVE_ATTEMPT_STATUSES, utcnow
+from services.tasks.conversations import context_file, execution_prompt, input_task_ids
 from services.tasks.uploads import UploadService
 
 NODE_STATES = {"ONLINE", "DRAINING", "OFFLINE"}
@@ -58,7 +61,7 @@ def assignment(
             "kind": task.task_type,
             "repository_url": task.repository_url,
             "commit_sha": task.commit_sha.strip() if task.commit_sha else None,
-            "prompt": redact(task.prompt),
+            "prompt": redact(execution_prompt(task)),
             "max_duration_seconds": task.max_duration_seconds,
             "max_budget_cents": task.max_budget_cents,
             "deliverable": (task.spec or {}).get("deliverable"),
@@ -142,7 +145,31 @@ class RemoteWorkerService:
             if row is None:
                 return None
             attempt, task = row
-            inputs = (await UploadService.for_tasks(session, [task.id]))[task.id]
+            input_groups = await UploadService.for_tasks(session, input_task_ids(task))
+            inputs = [u for group in input_groups.values() for u in group]
+            for artifact in await self._context_artifacts(session, task):
+                content = await self.ctx.artifacts.get(artifact.storage_key)
+                inputs.append(
+                    SimpleNamespace(
+                        id=artifact.id,
+                        filename=artifact.name,
+                        size_bytes=len(content),
+                        sha256=artifact.sha256,
+                        media_type=artifact.media_type,
+                    )
+                )
+            if (task.spec or {}).get("parent_task_id"):
+                content = context_file(task)
+                inputs.insert(
+                    0,
+                    SimpleNamespace(
+                        id=task.id,
+                        filename=f"conversation-{task.id}.md",
+                        size_bytes=len(content),
+                        sha256=hashlib.sha256(content).hexdigest(),
+                        media_type="text/markdown",
+                    ),
+                )
             out = assignment(task, attempt, self.ctx.settings.lease_seconds, inputs)
             if task.resource_scope == "EXPERIMENTAL_SHARED_SUBSCRIPTION":
                 from db.models import ExperimentalDispatchAudit
@@ -173,9 +200,40 @@ class RemoteWorkerService:
             if attempt.status not in ACTIVE_ATTEMPT_STATUSES or attempt.leased_until <= utcnow():
                 raise DomainError(409, "LEASE_NOT_ACTIVE", "The lease is no longer active")
             upload = await session.get(TaskUpload, input_id)
-            if upload is None or upload.task_id != attempt.task_id:
-                raise not_found("INPUT_NOT_FOUND", "Input not found")
+            task = await session.get(Task, attempt.task_id)
+            if input_id == task.id and (task.spec or {}).get("parent_task_id"):
+                content = context_file(task)
+                return SimpleNamespace(
+                    id=task.id, sha256=hashlib.sha256(content).hexdigest()
+                ), content
+            if upload is None or upload.task_id not in input_task_ids(task):
+                upload = next(
+                    (a for a in await self._context_artifacts(session, task) if a.id == input_id),
+                    None,
+                )
+                if upload is None:
+                    raise not_found("INPUT_NOT_FOUND", "Input not found")
         return upload, await self.ctx.artifacts.get(upload.storage_key)
+
+    @staticmethod
+    async def _context_artifacts(session, task):
+        ids = [uuid.UUID(value) for value in (task.spec or {}).get("context_artifact_ids", [])]
+        if not ids:
+            return []
+        return list(
+            (
+                await session.execute(
+                    select(Artifact)
+                    .where(
+                        Artifact.id.in_(ids),
+                        Artifact.task_id.in_(input_task_ids(task)),
+                        Artifact.kind == "DELIVERABLE",
+                        Artifact.published.is_(True),
+                    )
+                    .order_by(Artifact.created_at, Artifact.id)
+                )
+            ).scalars()
+        )
 
     async def _claimer(self, worker_id: uuid.UUID):
         """A personal (owner's own) device claims experimental tasks - LIVE and simulated

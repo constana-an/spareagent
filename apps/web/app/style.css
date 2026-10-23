@@ -1496,3 +1496,15 @@ img.preview {
 .markdown-answer table { display: block; overflow-x: auto; }
 .markdown-answer img { max-width: 100%; height: auto; }
 .markdown-answer blockquote { margin-left: 0; padding-left: 16px; border-left: 3px solid var(--line); color: var(--muted); }
+
+/* Saved conversation turns and continuation. */
+.conversation { display: grid; gap: 20px; margin-bottom: 20px; }
+.conversation-turn { display: grid; gap: 16px; }
+.user-message { padding: 16px; margin-left: 24px; border-radius: 16px; background: var(--panel-soft, #f0f3f8); overflow-wrap: anywhere; }
+.user-message > small { display: block; margin-bottom: 8px; color: var(--muted); }
+.answer-text { white-space: pre-wrap; line-height: 1.7; }
+.chat-materials { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.chat-materials span { display: inline-flex; gap: 4px; align-items: center; font-size: 12px; }
+.followup-button { margin-bottom: 20px; }
+.context-hint { color: var(--muted); font-size: 13px; }
+@media (max-width: 640px) { .user-message { margin-left: 8px; } }

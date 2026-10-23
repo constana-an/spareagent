@@ -830,6 +830,19 @@ class ExperimentalParticipationService:
             if group.status != "ACTIVE":
                 raise conflict("GROUP_DISABLED", "Group is disabled")
             kind, spec = await _check_kind(session, body)
+            if body.get("parent_task_id"):
+                from services.tasks.conversations import followup_spec
+
+                spec.update(
+                    await followup_spec(
+                        self.ctx,
+                        session,
+                        principal.user_id,
+                        body["parent_task_id"],
+                        group.id,
+                        conn.id,
+                    )
+                )
             allowed = set(group.allowed_task_types) & set(prefs.allowed_task_types)
             if kind.kind not in allowed:
                 raise DomainError(422, "TASK_TYPE_NOT_ALLOWED", "Task type not allowed")

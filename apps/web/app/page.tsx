@@ -76,7 +76,10 @@ type Node = {
 };
 type Task = {
   id: string;
+  conversation_id?: string;
+  parent_task_id?: string | null;
   group_id: string;
+  requester_id?: string;
   status: string;
   task_type: string;
   execution_mode: string;
@@ -359,6 +362,10 @@ export default function Dashboard() {
     [query, setQuery] = useState(""),
     [tab, setTab] = useState<"result" | "log">("result");
   const [connectionChoice, setConnectionChoice] = useState("");
+  const [followup, setFollowup] = useState<Task | null>(null);
+  const [conversation, setConversation] = useState<{ task: Task; answer: string }[]>([]);
+  const [conversationError, setConversationError] = useState("");
+  const [conversationRetry, setConversationRetry] = useState(0);
   const [executionChoice, setExecutionChoice] = useState<"LIVE" | "SIMULATED" | null>(null);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [kinds, setKinds] = useState<TaskKind[]>([]),
@@ -584,6 +591,34 @@ export default function Dashboard() {
       clearInterval(timer);
     };
   }, [selected?.id]);
+  useEffect(() => {
+    setConversation([]);
+    setConversationError("");
+    if (!selected) return;
+    let gone = false;
+    void (async () => {
+      try {
+        const result = await api<{ items: Task[] }>(`experimental-tasks/${selected.id}/conversation`);
+        const turns = await Promise.all(result.items.map(async (task) => {
+          if (!terminal.has(task.status)) return { task, answer: "" };
+          const result = await api<{ items: Artifact[] }>(`tasks/${task.id}/artifacts`);
+          const answer = result.items.find((a) => a.name === "answer.md") ||
+            result.items.find((a) => a.kind === "SUMMARY");
+          let text = task.result_summary || "";
+          if (answer) {
+            const response = await fetch(`/api/tasks/${task.id}/artifacts/${answer.id}/content`);
+            if (!response.ok) throw new Error(t("conversation_load_failed"));
+            text = await response.text();
+          }
+          return { task, answer: text };
+        }));
+        if (!gone) setConversation(turns);
+      } catch (error) {
+        if (!gone) setConversationError((error as Error).message);
+      }
+    })();
+    return () => { gone = true; };
+  }, [selected?.id, selected?.status, conversationRetry]);
   // Each result file's size, and the start of text and image files, for the result tab.
   const previewIds = artifacts
     .filter((a) => a.kind === "DELIVERABLE")
@@ -715,7 +750,14 @@ export default function Dashboard() {
       kind,
     );
   };
+  const continueConversation = (task: Task) => {
+    setFollowup(task); setDraft(null); setFiles([]); setAttachError("");
+    setPrompt(""); setConnectionChoice(task.connection_id || "");
+    setExecutionChoice(task.execution_mode === "LIVE" ? "LIVE" : "SIMULATED");
+    setFormKey((key) => key + 1); setComposing(true); setError("");
+  };
   const resubmit = (x: Task) => {
+    setFollowup(x.parent_task_id ? x : null);
     const d = draftFrom(x);
     setConnectionChoice("");
     setExecutionChoice(null);
@@ -976,7 +1018,7 @@ export default function Dashboard() {
               type="button"
               className={composing ? "quiet" : ""}
               aria-expanded={composing}
-              onClick={() => { setConnectionChoice(""); setExecutionChoice(null); setComposing(!composing); }}
+              onClick={() => { setFollowup(null); setDraft(null); setPrompt(""); setFiles([]); setConnectionChoice(""); setExecutionChoice(null); setComposing(!composing); }}
             >
               {composing ? t("close_compose") : `＋ ${t("new_task")}`}
             </button>
@@ -1068,7 +1110,8 @@ export default function Dashboard() {
                         {
                           kind: kind.kind,
                           group_id: gid,
-                          connection_id: f.get("connection"),
+                          connection_id: followup?.connection_id || f.get("connection"),
+                          ...(followup ? { parent_task_id: followup.id } : {}),
                           requirement: f.get("prompt"),
                           max_duration_seconds: String(f.get("timeout") || "").trim() ? Number(f.get("timeout")) : null,
                           execution_mode: f.get("mode"),
@@ -1082,6 +1125,7 @@ export default function Dashboard() {
                       setFiles([]);
                       setPrompt("");
                       setDraft(null);
+                      setFollowup(null);
                       setFormKey((k) => k + 1);
                       setComposing(false);
                       setSelected(created);
@@ -1089,7 +1133,7 @@ export default function Dashboard() {
                   }}
                 >
                   <div className="compose-head">
-                    <h2>{t("compose_title")}</h2>
+                    <h2>{t(followup ? "followup_title" : "compose_title")}</h2>
                     <span className={`state small ${target?.online ? "ok" : ""}`}>
                       {!others.length
                         ? t("no_device_pill")
@@ -1098,6 +1142,7 @@ export default function Dashboard() {
                           : t("device_offline_pill")}
                     </span>
                   </div>
+                  {followup && <p className="context-hint">{t("context_reused")}</p>}
                   <label className="field-label">
                     {t("describe_result")}
                     <textarea
@@ -1232,6 +1277,7 @@ export default function Dashboard() {
                       {t("owner_device")}
                       <select
                         name="connection"
+                        disabled={!!followup}
                         required
                         value={target?.connection_id || ""}
                         onChange={(e) => setConnectionChoice(e.target.value)}
@@ -1453,7 +1499,7 @@ export default function Dashboard() {
                     )}
                   </dl>
                   <div className="actions">
-                    {terminal.has(selected.status) && tasks.some((x) => x.id === selected.id) && (
+                    {terminal.has(selected.status) && selected.status !== "SUCCEEDED" && tasks.some((x) => x.id === selected.id) && (
                       <button className="quiet" onClick={() => resubmit(selected)}>
                         {t("edit_resubmit")}
                       </button>
@@ -1514,8 +1560,29 @@ export default function Dashboard() {
                   </div>
                   {tab === "result" ? (
                     <div role="tabpanel">
-                      {answerText && <Answer text={answerText} copyLabel={t("copy_answer")} onCopy={() =>
-                        void act(() => navigator.clipboard.writeText(answerText), t("copied"), false)} />}
+                      <div className="conversation" aria-label={t("conversation_label")}>
+                        {conversationError && <p role="alert">{t("conversation_load_failed")}
+                          <button className="quiet" onClick={() => setConversationRetry((n) => n + 1)}>{t("retry_load")}</button></p>}
+                        {conversation.map(({ task, answer }) => <div className="conversation-turn" key={task.id}>
+                          <article className="chat-message user-message"><small>{t("you_label")}</small>
+                            <div className="answer-text">{task.requirement || task.prompt}</div>
+                            {!!task.attachments?.length && <div className="chat-materials">
+                              {task.attachments.map((a) => <span key={a.id}><FileIcon name={a.filename} size={16} /> {a.filename}</span>)}
+                            </div>}
+                          </article>
+                          {answer && <div>
+                            <Answer text={answer} copyLabel={t("copy_answer")} onCopy={() =>
+                              void act(() => navigator.clipboard.writeText(answer), t("copied"), false)} />
+                            {task.id !== selected.id && <button className="quiet" onClick={() => setSelected(task)}>{t("view_turn_files")}</button>}
+                          </div>}
+                        </div>)}
+                        {!conversation.length && answerText && <Answer text={answerText} copyLabel={t("copy_answer")}
+                          onCopy={() => void act(() => navigator.clipboard.writeText(answerText), t("copied"), false)} />}
+                      </div>
+                      {terminal.has(selected.status) && selected.requester_id === me.user_id &&
+                        <button className="followup-button" disabled={busy || (!!conversation.length && !terminal.has(conversation[conversation.length - 1].task.status))} onClick={() => continueConversation(
+                          conversation.length ? conversation[conversation.length - 1].task : selected
+                        )}>{t("continue_conversation")} ＋</button>}
                       {running && (
                         <div className="progress-block">
                           {selected.progress?.percent != null && (

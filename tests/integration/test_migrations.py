@@ -39,6 +39,7 @@ async def test_migration_applied_once_and_rerun_is_noop(migrated_database):
         "0016_member_limits",
         "0018_member_controls_and_unlimited_limits",
         "0019_member_nicknames",
+        "0020_conversations",
     ]
 
 
@@ -59,6 +60,7 @@ def test_seed_files_are_not_schema_migrations():
         "0016_member_limits",
         "0018_member_controls_and_unlimited_limits",
         "0019_member_nicknames",
+        "0020_conversations",
     ]
     assert [m.version for m in discover(include_seed=True)] == [
         "0002_seed_dev",

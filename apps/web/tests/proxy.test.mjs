@@ -200,3 +200,8 @@ test("the dashboard is accepted on each configured network origin, nothing else"
     assert.equal((await send(ok)).status, 200);
   assert.equal((await send("https://evil.example")).status, 403);
 });
+
+test("conversation history is a read-only dashboard route", () => {
+  assert.equal(allowed("GET", "experimental-tasks/11111111-1111-4111-8111-111111111111/conversation"), true);
+  assert.equal(allowed("POST", "experimental-tasks/11111111-1111-4111-8111-111111111111/conversation"), false);
+});
