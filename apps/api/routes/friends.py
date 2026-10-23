@@ -181,7 +181,7 @@ async def join_with_code(body: JoinCodeIn, request: Request, response: Response)
             # as a new participant who would take another seat and lose their history.
             principal = await remembered_principal(request, ctx)
     user_id, role, _ = await SelfServeSharingService(ctx).join_with_code(
-        principal, body.code, body.acknowledgements, body.terms_version
+        principal, body.code, body.acknowledgements, body.terms_version, nickname=body.nickname
     )
     if not signed_in or principal.user_id != user_id:
         async with ctx.sessionmaker() as session, session.begin():

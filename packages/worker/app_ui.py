@@ -311,7 +311,8 @@ zh: {
  tasks_title:"最近的任务", time:"时间", kind:"类型", status:"状态", approval:"批准",
  approved_auto:"自动批准", approved_owner:"你批准", pending:"等待批准", rejected:"已拒绝",
  open_dashboard:"打开网页控制台",
- live_blocked:"注意：服务器暂未开启真实执行，任务会排队等待，直到运营者开启。",
+ live_blocked:"当前仅可试运行，不会生成真实结果。真实执行需要运营者开启。",
+ live_authorization_blocked:"分享授权暂不可用，当前不能接单。请联系运营者。",
  footer:"关闭这个页面不会下线；关闭运行它的终端窗口或按 Ctrl-C 会自动下线。",
  footer_app:"关闭这个页面会继续运行。可从菜单栏打开控制页、暂停分享或退出 SpareAgent。",
  e_bundle_missing:"缺少运营者提供的连接配置（bundle.json）。请用运营者给你的安装包重新安装。", net_label:"连接方式", net_auto:"自动（先试可用的）", net_ok:"可连接", net_down:"连不上",
@@ -375,7 +376,8 @@ zh: {
  sub_ERROR:"修复下面的问题后重试。", sub_FIRST:"看完上面的说明，点「同意并上线」。",
  quota_title:"订阅额度", left:(p)=>`剩 ${p}%`, win_week:"本周额度", win_days:(d)=>`${d} 天额度`, win_hours:(h)=>`${h} 小时额度`, win_minutes:(m)=>`${m} 分钟额度`,
  reset_min:(m)=>`${m} 分钟后重置`, reset_hm:(h,m)=>`${h} 小时 ${m} 分后重置`, reset_at:(s)=>`${s} 重置`,
- quota_fb_ok:"正常（暂时读不到具体百分比）", quota_fb_low:"快用完了", quota_fb_exhausted:"已用完，恢复后再接任务",
+ quota_fb_unknown:"暂时无法读取额度，请查看 ChatGPT 用量页面。", quota_fb_low:"快用完了", quota_fb_exhausted:"已用完，恢复后再接任务",
+ quota_checked:(d)=>`上次读取：${d}`,
  now_title:"现在", now_idle:"空闲", now_running:(n)=>`运行 ${n}`, now_sub:(q,n,m)=>`排队 ${q} · 24 小时内 ${n} 个任务 · ${m} 分钟`,
  members_count:(n,m)=>`${n} / ${m}`, owner_name:"你（主人）", member_name:(id)=>`成员 ${id}`, m_used_short:(n,m)=>`${n} 个 · ${m} 分钟`,
  m_capped:"已单独限额", limits_btn:"备注与限额", member_note:"备注名（最多 40 字）", save_note:"保存备注",
@@ -395,7 +397,7 @@ zh: {
  col_task:"任务", col_member:"成员", col_elapsed:"已运行", col_progress:"进度", col_time:"时间", col_event:"事件",
  col_submitted:"提交时间", col_status:"状态", log_title:"日志", log_received:(k,m)=>`收到任务 ${k}（${m}）`,
  log_started:(k)=>`开始执行 ${k}`, log_joined:(m)=>`${m} 加入`, log_none:"还没有记录。",
- left_suffix:"剩余", quota_short_ok:"正常", quota_short_low:"快用完", quota_short_exhausted:"已用完",
+ left_suffix:"剩余", quota_short_unknown:"额度未知", quota_short_low:"快用完", quota_short_exhausted:"已用完",
  m_running:"执行中", m_queued:(n)=>`排队 ${n}`, m_day:"24 小时内任务", m_minutes:(m)=>`执行 ${m} 分钟`,
  sw_auto:"自动接单", sw_auto_sub:"成员的任务在上限内自动批准", sw_network:"允许联网", sw_network_sub:"成员勾选「需要联网」的任务可以上网",
  preset_line:(n,m,c)=>`${n==null?"任务数量不限":`每天 ${n} 个任务`} · ${m==null?"单次时间不限":`单个 ${m} 分钟`} · 同时 ${c} 个`, invite_code:"邀请码",
@@ -449,7 +451,8 @@ en: {
  tasks_title:"Recent tasks", time:"Time", kind:"Type", status:"Status", approval:"Approval",
  approved_auto:"Automatic", approved_owner:"By you", pending:"Pending", rejected:"Rejected",
  open_dashboard:"Open web dashboard",
- live_blocked:"Note: real execution is not enabled on the server yet; tasks wait until the operator enables it.",
+ live_blocked:"Trial runs only; no real results are generated. The operator must enable real execution.",
+ live_authorization_blocked:"Sharing authorization is unavailable; tasks cannot run. Contact the operator.",
  footer:"Closing this page does not go offline; closing the Terminal window that runs it, or Ctrl-C, does.",
  footer_app:"Closing this page keeps SpareAgent running. Use the menu bar to open the control page, pause sharing or quit.",
  e_bundle_missing:"The operator's connection file (bundle.json) is missing. Reinstall from the operator's package.", net_label:"Connection", net_auto:"Automatic (first that works)", net_ok:"reachable", net_down:"unreachable",
@@ -501,7 +504,8 @@ en: {
  sub_ERROR:"Fix the issue below, then retry.", sub_FIRST:"Read the terms above, then click “Agree and go online”.",
  quota_title:"Plan usage", left:(p)=>`${p}% left`, win_week:"This week", win_days:(d)=>`${d}-day window`, win_hours:(h)=>`${h}-hour window`, win_minutes:(m)=>`${m}-minute window`,
  reset_min:(m)=>`resets in ${m} min`, reset_hm:(h,m)=>`resets in ${h} h ${m} min`, reset_at:(s)=>`resets ${s}`,
- quota_fb_ok:"OK (exact percentages unavailable)", quota_fb_low:"Running low", quota_fb_exhausted:"Used up; tasks resume after it resets",
+ quota_fb_unknown:"Allowance could not be read. Check your ChatGPT usage page.", quota_fb_low:"Running low", quota_fb_exhausted:"Used up; tasks resume after it resets",
+ quota_checked:(d)=>`Last read: ${d}`,
  now_title:"Now", now_idle:"Idle", now_running:(n)=>`${n} running`, now_sub:(q,n,m)=>`${q} queued · ${n} tasks, ${m} min in 24 h`,
  members_count:(n,m)=>`${n} / ${m}`, owner_name:"You (owner)", member_name:(id)=>`Member ${id}`, m_used_short:(n,m)=>`${n} tasks · ${m} min`,
  m_capped:"own cap", limits_btn:"Name & limits", member_note:"Name on this Mac (up to 40 characters)", save_note:"Save name",
@@ -521,7 +525,7 @@ en: {
  col_task:"Task", col_member:"Member", col_elapsed:"Running", col_progress:"Progress", col_time:"Time", col_event:"Event",
  col_submitted:"Submitted", col_status:"Status", log_title:"Log", log_received:(k,m)=>`Received ${k} (${m})`,
  log_started:(k)=>`Started ${k}`, log_joined:(m)=>`${m} joined`, log_none:"Nothing yet.",
- left_suffix:" left", quota_short_ok:"OK", quota_short_low:"Low", quota_short_exhausted:"Used up",
+ left_suffix:" left", quota_short_unknown:"Unknown", quota_short_low:"Low", quota_short_exhausted:"Used up",
  m_running:"Running", m_queued:(n)=>`${n} queued`, m_day:"Tasks in 24 h", m_minutes:(m)=>`${m} min of work`,
  sw_auto:"Accept tasks automatically", sw_auto_sub:"Members' tasks are approved within your limits", sw_network:"Allow internet",
  sw_network_sub:"Tasks marked “needs internet” may go online",
@@ -636,7 +640,10 @@ function render(){
   $("conn_dot").className="dot"+(srv&&!bad?" on":bad?" bad":"");
   $("conn_text").textContent=bad?t("conn_down"):srv?t("conn_ok"):"";
   const notes=[];
-  if(srv&&!srv.live_ready)notes.push(t("live_blocked"));
+  if(srv&&!srv.live_ready){
+    const blockers=srv.live_blockers||[];
+    notes.push(t(blockers.some(x=>x!=="LIVE_EXECUTION_DISABLED")?"live_authorization_blocked":"live_blocked"));
+  }
   if(S.connection_error)notes.push(t("e_"+S.connection_error));
   else if(S.server_error)notes.push(t("e_server_unreachable")+S.server_error);
   if(!S.bundle_ok)notes.push(t("e_bundle_missing"));
@@ -665,8 +672,10 @@ function renderMetrics(srv){
   const box=$("metrics"), q=S.quota;
   show(box,!!(srv||q)); box.innerHTML="";
   const wins=(q&&q.windows)||[];
-  wins.slice(0,2).forEach(w=>box.append(metric(windowName(w.minutes)+t("left_suffix"),[String(w.remaining_percent),"%"],resetText(w.resets_at),w.remaining_percent)));
-  if(q&&!wins.length){const m=metric(t("quota_title"),t("quota_short_"+(q.level||"ok")),t("quota_fb_"+(q.level||"ok")));
+  const checked=q&&q.checked_at?t("quota_checked",new Date(q.checked_at*1000).toLocaleString(lang==="zh"?"zh-CN":"en-US")):"";
+  wins.slice(0,2).forEach(w=>box.append(metric(windowName(w.minutes)+t("left_suffix"),[String(w.remaining_percent),"%"],[resetText(w.resets_at),checked].filter(Boolean).join(" · "),w.remaining_percent)));
+  if(q&&!wins.length){const level=["low","exhausted"].includes(q.level)?q.level:"unknown";
+    const m=metric(t("quota_title"),t("quota_short_"+level),[t("quota_fb_"+level),checked].filter(Boolean).join(" · "));
     m.style.gridColumn="span 2";box.append(m)}
   if(!srv)return;
   const u=srv.usage||{tasks_started_last_24h:srv.tasks_started_last_24h||0,execution_minutes_last_24h:0,running:0,queued:0};
@@ -675,7 +684,7 @@ function renderMetrics(srv){
 }
 function memberName(srv,id){
   const m=(srv.members||[]).find(m=>m.user_id===id);
-  return m&&m.is_owner?t("you"):(S.member_notes||{})[id]||t("member_name",String(id||"").slice(0,8));
+  return m&&m.is_owner?t("you"):(S.member_notes||{})[id]||(m&&m.nickname)||t("member_name",String(id||"").slice(0,8));
 }
 function taskSummary(x){
   const text=String(x.requirement||x.prompt||"").trim().split(/\n/)[0];
@@ -764,7 +773,7 @@ function renderMembers(srv){
   if(body.contains(document.activeElement)&&document.activeElement.matches("input,textarea,select"))return;
   body.innerHTML="";
   srv.members.forEach(m=>{
-    const name=el("span");name.append(el("span","av",m.is_owner?t("you"):(S.member_notes||{})[m.user_id]?Array.from(S.member_notes[m.user_id])[0]:m.user_id.slice(0,2)),m.is_owner?t("owner_name"):memberName(srv,m.user_id));
+    const name=el("span");name.append(el("span","av",m.is_owner?t("you"):Array.from(memberName(srv,m.user_id))[0]),m.is_owner?t("owner_name"):memberName(srv,m.user_id));
     if(!m.is_owner)name.append(el("small","member-id",m.user_id.slice(0,8)));
     if(m.access_paused)name.append(el("small","member-id",t("member_paused")));
     const tr=el("tr");

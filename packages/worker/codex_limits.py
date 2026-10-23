@@ -5,8 +5,8 @@ run. Only each window's length, remaining percentage and reset time are kept: cr
 balances and plan details are dropped, and nothing is sent off this device.
 
 `quota_status` turns that into what the menu bar shows. When Codex cannot answer (older
-CLI, changed protocol, signed out), it falls back to what finished tasks tell us: a
-recent task stopped by the usage limit means the plan is used up, otherwise it is fine.
+CLI, changed protocol, signed out), a recent usage-limit failure means the plan is used
+up. Otherwise the remaining allowance is unknown.
 """
 
 from __future__ import annotations
@@ -134,7 +134,7 @@ def quota_status(
     tasks: list[dict[str, Any]],
     now: float,
 ) -> dict[str, Any]:
-    """`ok` / `low` / `exhausted`, with the windows when a fresh Codex reading exists."""
+    """Only fresh Codex readings confirm available allowance; keep the last read time."""
     if limits and now - checked_at <= STALE_SECONDS:
         return {
             "source": "codex",
@@ -150,4 +150,9 @@ def quota_status(
     last = finished[0] if finished else {}
     hit = (last.get("failure") or {}).get("category") == "USAGE_LIMIT"
     recent = now - _created(last) <= FALLBACK_WINDOW_SECONDS
-    return {"source": "fallback", "level": "exhausted" if hit and recent else "ok", "windows": []}
+    return {
+        "source": "fallback",
+        "level": "exhausted" if hit and recent else "unknown",
+        "windows": [],
+        "checked_at": int(checked_at) if checked_at > 0 else None,
+    }

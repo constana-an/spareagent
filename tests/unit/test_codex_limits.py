@@ -125,18 +125,23 @@ def task(status: str, minutes_ago: float, category: str | None = None) -> dict:
 @pytest.mark.parametrize(
     ("tasks", "level"),
     [
-        ([], "ok"),
+        ([], "unknown"),
         ([task("FAILED", 30, "USAGE_LIMIT")], "exhausted"),
-        ([task("FAILED", 6 * 60, "USAGE_LIMIT")], "ok"),
-        ([task("FAILED", 60, "USAGE_LIMIT"), task("SUCCEEDED", 10)], "ok"),
+        ([task("FAILED", 6 * 60, "USAGE_LIMIT")], "unknown"),
+        ([task("FAILED", 60, "USAGE_LIMIT"), task("SUCCEEDED", 10)], "unknown"),
         ([task("FAILED", 60, "USAGE_LIMIT"), task("RUNNING", 5)], "exhausted"),
-        ([task("FAILED", 20, "LOGIN")], "ok"),
+        ([task("FAILED", 20, "LOGIN")], "unknown"),
     ],
 )
 def test_without_numbers_the_last_finished_task_decides(tasks, level):
     stale = reading(83, 97)
     status = quota_status(stale, NOW - 3600, tasks, NOW)
-    assert status == {"source": "fallback", "level": level, "windows": []}
+    assert status == {
+        "source": "fallback",
+        "level": level,
+        "windows": [],
+        "checked_at": int(NOW - 3600),
+    }
 
 
 class LimitsCodex:
@@ -164,7 +169,12 @@ async def test_controller_reads_usage_when_due_and_after_each_task(tmp_path):
     c = Controller(
         tmp_path, BUNDLE, codex=codex, probe=reachable, client_factory=lambda s: FakeClient([])
     )
-    assert c.snapshot()["quota"] == {"source": "fallback", "level": "ok", "windows": []}
+    assert c.snapshot()["quota"] == {
+        "source": "fallback",
+        "level": "unknown",
+        "windows": [],
+        "checked_at": None,
+    }
     c.refresh_limits()
     await c._limits_job
     assert c.snapshot()["quota"]["windows"] == reading(83, 97)["windows"]

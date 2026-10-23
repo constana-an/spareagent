@@ -313,6 +313,7 @@ class ExperimentalGroupMember(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), **UUID_PK)
     group_id: Mapped[uuid.UUID] = _fk("experimental_groups.id")
     user_id: Mapped[uuid.UUID] = _fk("users.id")
+    nickname: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'INVITED'"))
     invited_by: Mapped[uuid.UUID] = _fk("users.id")
     invited_at: Mapped[datetime] = _created()

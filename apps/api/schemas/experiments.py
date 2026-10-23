@@ -57,6 +57,7 @@ class GroupCreate(Strict):
 
 class MemberOut(BaseModel):
     access_paused: bool = False
+    nickname: str | None = None
     user_id: uuid.UUID
     status: str
     invited_at: datetime

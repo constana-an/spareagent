@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   draftFrom,
   EXAMPLES,
+  failureGuidance,
   MAX_UPLOAD,
   mergeAttachments,
   newlyFinished,
@@ -16,6 +17,15 @@ import {
 
 const general = { extensions: ["md", "png", "csv"], max_attachments: 2 };
 const file = (name, size = 10) => ({ name, size });
+
+test("failure guidance separates owner fixes, input edits and retryable errors", () => {
+  assert.deepEqual(failureGuidance({ failure: { category: "LOGIN" } }), { category: "LOGIN", action: "owner" });
+  assert.equal(failureGuidance({ failure: { category: "USAGE_LIMIT" } }).action, "owner");
+  assert.equal(failureGuidance({ failure: { category: "INPUT" } }).action, "edit");
+  assert.deepEqual(failureGuidance({ status: "TIMED_OUT" }), { category: "TIMEOUT", action: "edit" });
+  for (const category of ["OTHER", "NEW_ERROR", "toString", undefined])
+    assert.deepEqual(failureGuidance({ failure: { category } }), { category: "OTHER", action: "retry" });
+});
 
 test("SSE timestamp fixes completed duration and missing history never keeps a finished clock running", () => {
   const task = { status: "SUCCEEDED", started_at: "2026-10-22T20:46:00Z" };

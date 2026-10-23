@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, StrictBool, StrictInt, StrictStr
+from pydantic import BaseModel, Field, StrictBool, StrictInt, StrictStr, StringConstraints
 
 from apps.api.schemas.experiments import Strict, TaskType
 
@@ -71,6 +71,7 @@ class GroupSummary(BaseModel):
 
 class MemberSummary(BaseModel):
     access_paused: bool = False
+    nickname: str | None = None
     user_id: uuid.UUID
     status: str
     joined_at: datetime | None
@@ -161,5 +162,14 @@ class DashboardLoginOut(BaseModel):
 
 class JoinCodeIn(Strict):
     code: Annotated[StrictStr, Field(min_length=12, max_length=32)]
+    nickname: (
+        Annotated[
+            StrictStr,
+            StringConstraints(
+                strip_whitespace=True, min_length=1, max_length=40, pattern=r"^[^\x00-\x1f\x7f]+$"
+            ),
+        ]
+        | None
+    ) = None
     terms_version: StrictStr
     acknowledgements: Acks
