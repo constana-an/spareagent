@@ -1,6 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
+from apps.api.schemas.experiments import ExperimentalTaskCreate
 from apps.api.schemas.tasks import IDEMPOTENCY_KEY, TaskCreate
 from services.tasks.service import request_digest
 
@@ -12,6 +13,19 @@ BASE = {
     "max_budget_cents": 100,
     "max_duration_seconds": 60,
 }
+
+
+def test_experimental_request_defaults_to_general_and_keeps_legacy_alias():
+    body = {
+        "requirement": "Write a short fictional notice",
+        "max_duration_seconds": 60,
+        "group_id": "11111111-1111-4111-8111-111111111111",
+        "connection_id": "22222222-2222-4222-8222-222222222222",
+    }
+    assert ExperimentalTaskCreate(**body).normalized()["kind"] == "GENERAL"
+    assert ExperimentalTaskCreate(**body, task_type="CODE_REVIEW").kind == "CODE_REVIEW"
+    with pytest.raises(ValidationError, match="not both"):
+        ExperimentalTaskCreate(**body, kind="GENERAL", task_type="CODE_REVIEW")
 
 
 def test_valid_and_normalized():

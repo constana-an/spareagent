@@ -310,7 +310,7 @@ class DeliverableIn(Strict):
 
 
 class ExperimentalTaskCreate(Strict):
-    """A generic task (docs/GENERAL_TASKS_DESIGN.md §1). The pre-0011 shape is still
+    """A task defaults to GENERAL. The pre-0011 shape is still
     accepted: `task_type` for `kind`, `prompt` for `requirement`, and top-level
     `repository_url`/`commit_sha` for `repository`. No budget: no money is involved."""
 
@@ -337,9 +337,9 @@ class ExperimentalTaskCreate(Strict):
 
     @model_validator(mode="after")
     def _normalize(self):
-        if (self.kind is None) == (self.task_type is None):
-            raise ValueError("give exactly one of kind or task_type")
-        self.kind = self.kind or self.task_type
+        if self.kind is not None and self.task_type is not None:
+            raise ValueError("give kind or task_type, not both")
+        self.kind = self.kind or self.task_type or "GENERAL"
         self.task_type = None
         if (self.requirement is None) == (self.prompt is None):
             raise ValueError("give exactly one of requirement or prompt")

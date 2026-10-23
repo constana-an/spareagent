@@ -181,16 +181,12 @@ h3.sub{font-size:13px;margin:14px 0 6px}
     <table><thead><tr><th data-t="col_task"></th><th data-t="col_member"></th><th data-t="col_elapsed"></th><th data-t="col_progress"></th></tr></thead>
     <tbody id="running_rows"></tbody></table>
   </section>
-  <div class="cols hidden" id="switch_cols">
+  <div class="hidden" id="switch_cols">
     <section class="panel">
       <h2 data-t="settings_title"></h2>
       <div class="seg" id="presets" role="group" style="margin-bottom:8px"></div>
       <p class="muted" id="preset_summary" style="font-size:12px;margin:0 0 6px"></p>
       <div id="sharing_switches"></div>
-    </section>
-    <section class="panel">
-      <h2 data-t="kinds_title"></h2>
-      <div id="kind_switches"></div>
     </section>
   </div>
   <section class="panel flush hidden" id="log">
@@ -232,8 +228,6 @@ h3.sub{font-size:13px;margin:14px 0 6px}
       <label><span data-t="max_minutes"></span><input id="max_minutes" type="number" min="1" max="60"></label>
       <label><span data-t="concurrency"></span><input id="concurrency" type="number" min="1" max="3"></label>
     </div>
-    <h3 class="sub" data-t="kinds_title"></h3>
-    <div id="kinds" class="checks"></div>
     <h3 class="sub" data-t="tools_title"></h3>
     <div id="tools" class="checks"></div>
     <label style="margin-top:10px"><input id="auto" type="checkbox"><span data-t="auto_approve"></span></label>
@@ -293,7 +287,7 @@ zh: {
  retry_hint:"修复上面的提示后，点「重试上线」。已安装的组件和已通过的自检会保留。",
  ack_1:"这是私人、非商业的实验，没有任何付费、转售或报酬。",
  ack_2:"我的 ChatGPT 账号只在这台电脑的官方 Codex CLI 里登录，密码和登录凭据不会交给 SpareAgent 或任何人。",
- ack_3:"小组成员提交的任务会在设置的上限内自动批准，并使用我自己的订阅额度在这台电脑上运行（只限我允许的任务种类和工具，在隔离的临时目录中执行；仅在成员勾选且你允许时联网）。",
+ ack_3:"小组成员提交的任务会在设置的上限内自动批准，并使用我自己的订阅额度在这台电脑上运行（使用我允许的工具，在隔离的临时目录中执行；仅在成员勾选且你允许时联网）。",
  ack_4:"我的账号没有额外购买或赠送的 Credits，并已关闭自动充值；分享只消耗订阅自带额度。",
  ack_5:"首次上线时会用我的额度运行一次很短的自检提示；通过后不重复运行。",
  ack_6:"我可以随时调整人数和任务上限、移除成员、关闭自动批准或下线。",
@@ -428,7 +422,7 @@ en: {
  retry_hint:"Resolve the issue above, then retry. Installed components and a successful self-check are kept.",
  ack_1:"This is a private, non-commercial experiment with no payment, resale or compensation.",
  ack_2:"My ChatGPT account is signed in only in the official Codex CLI on this computer; my credentials are never given to SpareAgent or anyone.",
- ack_3:"Tasks from my group's members are approved automatically within my limits and run on this computer with my own plan usage (only the kinds and tools I allow, in an isolated temporary folder; network access requires both your permission and the member’s request).",
+ ack_3:"Tasks from my group's members are approved automatically within my limits and run on this computer with my own plan usage (using only the tools I allow, in an isolated temporary folder; network access requires both your permission and the member’s request).",
  ack_4:"My account holds no additional purchased or granted Credits and auto-reload is off; sharing only uses included plan usage.",
  ack_5:"The first startup runs one very short self-check prompt on my plan; a successful check is reused.",
  ack_6:"I can change member and task limits, remove members, switch off automatic approval or go offline at any time.",
@@ -622,7 +616,7 @@ function render(){
       $("max_tasks").value=g.max_tasks_per_day; $("max_minutes").value=Math.round(g.max_task_duration_seconds/60);
       $("auto").checked=sharing?sharing.auto_approve_members:true;
       $("concurrency").value=(sharing&&sharing.max_concurrent_tasks)||1;
-      renderKinds(srv); renderTools(srv);
+      renderTools(srv);
     } else { renderToolStates() }
     $("usage").textContent=(flash||t("usage",srv.tasks_started_last_24h,g.max_tasks_per_day))+t("cap",g.member_cap);
     $("nav_tasks_n").textContent=(srv.usage&&srv.usage.running)||"";
@@ -711,7 +705,7 @@ function sharingBody(srv,change){
   const sh=srv.sharing||{}, g=srv.group;
   return {max_members:g.max_members,max_tasks_per_day:g.max_tasks_per_day,max_task_minutes:Math.round(g.max_task_duration_seconds/60),
     max_concurrent_tasks:sh.max_concurrent_tasks||1,auto_approve_members:sh.auto_approve_members!==false,
-    allowed_task_types:sh.allowed_task_types||offeredKinds(srv),allowed_tools:sh.allowed_tools||TOOL_ORDER,...change};
+    allowed_tools:sh.allowed_tools||TOOL_ORDER,...change};
 }
 function switchRow(title,sub,checked,onChange,disabled){
   const row=el("label","sw"), text=el("span");text.append(title);if(sub)text.append(el("small",null,sub));
@@ -719,28 +713,19 @@ function switchRow(title,sub,checked,onChange,disabled){
   box.onchange=()=>onChange(box.checked,box);row.append(text,box);return row;
 }
 function renderSwitches(srv){
-  const sh=srv.sharing||{}, tools=sh.allowed_tools||TOOL_ORDER, a=$("sharing_switches"), k=$("kind_switches");
-  a.innerHTML=""; k.innerHTML="";
+  const sh=srv.sharing||{}, tools=sh.allowed_tools||TOOL_ORDER, a=$("sharing_switches");
+  a.innerHTML="";
   a.append(switchRow(t("sw_auto"),t("sw_auto_sub"),sh.auto_approve_members!==false,
     v=>act("settings",sharingBody(srv,{auto_approve_members:v}))));
   a.append(switchRow(t("sw_network"),t("sw_network_sub"),tools.includes("network"),(v,box)=>{
     if(v&&!confirm(t("network_confirm"))){box.checked=false;return}
     act("settings",sharingBody(srv,{allowed_tools:v?[...tools.filter(x=>x!=="network"),"network"]:tools.filter(x=>x!=="network")}))}));
-  const allowed=new Set(sh.allowed_task_types||offeredKinds(srv));
-  (srv.kinds||[]).filter(x=>x.offered&&x.status!=="DISABLED").forEach(x=>{
-    const need=x.required_tools.filter(r=>r!=="code"&&r!=="doc");
-    const missing=need.filter(r=>!hasTool(srv,r));
-    const sub=t(!allowed.has(x.kind)||need.some(r=>!tools.includes(r))?"tool_blocked":missing.length?"tool_pending":"tool_ready")+" · "+(missing.length?t("needs")+missing.map(r=>t("tool_"+r).split("（")[0].split(" (")[0]).join("、")+t("missing_tool"):"");
-    k.append(switchRow(lang==="zh"?x.name_zh:x.name_en,sub,allowed.has(x.kind),v=>{
-      const next=offeredKinds(srv).filter(n=>n===x.kind?v:allowed.has(n));
-      if(!next.length){localErr={code:"invalid_input",detail:t("r_kinds")};render();return}
-      act("settings",sharingBody(srv,{allowed_task_types:next}))}));
-    if(missing.includes("python-data")){const b=el("button","s",t("view_tools"));b.type="button";b.onclick=()=>showView("settings");k.append(b)}
-  });
+  const ready=S.tools&&S.tools["python-data"]&&S.tools["python-data"].state==="READY";
+  a.append(el("p","muted",t("data_readiness")+"："+t(!tools.includes("python-data")?"tool_blocked":ready?"tool_ready":"tool_pending")));
+  const edit=el("button","s",t("view_tools"));edit.type="button";edit.onclick=()=>showView("settings");a.append(edit);
 }
 const PRESETS={save:{tasks:3,minutes:10,concurrency:1,network:false},standard:{tasks:5,minutes:10,concurrency:1,network:true},
   open:{tasks:10,minutes:30,concurrency:2,network:true}};
-function offeredKinds(srv){return (srv.kinds||[]).filter(k=>k.offered&&k.status!=="DISABLED").map(k=>k.kind)}
 function currentPreset(srv){
   const g=srv.group, sh=srv.sharing||{}, tools=sh.allowed_tools||TOOL_ORDER;
   return Object.keys(PRESETS).find(n=>{const p=PRESETS[n];return g.max_tasks_per_day===p.tasks&&
@@ -841,23 +826,6 @@ function renderNetworks(ph){
   $("net_note").textContent=(cur?t("net_using",cur.label)+" · ":"")+t("net_hint");
 }
 const TOOL_ORDER=["git","python-data","doc","code","network"];
-function hasTool(srv,x){return x==="code"||x==="doc"||x==="network"||(S.tools&&(x==="git"?S.tools.git:S.tools[x]&&S.tools[x].state==="READY"))}
-function renderKinds(srv){
-  const box=$("kinds"); box.innerHTML="";
-  const allowed=new Set((srv.sharing&&srv.sharing.allowed_task_types)||(srv.kinds||[]).map(k=>k.kind));
-  (srv.kinds||[]).filter(k=>k.offered&&k.status!=="DISABLED").forEach(k=>{
-    const l=document.createElement("label"); const c=document.createElement("input");
-    c.type="checkbox"; c.dataset.kind=k.kind; c.checked=allowed.has(k.kind);
-    c.addEventListener("change",()=>settingsEditing=true);
-    const name=document.createElement("span"); name.textContent=lang==="zh"?k.name_zh:k.name_en;
-    const st=document.createElement("small");
-    st.textContent=t(!allowed.has(k.kind)||k.required_tools.some(x=>!((srv.sharing&&srv.sharing.allowed_tools)||TOOL_ORDER).includes(x))?"tool_blocked":k.required_tools.some(x=>!hasTool(srv,x))?"tool_pending":"tool_ready");
-    const need=k.required_tools.filter(x=>x!=="code"&&x!=="doc");
-    l.append(c,name,st);
-    if(need.length){const n=document.createElement("small");
-      n.textContent=t("needs")+need.map(x=>t("tool_"+x).split("（")[0].split(" (")[0]+(hasTool(srv,x)?"":t("missing_tool"))).join("、");l.append(n)}
-    box.append(l)});
-}
 function renderTools(srv){
   const box=$("tools"); box.innerHTML="";
   const allowed=new Set((srv.sharing&&srv.sharing.allowed_tools)||TOOL_ORDER);
@@ -944,7 +912,6 @@ function checkLimits(v){
   if(v.max_tasks_per_day<1||v.max_tasks_per_day>50)return t("r_tasks");
   if(v.max_task_minutes<1||v.max_task_minutes>60)return t("r_minutes");
   if(!Number.isInteger(v.max_concurrent_tasks)||v.max_concurrent_tasks<1||v.max_concurrent_tasks>3)return t("r_concurrency");
-  if(v.allowed_task_types&&!v.allowed_task_types.length)return t("r_kinds");
   return "";
 }
 function setFlash(text,ms){flash=text;render();if(ms)setTimeout(()=>{flash="";render()},ms)}
@@ -952,8 +919,6 @@ $("save").onclick=async()=>{
   const v={max_members:Number($("max_members").value),max_tasks_per_day:Number($("max_tasks").value),
     max_task_minutes:Number($("max_minutes").value),auto_approve_members:$("auto").checked,
     max_concurrent_tasks:Number($("concurrency").value)};
-  const kinds=[...document.querySelectorAll("#kinds input[data-kind]")];
-  if(kinds.length)v.allowed_task_types=kinds.filter(c=>c.checked).map(c=>c.dataset.kind);
   const tools=[...document.querySelectorAll("#tools input[data-tool]")];
   if(tools.length)v.allowed_tools=tools.filter(c=>c.checked).map(c=>c.dataset.tool);
   const bad=checkLimits(v);

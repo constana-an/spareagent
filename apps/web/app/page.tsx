@@ -358,7 +358,6 @@ export default function Dashboard() {
   const [connectionChoice, setConnectionChoice] = useState("");
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [kinds, setKinds] = useState<TaskKind[]>([]),
-    [kindSel, setKindSel] = useState(""),
     [files, setFiles] = useState<File[]>([]);
   // The requirement box is controlled so examples and "submit again" can fill it;
   // the other fields take their defaults from `draft` and remount via `formKey`.
@@ -707,11 +706,11 @@ export default function Dashboard() {
   const resubmit = (x: Task) => {
     const d = draftFrom(x);
     setConnectionChoice("");
-    setKindSel(d.kind);
     setFiles([]);
     setAttachError("");
-    setPrompt(d.prompt);
-    setDraft(d);
+    setPrompt([d.prompt, d.repo ? `Repository: ${d.repo} @ ${d.sha}` : "",
+      d.target_language ? `Target language: ${d.target_language}` : ""].filter(Boolean).join("\n\n"));
+    setDraft({ ...d, kind: "GENERAL", repo: "", sha: "", target_language: "" });
     setFormKey((k) => k + 1);
     setComposing(true);
     setError("");
@@ -977,15 +976,7 @@ export default function Dashboard() {
           {composing && (
           <div id="submit" className="compose">
           {(() => {
-            const kind =
-              kinds.find((k) => k.kind === (kindSel || "GENERAL")) || kinds[0] || null;
-            const nameOf = (k: TaskKind) =>
-              lang === "zh" ? k.name_zh : k.name_en;
-            const pick = (next: string) => {
-              setKindSel(next);
-              setFiles([]);
-              setAttachError("");
-            };
+            const kind = kinds.find((k) => k.kind === "GENERAL") || null;
             const d = draft && draft.kind === kind?.kind ? draft : null;
             const liveAllowed =
               !!group?.authorization?.live_execution_enabled && !!kind?.live_available;
@@ -1009,11 +1000,6 @@ export default function Dashboard() {
               : !others.length ? t(nodes.some((n) => n.owner_id === me.user_id) ? "submit_owner_only" : "submit_no_devices")
               : !target?.online ? t("submit_device_offline") : "";
             const cap = target?.my_max_tasks_per_day ?? target?.device_max_tasks_per_day;
-            const codeKinds = kinds.filter((k) => k.needs_repository);
-            const cards: (TaskKind | null)[] = [
-              ...kinds.filter((k) => !k.needs_repository),
-              ...(codeKinds.length ? [null] : []),
-            ];
             return (
               <div className="compose-body">
                 <form
@@ -1056,14 +1042,6 @@ export default function Dashboard() {
                           attachments: ids,
                           parameters: target ? { target_language: target } : {},
                           ...(fmt ? { deliverable: { format: fmt } } : {}),
-                          ...(kind.needs_repository
-                            ? {
-                                repository: {
-                                  url: f.get("repo"),
-                                  commit_sha: f.get("sha"),
-                                },
-                              }
-                            : {}),
                         },
                         crypto.randomUUID(),
                       );
@@ -1086,75 +1064,6 @@ export default function Dashboard() {
                           : t("device_offline_pill")}
                     </span>
                   </div>
-                  <div className="kind-tabs" role="group" aria-label={t("kind_label")}>
-                    {cards.map((k) => {
-                      const on = k ? kind?.kind === k.kind : !!kind?.needs_repository;
-                      return (
-                        <button
-                          type="button"
-                          key={k?.kind || "code"}
-                          className={`kind-tab${on ? " on" : ""}`}
-                          aria-pressed={on}
-                          onClick={() => !on && pick(k ? k.kind : codeKinds[0].kind)}
-                        >
-                          <TaskIcon kind={k ? k.kind : "CODE_CHANGE"} />
-                          {k ? nameOf(k) : t("kind_code")}
-                          {k && k.status !== "OPEN" && (
-                            <em className="tag">{t("kind_sim_only")}</em>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {kind && (
-                    <small className="kind-desc">
-                      {kind.needs_repository
-                        ? t("kind_code_desc")
-                        : lang === "zh"
-                          ? kind.description_zh
-                          : kind.name_en}
-                    </small>
-                  )}
-                  {kind?.needs_repository && (
-                    <>
-                      <div className="segmented" role="group" aria-label={t("kind_code")}>
-                        {codeKinds.map((k) => (
-                          <button
-                            type="button"
-                            key={k.kind}
-                            className={k.kind === kind.kind ? "on" : "quiet"}
-                            aria-pressed={k.kind === kind.kind}
-                            onClick={() => pick(k.kind)}
-                          >
-                            {nameOf(k)}
-                          </button>
-                        ))}
-                      </div>
-                      <div className="form-row">
-                        <label>
-                          {t("public_repo")}
-                          <input
-                            name="repo"
-                            type="url"
-                            required
-                            defaultValue={d?.repo}
-                            placeholder="https://github.com/octocat/Hello-World"
-                          />
-                        </label>
-                        <label>
-                          {t("pinned_commit")}
-                          <input
-                            name="sha"
-                            required
-                            pattern="[a-fA-F0-9]{40}"
-                            maxLength={40}
-                            defaultValue={d?.sha}
-                            placeholder={t("sha_placeholder")}
-                          />
-                        </label>
-                      </div>
-                    </>
-                  )}
                   <label className="field-label">
                     {t("describe_result")}
                     <textarea

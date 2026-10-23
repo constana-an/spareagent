@@ -275,9 +275,10 @@ class SelfServeSharingService:
     async def go_online(self, worker_id: uuid.UUID, body: dict[str, Any]) -> dict[str, Any]:
         self._require_enabled()
         _require_acks(body["acknowledgements"], SHARING_ACKNOWLEDGEMENTS)
-        async with self.ctx.sessionmaker() as session:
+        async with self.ctx.sessionmaker() as session, session.begin():
             owner_id, group = await self._owner_group(session, worker_id)
             owner = await session.get(User, owner_id)
+            group.allowed_task_types = sorted(set(group.allowed_task_types) | {"GENERAL"})
         principal = Principal(owner_id, owner.role)
         svc = self.participation
         conn = await svc.connect(
@@ -300,7 +301,7 @@ class SelfServeSharingService:
         )
         async with self.ctx.sessionmaker() as session:
             kept = await session.get(SubscriptionSharingPreference, conn.id)
-        # Going online again keeps the owner's own concurrency and kind choices.
+        # Keep limits and legacy kinds; new requests use GENERAL.
         await svc.set_preferences(
             principal,
             conn.id,
@@ -312,7 +313,7 @@ class SelfServeSharingService:
                 "max_tasks_per_day": group.max_tasks_per_day,
                 "max_task_duration_seconds": group.max_task_duration_seconds,
                 "allowed_task_types": sorted(
-                    set(kept.allowed_task_types) & set(group.allowed_task_types)
+                    (set(kept.allowed_task_types) & set(group.allowed_task_types)) | {"GENERAL"}
                     if kept
                     else group.allowed_task_types
                 )
@@ -431,6 +432,8 @@ class SelfServeSharingService:
             if not kinds or not kinds <= set(group.allowed_task_types):
                 raise DomainError(422, "TASK_TYPE_NOT_ALLOWED", "Choose at least one offered kind")
             prefs.allowed_task_types = sorted(kinds)
+        else:
+            prefs.allowed_task_types = sorted(set(prefs.allowed_task_types) | {"GENERAL"})
         if body.get("allowed_tools") is not None:
             tools = set(body["allowed_tools"])
             if not tools <= set(TOOLS):
