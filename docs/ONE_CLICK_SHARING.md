@@ -12,7 +12,7 @@
    - 自动注册设备、创建你的小组，首次用你的额度跑一句很短的自检；自检通过后复用结果，开启分享；新小组默认自动批准成员任务；
    - 生成 **小组邀请码** 和邀请链接。
 4. 把邀请链接私下发给信任的人。新版默认使用 `*.ts.net` HTTPS 地址；运营者开放公网入口后（D-102），成员用浏览器直接打开，不用装 Tailscale，也不需要导入证书。没开放时成员仍需先连上 Tailscale。旧版多网络安装包仍会显示每个网络各一条链接。他们打开链接、勾选同意即可加入并提交任务，任务会自动批准并在你的电脑上运行。成员的使用方法见 [MEMBER_GUIDE.md](MEMBER_GUIDE.md)。
-5. 展开「小组与任务设置」，随时可以修改：小组人数上限（含你自己，不超过运营者授权上限）、每 24 小时任务数、单个任务最长分钟数、同时运行的任务数（1–3）、允许的任务种类和本机工具、是否自动批准；也可以换邀请码或移除成员。页面还会显示正在运行的任务和过去 24 小时的用量；「小组成员」里能看到每个成员过去 24 小时用了多少个任务、多少分钟，并可以给某个成员单独设每日任务上限和分钟上限（留空 = 不单独限制）。
+5. 在「小组与任务设置」里，随时可以修改小组人数上限（含你自己，不超过运营者授权上限）、每 24 小时任务数、单个任务最长分钟数、同时运行的任务数（1–3）、本机工具和自动批准。任务数和单次时间留空表示不限；选择「放开用」时，这两项都不限，同时运行 2 个任务。成员单独设置的限额仍然生效。页面会显示正在运行的任务和过去 24 小时用量。成员页可以设置备注、单独限额，或选择「暂时断开」「踢出小组」：暂时断开会停止未完成任务，保留成员记录和邀请码，可随时恢复连接；踢出会停止未完成任务、移除成员并更换邀请码，再次加入需重新邀请。运行中的任务会先进入停止中，设备确认后才显示已取消。
 6. **菜单栏**：图标旁显示当前状态，例如「在线 · 运行 1 · 今日 3/5」。同意过分享说明后，可以直接在菜单栏点「上线」。「复制邀请说明」会复制一段可以直接发给朋友的文字（含邀请链接；只有成员入口还在私网时才提示装 Tailscale），「显示邀请二维码」方便朋友用手机扫码。勾选「开机时自动打开」后 App 随开机启动；再勾选「打开后恢复上次的在线状态」，上次退出或关机时在线，下次打开就自动上线（默认不勾，仍然默认离线）。运营者发布新版后，菜单栏会出现「更新到 x.y…」：点了才安装，会先停止接新任务、等正在运行的任务完成，再自动替换并重新打开 App，设备身份和设置都保留，原来在线的会自动回到在线；也可以随时点「检查更新」。收到新任务、任务完成或没完成（例如 ChatGPT 额度用完、需要重新登录）、分享中断、连不上服务器时，会弹出系统通知，点通知打开控制页；第一次上线时 macOS 会询问是否允许通知。
 7. 再点一下按钮或在菜单栏选「暂停分享」就 **下线**（暂停分享、停止接单）。有任务在运行时会问你怎么处理：「运行完再下线」，或「立即停止并交还」——交还的任务回到队列，每个任务最多重新运行一次，你 10 分钟内重新上线就继续，否则按超时结束。下线期间成员仍可提交，任务会显示「小组主人已暂停分享」并等你回来。关闭控制页或状态窗口不会退出 App；从菜单栏选「退出 SpareAgent」才会停止接单并退出，有任务时可选「运行完再退出」或「立即停止并交还」。重新打开 App 默认离线，需要你再次点击上线；勾选了「打开后恢复上次的在线状态」时例外。
 8. 运营者没有开放真实执行时，任务只以「模拟」方式运行：流程完整，但交付的是占位文件，不是真正的译文或分析。
@@ -64,3 +64,5 @@ See [OPERATOR_GUIDE.md](OPERATOR_GUIDE.md). The steps below cover initial setup 
 5. The current distributed App still uses ad-hoc signing for local testing. The builder supports Developer ID signing and notarization once the operator has a membership, a Developer ID Application identity and a notarytool keychain profile. No Apple submission has been performed on this Mac. See [MACOS_RELEASE.md](MACOS_RELEASE.md) for setup, the private configuration included in submissions, and release commands. The legacy `.command` ZIP is not notarized.
 
 Every self-serve group copies the template's `max_participants`; the effective member cap is min(`EXPERIMENT_MAX_GROUP_MEMBERS`, `max_participants`). Note that this caps each group, not the total across all self-serve groups; keep the number of people you give the package to within the authorized scope.
+
+不限任务数量和单次执行时间不影响手动停止、并发、成员资格、任务批准、联网和订阅授权检查。成员页的每日任务上限和每日分钟上限留空，表示不单独限制该成员。服务端用 `null` 表示不限；更新设置时省略字段表示保持原值，不能用很大的数字代替不限。新增字段和空限制由 `0018_member_controls_and_unlimited_limits` 迁移支持，发布前需要备份并迁移数据库，再更新服务端和 Worker／Mac App。现有设置不会被迁移自动放宽。

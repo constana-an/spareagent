@@ -468,6 +468,7 @@ class Controller:
             "registered": load_state(self.directory) is not None,
             "consented": bool(self.app_state.get("consented_at")),
             "device_label": self.app_state.get("device_label") or default_device_label(),
+            "member_notes": self.app_state.get("member_notes", {}),
             "subscription_type": self.app_state.get("subscription_type") or "PLUS",
             "invite_code": code,
             "invite_link": f"{dashboard}/#join={code}" if dashboard and code else None,
@@ -843,11 +844,14 @@ class Controller:
 
     async def update_settings(self, body: dict[str, Any]) -> None:
         clean: dict[str, Any] = {}
-        for key in ("max_members", "max_tasks_per_day"):
-            if body.get(key) is not None:
-                clean[key] = int(body[key])
-        if body.get("max_task_minutes") is not None:
-            clean["max_task_duration_seconds"] = int(body["max_task_minutes"]) * 60
+        if body.get("max_members") is not None:
+            clean["max_members"] = int(body["max_members"])
+        if "max_tasks_per_day" in body:
+            value = body["max_tasks_per_day"]
+            clean["max_tasks_per_day"] = int(value) if value is not None else None
+        if "max_task_minutes" in body:
+            value = body["max_task_minutes"]
+            clean["max_task_duration_seconds"] = int(value) * 60 if value is not None else None
         if body.get("auto_approve_members") is not None:
             clean["auto_approve_members"] = bool(body["auto_approve_members"])
         if body.get("max_concurrent_tasks") is not None:
@@ -874,8 +878,26 @@ class Controller:
             clean[key] = value
         await self._owner_call("set_member_limits", user_id, clean)
 
+    def set_member_note(self, user_id: str, note: str) -> None:
+        members = (self.snap.server or {}).get("members", [])
+        if not any(str(m["user_id"]) == user_id and not m.get("is_owner") for m in members):
+            raise AppError("invalid_input", "member")
+        if not isinstance(note, str) or len(note.strip()) > 40:
+            raise AppError("invalid_input", "note")
+        notes = dict(self.app_state.get("member_notes", {}))
+        if note.strip():
+            notes[user_id] = note.strip()
+        else:
+            notes.pop(user_id, None)
+        self._save(member_notes=notes)
+
     async def remove_member(self, user_id: str) -> None:
         await self._owner_call("remove_member", user_id)
+
+    async def set_member_access(self, user_id: str, paused: bool) -> None:
+        if not isinstance(paused, bool):
+            raise AppError("invalid_input", "paused")
+        await self._owner_call("set_member_access", user_id, paused)
 
     async def dashboard_link(self) -> str:
         data = await self._owner_call("dashboard_login")

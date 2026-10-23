@@ -1,4 +1,6 @@
 "use client";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { ClipboardEvent, DragEvent, FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { initialLang, Lang, saveLang, Translate, translator } from "./i18n";
 import { FileIcon, TaskIcon } from "./icons";
@@ -29,8 +31,9 @@ type Group = {
   status: string;
   sharing_enabled: boolean;
   max_members: number;
-  max_task_duration_seconds: number;
-  members: { user_id: string; status: string }[];
+  max_tasks_per_day: number | null;
+  max_task_duration_seconds: number | null;
+  members: { user_id: string; status: string; access_paused?: boolean }[];
   authorization: null | {
     authorization_reference: string;
     expires_at: string;
@@ -40,8 +43,8 @@ type Group = {
 type Prefs = {
   group_id: string;
   sharing_state: string;
-  max_tasks_per_day: number;
-  max_task_duration_seconds: number;
+  max_tasks_per_day: number | null;
+  max_task_duration_seconds: number | null;
   auto_approve_members?: boolean;
 };
 type Device = {
@@ -63,7 +66,7 @@ type Node = {
   device_label: string;
   online: boolean;
   requires_approval: boolean;
-  max_task_duration_seconds: number;
+  max_task_duration_seconds: number | null;
   my_tasks_last_24h?: number;
   my_minutes_last_24h?: number;
   my_max_tasks_per_day?: number | null;
@@ -81,7 +84,7 @@ type Task = {
   repository_url: string | null;
   commit_sha: string | null;
   attachments?: { id: string; filename: string; size_bytes: number }[];
-  max_duration_seconds: number;
+  max_duration_seconds: number | null;
   approval_status: string;
   approval_source: string | null;
   owner_id: string;
@@ -174,7 +177,7 @@ type Metrics = {
 type TimelineEvent = {
   seq: number;
   type: string;
-  created_at?: string;
+  timestamp?: string;
   payload: { status?: string; message?: string };
 };
 // Fixed device progress lines in Chinese; Codex's own free-text updates are summarised.
@@ -301,6 +304,14 @@ function Checks({
     </div>
   );
 }
+function Answer({ text, copyLabel, onCopy }: { text: string; copyLabel: string; onCopy: () => void }) {
+  return <article className="chat-message assistant-message">
+    <div className="answer-heading"><small>SpareAgent</small>
+      <button className="quiet" onClick={onCopy}>{copyLabel}</button>
+    </div>
+    <div className="markdown-answer"><Markdown remarkPlugins={[remarkGfm]} skipHtml>{text}</Markdown></div>
+  </article>;
+}
 export default function Dashboard() {
   const [lang, setLang] = useState<Lang>("zh");
   useEffect(() => setLang(initialLang()), []);
@@ -345,9 +356,9 @@ export default function Dashboard() {
     [composing, setComposing] = useState(false),
     [query, setQuery] = useState(""),
     [tab, setTab] = useState<"result" | "log">("result");
+  const [connectionChoice, setConnectionChoice] = useState("");
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [kinds, setKinds] = useState<TaskKind[]>([]),
-    [kindSel, setKindSel] = useState(""),
     [files, setFiles] = useState<File[]>([]);
   // The requirement box is controlled so examples and "submit again" can fill it;
   // the other fields take their defaults from `draft` and remount via `formKey`.
@@ -588,7 +599,7 @@ export default function Dashboard() {
             urls.push(URL.createObjectURL(blob));
             out[a.id].url = urls[urls.length - 1];
           } else if (previewKind(a.name) === "text")
-            out[a.id].text = Array.from(await blob.text()).slice(0, 600).join("");
+            out[a.id].text = await blob.text();
         } catch {}
       }
       if (gone) urls.forEach((u) => URL.revokeObjectURL(u));
@@ -601,8 +612,11 @@ export default function Dashboard() {
   }, [selected?.id, previewIds]);
   useEffect(() => {
     setTab("result");
-    if (selected)
-      document.getElementById("result")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (selected) {
+      const detail = document.getElementById("result");
+      detail?.scrollIntoView({ behavior: "smooth", block: "start" });
+      detail?.focus({ preventScroll: true });
+    }
   }, [selected?.id]);
   async function download(a: Artifact) {
     const r = await fetch(
@@ -692,11 +706,12 @@ export default function Dashboard() {
   };
   const resubmit = (x: Task) => {
     const d = draftFrom(x);
-    setKindSel(d.kind);
+    setConnectionChoice("");
     setFiles([]);
     setAttachError("");
-    setPrompt(d.prompt);
-    setDraft(d);
+    setPrompt([d.prompt, d.repo ? `Repository: ${d.repo} @ ${d.sha}` : "",
+      d.target_language ? `Target language: ${d.target_language}` : ""].filter(Boolean).join("\n\n"));
+    setDraft({ ...d, kind: "GENERAL", repo: "", sha: "", target_language: "" });
     setFormKey((k) => k + 1);
     setComposing(true);
     setError("");
@@ -847,6 +862,7 @@ export default function Dashboard() {
             </form>
           </>
         )}
+        {member?.access_paused && <p className="notice" role="status">{t("member_access_paused")}</p>}
         {error && (
           <p role="alert" className="error">
             {error}
@@ -932,7 +948,7 @@ export default function Dashboard() {
               type="button"
               className={composing ? "quiet" : ""}
               aria-expanded={composing}
-              onClick={() => setComposing(!composing)}
+              onClick={() => { setConnectionChoice(""); setComposing(!composing); }}
             >
               {composing ? t("close_compose") : `＋ ${t("new_task")}`}
             </button>
@@ -962,15 +978,7 @@ export default function Dashboard() {
           {composing && (
           <div id="submit" className="compose">
           {(() => {
-            const kind =
-              kinds.find((k) => k.kind === (kindSel || "GENERAL")) || kinds[0] || null;
-            const nameOf = (k: TaskKind) =>
-              lang === "zh" ? k.name_zh : k.name_en;
-            const pick = (next: string) => {
-              setKindSel(next);
-              setFiles([]);
-              setAttachError("");
-            };
+            const kind = kinds.find((k) => k.kind === "GENERAL") || null;
             const d = draft && draft.kind === kind?.kind ? draft : null;
             const liveAllowed =
               !!group?.authorization?.live_execution_enabled && !!kind?.live_available;
@@ -987,15 +995,16 @@ export default function Dashboard() {
             const takesFiles = !!kind?.max_attachments;
             const others = nodes.filter((n) => n.owner_id !== me.user_id);
             const target =
-              others.find((n) => n.connection_id === d?.connection) ||
+              others.find((n) => n.connection_id === (connectionChoice || d?.connection)) ||
               others.find((n) => n.online) ||
               others[0];
+            const submitHint = member?.access_paused ? t("member_access_paused") : !active ? t("submit_join_first")
+              : !others.length ? t(nodes.some((n) => n.owner_id === me.user_id) ? "submit_owner_only" : "submit_no_devices")
+              : !target?.online ? t("submit_device_offline") : "";
             const cap = target?.my_max_tasks_per_day ?? target?.device_max_tasks_per_day;
-            const codeKinds = kinds.filter((k) => k.needs_repository);
-            const cards: (TaskKind | null)[] = [
-              ...kinds.filter((k) => !k.needs_repository),
-              ...(codeKinds.length ? [null] : []),
-            ];
+            const durationCaps = [group?.max_task_duration_seconds, target?.max_task_duration_seconds]
+              .filter((n): n is number => n != null);
+            const durationCap = durationCaps.length ? Math.min(...durationCaps) : null;
             return (
               <div className="compose-body">
                 <form
@@ -1032,20 +1041,12 @@ export default function Dashboard() {
                           group_id: gid,
                           connection_id: f.get("connection"),
                           requirement: f.get("prompt"),
-                          max_duration_seconds: Number(f.get("timeout")),
+                          max_duration_seconds: String(f.get("timeout") || "").trim() ? Number(f.get("timeout")) : null,
                           execution_mode: f.get("mode"),
                           ...(f.get("network") === "on" ? { network_access: true } : {}),
                           attachments: ids,
                           parameters: target ? { target_language: target } : {},
                           ...(fmt ? { deliverable: { format: fmt } } : {}),
-                          ...(kind.needs_repository
-                            ? {
-                                repository: {
-                                  url: f.get("repo"),
-                                  commit_sha: f.get("sha"),
-                                },
-                              }
-                            : {}),
                         },
                         crypto.randomUUID(),
                       );
@@ -1068,75 +1069,6 @@ export default function Dashboard() {
                           : t("device_offline_pill")}
                     </span>
                   </div>
-                  <div className="kind-tabs" role="group" aria-label={t("kind_label")}>
-                    {cards.map((k) => {
-                      const on = k ? kind?.kind === k.kind : !!kind?.needs_repository;
-                      return (
-                        <button
-                          type="button"
-                          key={k?.kind || "code"}
-                          className={`kind-tab${on ? " on" : ""}`}
-                          aria-pressed={on}
-                          onClick={() => !on && pick(k ? k.kind : codeKinds[0].kind)}
-                        >
-                          <TaskIcon kind={k ? k.kind : "CODE_CHANGE"} />
-                          {k ? nameOf(k) : t("kind_code")}
-                          {k && k.status !== "OPEN" && (
-                            <em className="tag">{t("kind_sim_only")}</em>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {kind && (
-                    <small className="kind-desc">
-                      {kind.needs_repository
-                        ? t("kind_code_desc")
-                        : lang === "zh"
-                          ? kind.description_zh
-                          : kind.name_en}
-                    </small>
-                  )}
-                  {kind?.needs_repository && (
-                    <>
-                      <div className="segmented" role="group" aria-label={t("kind_code")}>
-                        {codeKinds.map((k) => (
-                          <button
-                            type="button"
-                            key={k.kind}
-                            className={k.kind === kind.kind ? "on" : "quiet"}
-                            aria-pressed={k.kind === kind.kind}
-                            onClick={() => pick(k.kind)}
-                          >
-                            {nameOf(k)}
-                          </button>
-                        ))}
-                      </div>
-                      <div className="form-row">
-                        <label>
-                          {t("public_repo")}
-                          <input
-                            name="repo"
-                            type="url"
-                            required
-                            defaultValue={d?.repo}
-                            placeholder="https://github.com/octocat/Hello-World"
-                          />
-                        </label>
-                        <label>
-                          {t("pinned_commit")}
-                          <input
-                            name="sha"
-                            required
-                            pattern="[a-fA-F0-9]{40}"
-                            maxLength={40}
-                            defaultValue={d?.sha}
-                            placeholder={t("sha_placeholder")}
-                          />
-                        </label>
-                      </div>
-                    </>
-                  )}
                   <label className="field-label">
                     {t("describe_result")}
                     <textarea
@@ -1270,10 +1202,10 @@ export default function Dashboard() {
                     <label>
                       {t("owner_device")}
                       <select
-                        key={target?.connection_id}
                         name="connection"
                         required
-                        defaultValue={target?.connection_id}
+                        value={target?.connection_id || ""}
+                        onChange={(e) => setConnectionChoice(e.target.value)}
                       >
                         {others.map((n) => (
                           <option key={n.connection_id} value={n.connection_id}>
@@ -1305,9 +1237,10 @@ export default function Dashboard() {
                           name="timeout"
                           type="number"
                           min="10"
-                          max={group?.max_task_duration_seconds ?? 600}
-                          defaultValue={d?.timeout ?? Math.min(600, group?.max_task_duration_seconds ?? 600)}
-                          required
+                          max={durationCap ?? undefined}
+                          defaultValue={d ? d.timeout ?? "" : durationCap == null ? "" : Math.min(600, durationCap)}
+                          placeholder={t("unlimited")}
+                          required={durationCap != null}
                         />
                       </label>
                       <label>
@@ -1323,11 +1256,14 @@ export default function Dashboard() {
                     </div>
                   </details>
                   {!liveAllowed && kind && <p className="notice">{t("trial_note")}</p>}
+                  {submitHint && <p id="submit-hint" className="notice" role="status">{submitHint}</p>}
                   <div className="submit-bar">
                     <button
+                      aria-describedby={submitHint ? "submit-hint" : undefined}
                       disabled={
                         busy ||
                         !active ||
+                        !!member?.access_paused ||
                         !kind ||
                         files.length < kind.min_attachments ||
                         !others.length
@@ -1436,8 +1372,10 @@ export default function Dashboard() {
                 .reverse()
                 .find((e) => /^task\.(succeeded|failed|cancelled|timed_out)$/.test(e.type));
             const totalSize = files.reduce((n, a) => n + (previews[a.id]?.size || 0), 0);
+            const answerFile = files.find((a) => a.name === "answer.md") || files.find((a) => /\.(md|txt)$/i.test(a.name || ""));
+            const answerText = answerFile ? previews[answerFile.id]?.text : null;
             return (
-              <div className="detail" id="result">
+              <div className="detail" id="result" tabIndex={-1} aria-label={taskTitle(selected) || kindName(selected)}>
                 <div className="detail-info">
                   <div className="detail-head">
                     <h2>{taskTitle(selected) || kindName(selected)}</h2>
@@ -1459,7 +1397,7 @@ export default function Dashboard() {
                     <dt>{t("col_submitted")}</dt>
                     <dd>{selected.created_at ? when(selected.created_at) : "—"}</dd>
                     <dt>{t("col_duration")}</dt>
-                    <dd>{seconds != null ? duration(seconds) : "—"}</dd>
+                    <dd>{seconds != null ? duration(seconds) : terminal.has(selected.status) ? t("duration_unavailable") : "—"}</dd>
                     <dt>{t("col_device")}</dt>
                     <dd>{device || "—"}</dd>
                     <dt>{t("col_request")}</dt>
@@ -1547,6 +1485,8 @@ export default function Dashboard() {
                   </div>
                   {tab === "result" ? (
                     <div role="tabpanel">
+                      {answerText && <Answer text={answerText} copyLabel={t("copy_answer")} onCopy={() =>
+                        void act(() => navigator.clipboard.writeText(answerText), t("copied"), false)} />}
                       {running && (
                         <div className="progress-block">
                           {selected.progress?.percent != null && (
@@ -1593,12 +1533,12 @@ export default function Dashboard() {
                                         <FileIcon name={a.name} size={22} />
                                         <span className="break">{a.name}</span>
                                       </span>
-                                      {p?.text != null && <pre className="preview">{p.text}</pre>}
+                                      {a.id !== answerFile?.id && p?.text != null && <pre className="preview">{Array.from(p.text).slice(0, 600).join("")}</pre>}
                                       {p?.url && <img className="preview" src={p.url} alt={a.name || ""} />}
                                     </td>
                                     <td className="nowrap">{p?.size != null ? bytes(p.size) : "—"}</td>
                                     <td className="nowrap">
-                                      {finished?.created_at ? whenShort(finished.created_at) : "—"}
+                                      {finished?.timestamp ? whenShort(finished.timestamp) : "—"}
                                     </td>
                                     <td>
                                       <button
@@ -1643,8 +1583,8 @@ export default function Dashboard() {
                             return (
                               <tr key={e.seq}>
                                 <td className="nowrap">
-                                  {e.created_at
-                                    ? new Date(e.created_at).toLocaleTimeString(lang === "zh" ? "zh-CN" : "en")
+                                  {e.timestamp
+                                    ? new Date(e.timestamp).toLocaleTimeString(lang === "zh" ? "zh-CN" : "en")
                                     : ""}
                                 </td>
                                 <td>
@@ -1744,7 +1684,7 @@ export default function Dashboard() {
                       <br />
                     </span>
                   ))}
-                  {t("hard_timeout_n", { n: x.max_duration_seconds })}
+                  {x.max_duration_seconds == null ? t("no_execution_timeout") : t("hard_timeout_n", { n: x.max_duration_seconds })}
                 </p>
                 <div className="actions">
                   {x.approval_status === "PENDING" &&
@@ -1967,7 +1907,7 @@ export default function Dashboard() {
                   <span>
                     {t("tasks_rolling", {
                       n: u?.tasks_started_last_24h || 0,
-                      max: d.preferences?.max_tasks_per_day ?? "—",
+                      max: d.preferences?.max_tasks_per_day ?? t("unlimited"),
                     })}
                   </span>
                   <span>
@@ -2007,8 +1947,9 @@ export default function Dashboard() {
                           type="number"
                           min="1"
                           max="50"
-                          defaultValue={d.preferences?.max_tasks_per_day ?? 3}
-                          required
+                          defaultValue={d.preferences ? d.preferences.max_tasks_per_day ?? "" : 3}
+                          placeholder={t("unlimited")}
+                          required={group?.max_tasks_per_day != null}
                         />
                       </label>
                       <label>
@@ -2017,11 +1958,10 @@ export default function Dashboard() {
                           name="duration"
                           type="number"
                           min="10"
-                          max={group?.max_task_duration_seconds ?? 600}
-                          defaultValue={
-                            d.preferences?.max_task_duration_seconds ?? 600
-                          }
-                          required
+                          max={group?.max_task_duration_seconds ?? undefined}
+                          defaultValue={d.preferences ? d.preferences.max_task_duration_seconds ?? "" : 600}
+                          placeholder={t("unlimited")}
+                          required={group?.max_task_duration_seconds != null}
                         />
                       </label>
                     </div>

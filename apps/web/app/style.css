@@ -1251,7 +1251,7 @@ img.preview {
 }
 .detail {
   display: grid;
-  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.3fr);
+  grid-template-columns: minmax(240px, 0.65fr) minmax(0, 1.55fr);
   border-top: 1px solid var(--line);
   scroll-margin-top: 16px;
 }
@@ -1369,8 +1369,9 @@ img.preview {
   }
   .detail-info {
     border-right: 0;
-    border-bottom: 1px solid var(--line);
+    border-top: 1px solid var(--line);
   }
+  .detail-tabs { grid-row: 1; }
 }
 @media (max-width: 650px) {
   .toolbar {
@@ -1451,3 +1452,16 @@ img.preview {
   font-size: 12px;
   font-weight: 400;
 }
+
+.answer-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.answer-heading small { color: var(--muted); }
+.markdown-answer { font-size: 16px; line-height: 1.75; overflow-wrap: anywhere; }
+.markdown-answer > :first-child { margin-top: 12px; }
+.markdown-answer h1 { font-size: 24px; }
+.markdown-answer h2 { font-size: 21px; }
+.markdown-answer h3 { font-size: 18px; }
+.markdown-answer pre { overflow-x: auto; padding: 12px; background: var(--paper); border-radius: 6px; }
+.markdown-answer code { font-size: 0.9em; }
+.markdown-answer table { display: block; overflow-x: auto; }
+.markdown-answer img { max-width: 100%; height: auto; }
+.markdown-answer blockquote { margin-left: 0; padding-left: 16px; border-left: 3px solid var(--line); color: var(--muted); }

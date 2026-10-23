@@ -158,9 +158,12 @@ const FINAL_EVENTS = new Set(["task.succeeded", "task.failed", "task.cancelled",
 // to `now` while it runs. Null before it starts.
 export function taskSeconds(task, events, now) {
   if (!task.started_at) return null;
-  const end = [...events].reverse().find((e) => FINAL_EVENTS.has(e.type) && e.created_at);
-  const stop = end ? Date.parse(end.created_at) : now;
-  return Math.max(0, Math.round((stop - Date.parse(task.started_at)) / 1000));
+  const end = [...events].reverse().find((e) => FINAL_EVENTS.has(e.type) && e.timestamp);
+  if (!end && !["RESERVED", "RUNNING", "VERIFYING", "CANCELLING"].includes(task.status))
+    return null;
+  const stop = end ? Date.parse(end.timestamp) : now;
+  const seconds = Math.round((stop - Date.parse(task.started_at)) / 1000);
+  return Number.isFinite(seconds) ? Math.max(0, seconds) : null;
 }
 
 // "Submitted → queued → started → done" from the event stream, each step once.

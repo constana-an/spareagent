@@ -62,14 +62,15 @@ class GroupSummary(BaseModel):
     sharing_enabled: bool
     max_members: int
     member_cap: int
-    max_tasks_per_day: int
-    max_task_duration_seconds: int
+    max_tasks_per_day: int | None
+    max_task_duration_seconds: int | None
     max_concurrent_tasks: int = 1
     has_invite_code: bool
     invite_code_rotated_at: datetime | None
 
 
 class MemberSummary(BaseModel):
+    access_paused: bool = False
     user_id: uuid.UUID
     status: str
     joined_at: datetime | None
@@ -86,6 +87,10 @@ class MemberLimitsIn(Strict):
 
     max_tasks_per_day: Annotated[StrictInt, Field(ge=1, le=50)] | None = None
     max_minutes_per_day: Annotated[StrictInt, Field(ge=1, le=1440)] | None = None
+
+
+class MemberAccessIn(Strict):
+    paused: StrictBool
 
 
 class SharingSummary(BaseModel):
@@ -112,6 +117,7 @@ class TaskSummary(BaseModel):
     task_type: str
     execution_mode: str
     requester_id: uuid.UUID
+    requirement: str = ""
     approval_status: str
     approval_source: str | None
     created_at: datetime

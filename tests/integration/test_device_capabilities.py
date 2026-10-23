@@ -83,11 +83,16 @@ async def test_owner_settings_for_concurrency_kinds_and_tools(oc, octx):
     await settings(oc, node, 422, allowed_task_types=[])
     await settings(oc, node, 422, allowed_task_types=["REFACTOR"])
 
-    # Going offline and online again keeps the owner's own choices.
+    # New requests use GENERAL; legacy kinds, tool permissions and limits are kept.
     await ok(await one_click.owner(oc, node, "POST", "/offline"))
     again = await one_click.go_online(oc, node)
     assert again["sharing"]["max_concurrent_tasks"] == 2
-    assert again["sharing"]["allowed_task_types"] == ["CODE_REVIEW", "TRANSLATE_DOCUMENT"]
+    assert again["sharing"]["allowed_task_types"] == [
+        "CODE_REVIEW",
+        "GENERAL",
+        "TRANSLATE_DOCUMENT",
+    ]
+    assert again["sharing"]["allowed_tools"] == ["code", "doc", "git"]
 
 
 async def test_live_task_waits_for_a_device_with_the_needed_tool(oc, octx):

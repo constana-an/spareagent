@@ -275,9 +275,10 @@ class SelfServeSharingService:
     async def go_online(self, worker_id: uuid.UUID, body: dict[str, Any]) -> dict[str, Any]:
         self._require_enabled()
         _require_acks(body["acknowledgements"], SHARING_ACKNOWLEDGEMENTS)
-        async with self.ctx.sessionmaker() as session:
+        async with self.ctx.sessionmaker() as session, session.begin():
             owner_id, group = await self._owner_group(session, worker_id)
             owner = await session.get(User, owner_id)
+            group.allowed_task_types = sorted(set(group.allowed_task_types) | {"GENERAL"})
         principal = Principal(owner_id, owner.role)
         svc = self.participation
         conn = await svc.connect(
@@ -300,7 +301,7 @@ class SelfServeSharingService:
         )
         async with self.ctx.sessionmaker() as session:
             kept = await session.get(SubscriptionSharingPreference, conn.id)
-        # Going online again keeps the owner's own concurrency and kind choices.
+        # Keep limits and legacy kinds; new requests use GENERAL.
         await svc.set_preferences(
             principal,
             conn.id,
@@ -312,7 +313,7 @@ class SelfServeSharingService:
                 "max_tasks_per_day": group.max_tasks_per_day,
                 "max_task_duration_seconds": group.max_task_duration_seconds,
                 "allowed_task_types": sorted(
-                    set(kept.allowed_task_types) & set(group.allowed_task_types)
+                    (set(kept.allowed_task_types) & set(group.allowed_task_types)) | {"GENERAL"}
                     if kept
                     else group.allowed_task_types
                 )
@@ -372,7 +373,7 @@ class SelfServeSharingService:
                 else None
             )
             for key in ("max_tasks_per_day", "max_task_duration_seconds"):
-                if body.get(key) is not None:
+                if key in body:
                     setattr(group, key, body[key])
                     if prefs is not None:
                         setattr(prefs, key, body[key])
@@ -387,7 +388,7 @@ class SelfServeSharingService:
                 "self_serve.settings",
                 "group",
                 group.id,
-                **{k: v for k, v in body.items() if v is not None},
+                **body,
             )
         return await self.status(worker_id)
 
@@ -431,6 +432,8 @@ class SelfServeSharingService:
             if not kinds or not kinds <= set(group.allowed_task_types):
                 raise DomainError(422, "TASK_TYPE_NOT_ALLOWED", "Choose at least one offered kind")
             prefs.allowed_task_types = sorted(kinds)
+        else:
+            prefs.allowed_task_types = sorted(set(prefs.allowed_task_types) | {"GENERAL"})
         if body.get("allowed_tools") is not None:
             tools = set(body["allowed_tools"])
             if not tools <= set(TOOLS):
@@ -497,6 +500,37 @@ class SelfServeSharingService:
                 user=user_id,
                 max_tasks_per_day=member.max_tasks_per_day,
                 max_minutes_per_day=member.max_minutes_per_day,
+            )
+        return await self.status(worker_id)
+
+    async def set_member_access(
+        self, worker_id: uuid.UUID, user_id: uuid.UUID, *, paused: bool
+    ) -> dict[str, Any]:
+        """Keep membership and the invite code; disconnecting cancels unfinished work."""
+        self._require_enabled()
+        async with self.ctx.sessionmaker() as session, session.begin():
+            owner_id, group = await self._owner_group(session, worker_id, lock=True)
+            if user_id == owner_id:
+                raise DomainError(422, "CANNOT_CHANGE_OWNER", "The owner cannot be disconnected")
+            member = await self.participation._membership(session, group.id, user_id)
+            if member is None or member.status == "REMOVED":
+                raise not_found("MEMBER_NOT_FOUND", "Member not found")
+            member.access_paused = paused
+            if paused:
+                await self.participation._cancel_tasks(
+                    session,
+                    (ExperimentalTaskConsent.group_id == group.id)
+                    & (ExperimentalTaskConsent.requester_id == user_id),
+                    "MEMBER_ACCESS_PAUSED",
+                )
+            _audit(
+                session,
+                owner_id,
+                "self_serve.member.access",
+                "group",
+                group.id,
+                user=user_id,
+                paused=paused,
             )
         return await self.status(worker_id)
 
@@ -590,6 +624,7 @@ class SelfServeSharingService:
                 {
                     "user_id": m.user_id,
                     "status": m.status,
+                    "access_paused": m.access_paused,
                     "joined_at": m.joined_at,
                     "is_owner": m.user_id == owner_id,
                     "tasks_last_24h": int(per_member.get(m.user_id, {}).get("tasks", 0)),
@@ -634,6 +669,7 @@ class SelfServeSharingService:
                     if t.execution_profile == "CODEX_LIVE"
                     else "SIMULATED",
                     "requester_id": c.requester_id,
+                    "requirement": t.prompt,
                     "approval_status": c.status,
                     "approval_source": c.consent_source,
                     "created_at": t.created_at,
@@ -701,6 +737,7 @@ class SelfServeSharingService:
                 )
                 session.add(member)
             member.status, member.removed_at = "ACTIVE", None
+            member.access_paused = False
             member.joined_at, member.terms_version = now, terms_version
             member.acknowledgements = {k: True for k in JOIN_ACKNOWLEDGEMENTS}
             _audit(session, principal.user_id, "self_serve.join", "group", group.id)

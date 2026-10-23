@@ -100,6 +100,7 @@ class ExperimentalDispatcher:
                     select(ExperimentalGroupMember.user_id).where(
                         ExperimentalGroupMember.group_id == group.id,
                         ExperimentalGroupMember.status == "ACTIVE",
+                        ExperimentalGroupMember.access_paused.is_(False),
                     )
                 )
             ).scalars()

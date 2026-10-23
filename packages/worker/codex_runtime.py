@@ -253,7 +253,7 @@ class CodexRuntime:
         prompt: str,
         workdir: Path,
         *,
-        timeout_seconds: float,
+        timeout_seconds: float | None,
         sandbox: SandboxMode | None = None,
         read_roots: tuple[str, ...] = (),
         path_dirs: tuple[str, ...] = (),
@@ -266,7 +266,7 @@ class CodexRuntime:
             result.error_class, result.error_message = "RUNTIME", "Codex runtime is already busy"
             yield result
             return
-        if not 0 < timeout_seconds <= 3600:
+        if timeout_seconds is not None and not 0 < timeout_seconds <= 3600:
             result.error_class, result.error_message = "RUNTIME", "Invalid task timeout"
             yield result
             return

@@ -6,6 +6,18 @@ from db.models import Task, TaskAttempt
 from services.scheduler.lease_service import task_deadline_passed
 
 
+def test_unlimited_execution_still_has_a_queue_deadline():
+    created = datetime(2026, 10, 19, tzinfo=UTC)
+    task = Task(
+        created_at=created,
+        max_duration_seconds=None,
+        resource_scope="EXPERIMENTAL_SHARED_SUBSCRIPTION",
+    )
+    assert task_deadline_passed(task, created + timedelta(seconds=600))
+    attempt = TaskAttempt(started_at=created)
+    assert not task_deadline_passed(task, created + timedelta(days=365), attempt)
+
+
 def test_experimental_clocks_and_marketplace_deadline():
     created = datetime(2026, 10, 19, tzinfo=UTC)
     task = Task(

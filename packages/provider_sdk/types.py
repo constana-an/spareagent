@@ -25,7 +25,7 @@ class ExecutionRequest:
     prompt: str
     repository_url: str | None
     commit_sha: str | None
-    max_duration_seconds: int
+    max_duration_seconds: int | None
     max_budget_cents: int
     # Extension to the architecture interface: lets deterministic adapters vary per attempt.
     attempt_number: int = 1

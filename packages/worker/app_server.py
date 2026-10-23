@@ -98,6 +98,8 @@ class AppServer:
             await c.update_settings(body)
         elif route == "invite":
             await c.rotate_invite()
+        elif route == "member-note":
+            c.set_member_note(str(body.get("user_id", "")), body.get("note", ""))
         elif route == "member-limits":
             await c.set_member_limits(
                 str(body.get("user_id", "")),
@@ -105,6 +107,8 @@ class AppServer:
             )
         elif route == "remove-member":
             await c.remove_member(str(body.get("user_id", "")))
+        elif route == "member-access":
+            await c.set_member_access(str(body.get("user_id", "")), body.get("paused"))
         elif route == "install-tool":
             c.start_tool_install(str(body.get("tool", "")))
         elif route == "remove-tool":

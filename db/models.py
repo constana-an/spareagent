@@ -84,7 +84,7 @@ class Task(Base):
     )
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'CREATED'"))
     max_budget_cents: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    max_duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    max_duration_seconds: Mapped[int | None] = mapped_column(Integer)
     max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("2"))
     created_at: Mapped[datetime] = mapped_column(TZ, nullable=False, server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(TZ, nullable=False, server_default=text("now()"))
@@ -293,11 +293,11 @@ class ExperimentalGroup(Base):
     max_concurrent_tasks: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("1")
     )
-    max_tasks_per_day: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default=text("5")
+    max_tasks_per_day: Mapped[int | None] = mapped_column(
+        Integer().evaluates_none(), nullable=True, server_default=text("5")
     )
-    max_task_duration_seconds: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default=text("900")
+    max_task_duration_seconds: Mapped[int | None] = mapped_column(
+        Integer().evaluates_none(), nullable=True, server_default=text("900")
     )
     allowed_task_types: Mapped[list[str]] = _jsonb('["CODE_REVIEW","WRITE_TESTS","CODE_FIX"]')
     created_at: Mapped[datetime] = _created()
@@ -320,6 +320,9 @@ class ExperimentalGroupMember(Base):
     removed_at: Mapped[datetime | None] = mapped_column(TZ)
     terms_version: Mapped[str | None] = mapped_column(Text)
     acknowledgements: Mapped[dict[str, Any]] = _jsonb("{}")
+    access_paused: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
     # 0016: owner-set caps for this member per rolling 24 h (NULL = group/device caps only)
     max_tasks_per_day: Mapped[int | None] = mapped_column(Integer)
     max_minutes_per_day: Mapped[int | None] = mapped_column(Integer)
@@ -384,11 +387,11 @@ class SubscriptionSharingPreference(Base):
     max_concurrent_tasks: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("1")
     )
-    max_tasks_per_day: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default=text("5")
+    max_tasks_per_day: Mapped[int | None] = mapped_column(
+        Integer().evaluates_none(), nullable=True, server_default=text("5")
     )
-    max_task_duration_seconds: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default=text("900")
+    max_task_duration_seconds: Mapped[int | None] = mapped_column(
+        Integer().evaluates_none(), nullable=True, server_default=text("900")
     )
     allowed_task_types: Mapped[list[str]] = _jsonb('["CODE_REVIEW","WRITE_TESTS","CODE_FIX"]')
     allowed_tools: Mapped[list[str]] = _jsonb(

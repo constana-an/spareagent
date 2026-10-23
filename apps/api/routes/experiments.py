@@ -407,7 +407,7 @@ async def put_preferences(
         principal,
         body.connection_id,
         body.group_id,
-        body.model_dump(exclude={"connection_id", "group_id"}),
+        body.model_dump(exclude={"connection_id", "group_id"}, exclude_unset=True),
     )
     return _prefs_out(prefs)
 

@@ -102,6 +102,7 @@ async def node_readiness(ctx, worker_id, task_id=None):
             check_item(
                 "pilot_limits",
                 prefs.max_concurrent_tasks == 1
+                and prefs.max_task_duration_seconds is not None
                 and prefs.max_task_duration_seconds <= PILOT_MAX_DURATION_SECONDS
                 and prefs.allowed_task_types == ["CODE_REVIEW"],
                 "Set owner limits: CODE_REVIEW only, timeout at most 600 seconds, concurrency 1.",
@@ -110,7 +111,10 @@ async def node_readiness(ctx, worker_id, task_id=None):
         task = SimpleNamespace(
             resource_scope="EXPERIMENTAL_SHARED_SUBSCRIPTION",
             task_type="CODE_REVIEW",
-            max_duration_seconds=min(PILOT_MAX_DURATION_SECONDS, prefs.max_task_duration_seconds),
+            max_duration_seconds=min(
+                PILOT_MAX_DURATION_SECONDS,
+                prefs.max_task_duration_seconds or PILOT_MAX_DURATION_SECONDS,
+            ),
             execution_profile="CODEX_LIVE",
         )
         consent = SimpleNamespace(
@@ -137,6 +141,7 @@ async def node_readiness(ctx, worker_id, task_id=None):
                     "pilot_task",
                     task.execution_profile == "CODEX_LIVE"
                     and task.task_type == "CODE_REVIEW"
+                    and task.max_duration_seconds is not None
                     and task.max_duration_seconds <= PILOT_MAX_DURATION_SECONDS,
                     (
                         "Use one LIVE CODE_REVIEW on a pinned public repository with a "
@@ -164,6 +169,7 @@ async def node_readiness(ctx, worker_id, task_id=None):
                 "group_pilot_limits",
                 snap.group_max_members == 2
                 and snap.group_max_concurrent_tasks == 1
+                and snap.group_max_task_duration_seconds is not None
                 and snap.group_max_task_duration_seconds <= PILOT_MAX_DURATION_SECONDS
                 and snap.group_allowed_task_types == frozenset({"CODE_REVIEW"}),
                 "Operator: cap the pilot at 2 members, 1 concurrent CODE_REVIEW, 600 seconds.",

@@ -67,6 +67,7 @@ th{text-align:left;font-weight:500;font-size:12px;color:var(--muted);background:
 td{padding:9px 16px;border-bottom:1px solid var(--line);vertical-align:middle}
 tbody tr:last-child td{border-bottom:0}
 td.empty{color:var(--muted)}
+.task-summary{display:block;max-width:440px;overflow-wrap:anywhere}.member-id{display:block;font-size:11px}
 .nowrap{white-space:nowrap}
 .prog{display:flex;align-items:center;gap:8px}.prog .bar{flex:1;min-width:60px;margin:0}
 .st{font-weight:600}.st.ok{color:var(--ok)}.st.run{color:var(--accent)}.st.wait{color:var(--warn)}.st.bad{color:var(--err)}.st.idle{color:var(--muted)}
@@ -180,16 +181,12 @@ h3.sub{font-size:13px;margin:14px 0 6px}
     <table><thead><tr><th data-t="col_task"></th><th data-t="col_member"></th><th data-t="col_elapsed"></th><th data-t="col_progress"></th></tr></thead>
     <tbody id="running_rows"></tbody></table>
   </section>
-  <div class="cols hidden" id="switch_cols">
+  <div class="hidden" id="switch_cols">
     <section class="panel">
       <h2 data-t="settings_title"></h2>
       <div class="seg" id="presets" role="group" style="margin-bottom:8px"></div>
       <p class="muted" id="preset_summary" style="font-size:12px;margin:0 0 6px"></p>
       <div id="sharing_switches"></div>
-    </section>
-    <section class="panel">
-      <h2 data-t="kinds_title"></h2>
-      <div id="kind_switches"></div>
     </section>
   </div>
   <section class="panel flush hidden" id="log">
@@ -227,12 +224,10 @@ h3.sub{font-size:13px;margin:14px 0 6px}
     <h2 data-t="limits_title"></h2>
     <div class="row">
       <label><span data-t="max_members"></span><input id="max_members" type="number" min="2"></label>
-      <label><span data-t="max_tasks"></span><input id="max_tasks" type="number" min="1" max="50"></label>
-      <label><span data-t="max_minutes"></span><input id="max_minutes" type="number" min="1" max="60"></label>
+      <label><span data-t="max_tasks"></span><input id="max_tasks" type="number" min="1" max="50" data-placeholder="unlimited"></label>
+      <label><span data-t="max_minutes"></span><input id="max_minutes" type="number" min="1" max="60" data-placeholder="unlimited"></label>
       <label><span data-t="concurrency"></span><input id="concurrency" type="number" min="1" max="3"></label>
     </div>
-    <h3 class="sub" data-t="kinds_title"></h3>
-    <div id="kinds" class="checks"></div>
     <h3 class="sub" data-t="tools_title"></h3>
     <div id="tools" class="checks"></div>
     <label style="margin-top:10px"><input id="auto" type="checkbox"><span data-t="auto_approve"></span></label>
@@ -292,7 +287,7 @@ zh: {
  retry_hint:"修复上面的提示后，点「重试上线」。已安装的组件和已通过的自检会保留。",
  ack_1:"这是私人、非商业的实验，没有任何付费、转售或报酬。",
  ack_2:"我的 ChatGPT 账号只在这台电脑的官方 Codex CLI 里登录，密码和登录凭据不会交给 SpareAgent 或任何人。",
- ack_3:"小组成员提交的任务会在设置的上限内自动批准，并使用我自己的订阅额度在这台电脑上运行（只限我允许的任务种类和工具，在隔离的临时目录中执行；仅在成员勾选且你允许时联网）。",
+ ack_3:"小组成员提交的任务会在设置的上限内自动批准，并使用我自己的订阅额度在这台电脑上运行（使用我允许的工具，在隔离的临时目录中执行；仅在成员勾选且你允许时联网）。",
  ack_4:"我的账号没有额外购买或赠送的 Credits，并已关闭自动充值；分享只消耗订阅自带额度。",
  ack_5:"首次上线时会用我的额度运行一次很短的自检提示；通过后不重复运行。",
  ack_6:"我可以随时调整人数和任务上限、移除成员、关闭自动批准或下线。",
@@ -304,12 +299,15 @@ zh: {
  limits_title:"小组与任务设置", max_members:"小组人数上限（含你自己）",
  max_tasks:"每 24 小时最多任务数", max_minutes:"单个任务最长（分钟）",
  auto_approve:"自动批准小组成员的任务", save:"保存", saved:"已保存",
- usage:(n,m)=>`过去 24 小时已接 ${n} / ${m} 个任务`, cap:(c)=>`（服务器上限 ${c} 人）`,
- members_title:"成员", member:"成员", joined:"加入时间", you:"你", remove:"移除",
+ usage:(n,m)=>m==null?`过去 24 小时已接 ${n} 个任务 · 数量不限`:`过去 24 小时已接 ${n} / ${m} 个任务`, cap:(c)=>`（服务器上限 ${c} 人）`,
+ members_title:"成员", member:"成员", joined:"加入时间", you:"你", remove:"踢出小组",
  m_used:"过去 24 小时", m_used_val:(n,m)=>`${n} 个任务 · ${m} 分钟`, m_task_cap:"每日任务上限", m_min_cap:"每日分钟上限",
  m_no_cap:"不单独限制", m_cap_range:"任务上限 1–50，分钟上限 1–1440，留空表示不单独限制。",
  m_caps_help:"按成员单独限额：在你这台电脑上，每个成员每 24 小时最多用多少个任务、多少分钟执行时间。留空表示只受上面的整体上限约束。超出后，该成员的新任务会排队并显示原因，额度恢复或你调高后自动继续；正在运行的任务不受影响。",
- confirm_remove:"移除该成员？其未完成的任务会被取消，邀请码也会更换。",
+ confirm_remove:"将该成员踢出小组？未完成任务会停止，邀请码会更换；再次加入需要重新邀请。",
+ disconnect_member:"暂时断开", reconnect_member:"恢复连接", member_paused:"已暂时断开",
+ confirm_disconnect:"暂时断开该成员？未完成任务会停止，成员记录和邀请码会保留，可随时恢复连接。", unlimited:"不限（留空）",
+ sc_CANNOT_CHANGE_OWNER:"不能断开你自己。", sc_MEMBER_ACCESS_PAUSED:"主人已暂时断开你的连接，请联系主人恢复。",
  tasks_title:"最近的任务", time:"时间", kind:"类型", status:"状态", approval:"批准",
  approved_auto:"自动批准", approved_owner:"你批准", pending:"等待批准", rejected:"已拒绝",
  open_dashboard:"打开网页控制台",
@@ -355,8 +353,8 @@ zh: {
  network_confirm:"允许联网后，成员的任务可以访问互联网：网站会看到你的 IP 地址，任务也能访问你家里网络中的其他设备，恶意需求还可能诱导 Codex 把成员上传的材料发给别人（你电脑上的其他文件仍然读不到）。确定允许吗？", "tool_python-data":"数据处理（pandas、matplotlib、openpyxl）",
  installed:"已安装", not_installed:"未安装", installing:"正在安装…", install_failed:"安装失败：",
  install_btn:(n)=>`安装（约 ${n} MB）`, remove_btn:"删除", git_hint:"未安装时仍可上线，只接文档和表格任务；上线时会弹出 Apple 命令行工具安装窗口，装好后自动接代码任务", allow:"允许",
- r_members:(a,b)=>`小组人数需在 ${a}–${b} 之间。`, r_tasks:"每 24 小时任务数需在 1–50 之间。",
- r_minutes:"单个任务时长需在 1–60 分钟之间。", r_integer:"请填写整数。",
+ r_members:(a,b)=>`小组人数需在 ${a}–${b} 之间。`, r_tasks:"任务数填写 1–50，留空表示不限。",
+ r_minutes:"单个任务时长填写 1–60 分钟，留空表示不限。", r_integer:"请填写整数。",
  sc_code:(c)=>`（错误代码 ${c}）`,
  sc_MEMBER_LIMIT_OUT_OF_RANGE:"小组人数超出允许范围：不能少于当前成员数，也不能超过服务器上限。",
  sc_GROUP_FULL:"小组已满，请先调高人数上限。", sc_GROUP_DISABLED:"这个小组已被停用，请联系运营者。",
@@ -380,7 +378,9 @@ zh: {
  quota_fb_ok:"正常（暂时读不到具体百分比）", quota_fb_low:"快用完了", quota_fb_exhausted:"已用完，恢复后再接任务",
  now_title:"现在", now_idle:"空闲", now_running:(n)=>`运行 ${n}`, now_sub:(q,n,m)=>`排队 ${q} · 24 小时内 ${n} 个任务 · ${m} 分钟`,
  members_count:(n,m)=>`${n} / ${m}`, owner_name:"你（主人）", member_name:(id)=>`成员 ${id}`, m_used_short:(n,m)=>`${n} 个 · ${m} 分钟`,
- m_capped:"已单独限额", limits_btn:"限额",
+ m_capped:"已单独限额", limits_btn:"备注与限额", member_note:"备注名（最多 40 字）", save_note:"保存备注",
+ member_note_hint:"备注只保存在这台 Mac，留空可清除。", tool_ready:"已允许 · 可用", tool_pending:"已允许 · 待安装", tool_blocked:"未允许使用",
+ data_readiness:"数据处理工具", view_tools:"查看本机工具",
  invite_sub_public:"朋友用浏览器打开链接、勾选同意就能加入。", invite_sub_tailscale:"朋友先登录 Tailscale，再打开链接、勾选同意加入。",
  show_link:"显示链接", tasks_none:"还没有任务。",
  settings_title:"分享设置", anytime:"随时可改", preset_save:"省着用", preset_standard:"标准", preset_open:"放开用", preset_custom:"自定义",
@@ -398,7 +398,7 @@ zh: {
  left_suffix:"剩余", quota_short_ok:"正常", quota_short_low:"快用完", quota_short_exhausted:"已用完",
  m_running:"执行中", m_queued:(n)=>`排队 ${n}`, m_day:"24 小时内任务", m_minutes:(m)=>`执行 ${m} 分钟`,
  sw_auto:"自动接单", sw_auto_sub:"成员的任务在上限内自动批准", sw_network:"允许联网", sw_network_sub:"成员勾选「需要联网」的任务可以上网",
- preset_line:(n,m,c)=>`每天 ${n} 个任务 · 单个 ${m} 分钟 · 同时 ${c} 个`, invite_code:"邀请码",
+ preset_line:(n,m,c)=>`${n==null?"任务数量不限":`每天 ${n} 个任务`} · ${m==null?"单次时间不限":`单个 ${m} 分钟`} · 同时 ${c} 个`, invite_code:"邀请码",
  conn_ok:"已连接服务器", conn_down:"连不上服务器"
 },
 en: {
@@ -425,7 +425,7 @@ en: {
  retry_hint:"Resolve the issue above, then retry. Installed components and a successful self-check are kept.",
  ack_1:"This is a private, non-commercial experiment with no payment, resale or compensation.",
  ack_2:"My ChatGPT account is signed in only in the official Codex CLI on this computer; my credentials are never given to SpareAgent or anyone.",
- ack_3:"Tasks from my group's members are approved automatically within my limits and run on this computer with my own plan usage (only the kinds and tools I allow, in an isolated temporary folder; network access requires both your permission and the member’s request).",
+ ack_3:"Tasks from my group's members are approved automatically within my limits and run on this computer with my own plan usage (using only the tools I allow, in an isolated temporary folder; network access requires both your permission and the member’s request).",
  ack_4:"My account holds no additional purchased or granted Credits and auto-reload is off; sharing only uses included plan usage.",
  ack_5:"The first startup runs one very short self-check prompt on my plan; a successful check is reused.",
  ack_6:"I can change member and task limits, remove members, switch off automatic approval or go offline at any time.",
@@ -437,12 +437,15 @@ en: {
  limits_title:"Group and task settings", max_members:"Maximum members (including you)",
  max_tasks:"Maximum tasks per 24 hours", max_minutes:"Maximum minutes per task",
  auto_approve:"Approve my group's tasks automatically", save:"Save", saved:"Saved",
- usage:(n,m)=>`${n} / ${m} tasks in the last 24 hours`, cap:(c)=>` (server cap ${c})`,
+ usage:(n,m)=>m==null?`${n} tasks in the last 24 hours · no task-count limit`:`${n} / ${m} tasks in the last 24 hours`, cap:(c)=>` (server cap ${c})`,
  members_title:"Members", member:"Member", joined:"Joined", you:"You", remove:"Remove",
  m_used:"Last 24 h", m_used_val:(n,m)=>`${n} tasks · ${m} min`, m_task_cap:"Tasks per day", m_min_cap:"Minutes per day",
  m_no_cap:"no own cap", m_cap_range:"Tasks 1–50, minutes 1–1440; leave empty for no own cap.",
  m_caps_help:"Per-member caps on this Mac per rolling 24 hours. Empty means only the overall limits above apply. Over a cap, that member's new tasks wait with the reason and continue when usage frees up or you raise the cap; running tasks are not affected.",
- confirm_remove:"Remove this member? Their unfinished tasks are cancelled and the invite code changes.",
+ confirm_remove:"Remove this member from the group? Their unfinished tasks are cancelled and the invite code changes.",
+ disconnect_member:"Disconnect temporarily", reconnect_member:"Reconnect", member_paused:"Temporarily disconnected",
+ confirm_disconnect:"Disconnect this member temporarily? Unfinished tasks will stop. Membership and the invite code stay unchanged; you can reconnect them any time.", unlimited:"Unlimited (leave empty)",
+ sc_CANNOT_CHANGE_OWNER:"You cannot disconnect yourself.", sc_MEMBER_ACCESS_PAUSED:"The owner temporarily disconnected you. Ask them to reconnect you.",
  tasks_title:"Recent tasks", time:"Time", kind:"Type", status:"Status", approval:"Approval",
  approved_auto:"Automatic", approved_owner:"By you", pending:"Pending", rejected:"Rejected",
  open_dashboard:"Open web dashboard",
@@ -488,8 +491,8 @@ en: {
  network_confirm:"With internet allowed, members' tasks can reach the internet: websites see your IP address, tasks can reach other devices on your home network, and a malicious request could get Codex to send the member's uploaded files elsewhere (other files on this Mac stay unreadable). Allow it?", "tool_python-data":"Data tools (pandas, matplotlib, openpyxl)",
  installed:"Installed", not_installed:"Not installed", installing:"Installing…", install_failed:"Install failed: ",
  install_btn:(n)=>`Install (~${n} MB)`, remove_btn:"Remove", git_hint:"You can go online without them and take document and table tasks; going online offers the Apple command line tools, and code tasks start once they are installed", allow:"Allow",
- r_members:(a,b)=>`Members must be between ${a} and ${b}.`, r_tasks:"Tasks per 24 hours must be between 1 and 50.",
- r_minutes:"Minutes per task must be between 1 and 60.", r_integer:"Enter whole numbers.",
+ r_members:(a,b)=>`Members must be between ${a} and ${b}.`, r_tasks:"Enter 1–50 tasks, or leave empty for no limit.",
+ r_minutes:"Enter 1–60 minutes, or leave empty for no limit.", r_integer:"Enter whole numbers.",
  sc_code:(c)=>` (error code ${c})`,
  brand:"SpareAgent", btn_pause:"Pause sharing",
  title_OFFLINE:"Not sharing", title_ONLINE:"Online, sharing", title_STARTING:"Going online…", title_STOPPING:"Going offline…", title_ERROR:"Couldn't go online",
@@ -501,7 +504,9 @@ en: {
  quota_fb_ok:"OK (exact percentages unavailable)", quota_fb_low:"Running low", quota_fb_exhausted:"Used up; tasks resume after it resets",
  now_title:"Now", now_idle:"Idle", now_running:(n)=>`${n} running`, now_sub:(q,n,m)=>`${q} queued · ${n} tasks, ${m} min in 24 h`,
  members_count:(n,m)=>`${n} / ${m}`, owner_name:"You (owner)", member_name:(id)=>`Member ${id}`, m_used_short:(n,m)=>`${n} tasks · ${m} min`,
- m_capped:"own cap", limits_btn:"Limits",
+ m_capped:"own cap", limits_btn:"Name & limits", member_note:"Name on this Mac (up to 40 characters)", save_note:"Save name",
+ member_note_hint:"Names stay on this Mac. Leave empty to clear.", tool_ready:"Allowed · ready", tool_pending:"Allowed · installation needed", tool_blocked:"Not allowed",
+ data_readiness:"Data tools", view_tools:"View device tools",
  invite_sub_public:"Friends open the link in a browser and accept the terms to join.", invite_sub_tailscale:"Friends sign in to Tailscale, then open the link and accept the terms.",
  show_link:"Show link", tasks_none:"No tasks yet.",
  settings_title:"Sharing settings", anytime:"Change any time", preset_save:"Light", preset_standard:"Standard", preset_open:"Generous", preset_custom:"Custom",
@@ -520,7 +525,7 @@ en: {
  m_running:"Running", m_queued:(n)=>`${n} queued`, m_day:"Tasks in 24 h", m_minutes:(m)=>`${m} min of work`,
  sw_auto:"Accept tasks automatically", sw_auto_sub:"Members' tasks are approved within your limits", sw_network:"Allow internet",
  sw_network_sub:"Tasks marked “needs internet” may go online",
- preset_line:(n,m,c)=>`${n} tasks a day · ${m} min each · ${c} at a time`, invite_code:"Invite code",
+ preset_line:(n,m,c)=>`${n==null?"No task-count limit":`${n} tasks a day`} · ${m==null?"No per-task time limit":`${m} min each`} · ${c} at a time`, invite_code:"Invite code",
  conn_ok:"Connected", conn_down:"Server unreachable"
 }};
 const ONLINE_STEPS=["codex_install","git_check","codex_login","signup","owner_check","server_online","worker_start"];
@@ -556,6 +561,7 @@ function applyStatic(){
   document.documentElement.lang=lang==="zh"?"zh-CN":"en";
   document.title=t("title");
   document.querySelectorAll("[data-t]").forEach(el=>{el.textContent=t(el.dataset.t)});
+  document.querySelectorAll("[data-placeholder]").forEach(el=>{el.placeholder=t(el.dataset.placeholder)});
   $("lang").textContent=t("lang");
   document.querySelectorAll(".ack").forEach(ul=>{ul.innerHTML="";
     for(let i=1;i<=8;i++){const li=document.createElement("li");li.textContent=t("ack_"+i);ul.appendChild(li)}});
@@ -614,10 +620,10 @@ function render(){
     if(!settingsEditing){
       $("max_members").value=g.max_members; $("max_members").max=g.member_cap;
       $("max_members").min=Math.max(2,srv.members.length);
-      $("max_tasks").value=g.max_tasks_per_day; $("max_minutes").value=Math.round(g.max_task_duration_seconds/60);
+      $("max_tasks").value=g.max_tasks_per_day??""; $("max_minutes").value=g.max_task_duration_seconds==null?"":Math.round(g.max_task_duration_seconds/60);
       $("auto").checked=sharing?sharing.auto_approve_members:true;
       $("concurrency").value=(sharing&&sharing.max_concurrent_tasks)||1;
-      renderKinds(srv); renderTools(srv);
+      renderTools(srv);
     } else { renderToolStates() }
     $("usage").textContent=(flash||t("usage",srv.tasks_started_last_24h,g.max_tasks_per_day))+t("cap",g.member_cap);
     $("nav_tasks_n").textContent=(srv.usage&&srv.usage.running)||"";
@@ -668,7 +674,12 @@ function renderMetrics(srv){
 }
 function memberName(srv,id){
   const m=(srv.members||[]).find(m=>m.user_id===id);
-  return m&&m.is_owner?t("you"):t("member_name",String(id||"").slice(0,8));
+  return m&&m.is_owner?t("you"):(S.member_notes||{})[id]||t("member_name",String(id||"").slice(0,8));
+}
+function taskSummary(x){
+  const text=String(x.requirement||x.prompt||"").trim().split(/\n/)[0];
+  const chars=Array.from(text);
+  return chars.length>56?chars.slice(0,55).join("")+"…":text||kindLabel(x);
 }
 function renderRunning(srv){
   const body=$("running_rows"); body.innerHTML="";
@@ -676,11 +687,11 @@ function renderRunning(srv){
   $("running").querySelector("h2").textContent=t("running_title")+(live.length?` (${live.length})`:"");
   if(!live.length){emptyRow(body,4,t("none_running"));return}
   live.forEach(x=>{
-    const el_=x.started_at?mmss((Date.now()-Date.parse(x.started_at))/1000)+" / "+mmss(x.max_duration_seconds||0):"—";
+    const el_=x.started_at?mmss((Date.now()-Date.parse(x.started_at))/1000)+" / "+(x.max_duration_seconds==null?t("unlimited"):mmss(x.max_duration_seconds)):"—";
     const p=x.progress&&x.progress.percent, prog=el("span","prog");
     if(p!=null){const bar=el("span","bar"),fill=el("i");fill.style.width=p+"%";bar.append(fill);prog.append(bar,el("small",null,p+"%"))}
     else prog.append(el("small",null,label("s_",x.status)));
-    body.append(cells(el("tr"),kindLabel(x),memberName(srv,x.requester_id),el_,prog))});
+    body.append(cells(el("tr"),taskSummary(x),memberName(srv,x.requester_id),el_,prog))});
 }
 function renderLog(srv){
   // What the server reports: tasks received and started, and members joining. Newest first.
@@ -699,9 +710,9 @@ function renderLog(srv){
 }
 function sharingBody(srv,change){
   const sh=srv.sharing||{}, g=srv.group;
-  return {max_members:g.max_members,max_tasks_per_day:g.max_tasks_per_day,max_task_minutes:Math.round(g.max_task_duration_seconds/60),
+  return {max_members:g.max_members,max_tasks_per_day:g.max_tasks_per_day,max_task_minutes:g.max_task_duration_seconds==null?null:Math.round(g.max_task_duration_seconds/60),
     max_concurrent_tasks:sh.max_concurrent_tasks||1,auto_approve_members:sh.auto_approve_members!==false,
-    allowed_task_types:sh.allowed_task_types||offeredKinds(srv),allowed_tools:sh.allowed_tools||TOOL_ORDER,...change};
+    allowed_tools:sh.allowed_tools||TOOL_ORDER,...change};
 }
 function switchRow(title,sub,checked,onChange,disabled){
   const row=el("label","sw"), text=el("span");text.append(title);if(sub)text.append(el("small",null,sub));
@@ -709,30 +720,23 @@ function switchRow(title,sub,checked,onChange,disabled){
   box.onchange=()=>onChange(box.checked,box);row.append(text,box);return row;
 }
 function renderSwitches(srv){
-  const sh=srv.sharing||{}, tools=sh.allowed_tools||TOOL_ORDER, a=$("sharing_switches"), k=$("kind_switches");
-  a.innerHTML=""; k.innerHTML="";
+  const sh=srv.sharing||{}, tools=sh.allowed_tools||TOOL_ORDER, a=$("sharing_switches");
+  a.innerHTML="";
   a.append(switchRow(t("sw_auto"),t("sw_auto_sub"),sh.auto_approve_members!==false,
     v=>act("settings",sharingBody(srv,{auto_approve_members:v}))));
   a.append(switchRow(t("sw_network"),t("sw_network_sub"),tools.includes("network"),(v,box)=>{
     if(v&&!confirm(t("network_confirm"))){box.checked=false;return}
     act("settings",sharingBody(srv,{allowed_tools:v?[...tools.filter(x=>x!=="network"),"network"]:tools.filter(x=>x!=="network")}))}));
-  const allowed=new Set(sh.allowed_task_types||offeredKinds(srv));
-  (srv.kinds||[]).filter(x=>x.offered&&x.status!=="DISABLED").forEach(x=>{
-    const need=x.required_tools.filter(r=>r!=="code"&&r!=="doc");
-    const missing=need.filter(r=>!hasTool(srv,r));
-    const sub=missing.length?t("needs")+missing.map(r=>t("tool_"+r).split("（")[0].split(" (")[0]).join("、")+t("missing_tool"):"";
-    k.append(switchRow(lang==="zh"?x.name_zh:x.name_en,sub,allowed.has(x.kind),v=>{
-      const next=offeredKinds(srv).filter(n=>n===x.kind?v:allowed.has(n));
-      if(!next.length){localErr={code:"invalid_input",detail:t("r_kinds")};render();return}
-      act("settings",sharingBody(srv,{allowed_task_types:next}))}))});
+  const ready=S.tools&&S.tools["python-data"]&&S.tools["python-data"].state==="READY";
+  a.append(el("p","muted",t("data_readiness")+"："+t(!tools.includes("python-data")?"tool_blocked":ready?"tool_ready":"tool_pending")));
+  const edit=el("button","s",t("view_tools"));edit.type="button";edit.onclick=()=>showView("settings");a.append(edit);
 }
 const PRESETS={save:{tasks:3,minutes:10,concurrency:1,network:false},standard:{tasks:5,minutes:10,concurrency:1,network:true},
-  open:{tasks:10,minutes:30,concurrency:2,network:true}};
-function offeredKinds(srv){return (srv.kinds||[]).filter(k=>k.offered&&k.status!=="DISABLED").map(k=>k.kind)}
+  open:{tasks:null,minutes:null,concurrency:2,network:true}};
 function currentPreset(srv){
   const g=srv.group, sh=srv.sharing||{}, tools=sh.allowed_tools||TOOL_ORDER;
   return Object.keys(PRESETS).find(n=>{const p=PRESETS[n];return g.max_tasks_per_day===p.tasks&&
-    Math.round(g.max_task_duration_seconds/60)===p.minutes&&(sh.max_concurrent_tasks||1)===p.concurrency&&
+    (g.max_task_duration_seconds==null?null:Math.round(g.max_task_duration_seconds/60))===p.minutes&&(sh.max_concurrent_tasks||1)===p.concurrency&&
     tools.includes("network")===p.network})||"custom";
 }
 function renderPresets(srv){
@@ -743,7 +747,7 @@ function renderPresets(srv){
   [...box.children].forEach(b=>{b.classList.toggle("on",b.dataset.preset===cur);b.setAttribute("aria-pressed",b.dataset.preset===cur)});
   const g=srv.group, sh=srv.sharing||{};
   $("preset_summary").textContent=(cur==="custom"?t("preset_custom")+" · ":"")+t("preset_line",g.max_tasks_per_day,
-    Math.round(g.max_task_duration_seconds/60),sh.max_concurrent_tasks||1);
+    g.max_task_duration_seconds==null?null:Math.round(g.max_task_duration_seconds/60),sh.max_concurrent_tasks||1);
 }
 async function applyPreset(n){
   const srv=S&&S.server; if(!srv)return;
@@ -756,21 +760,32 @@ async function applyPreset(n){
 let openEditor=null;
 function renderMembers(srv){
   const g=srv.group, body=$("member_rows");
-  if(body.contains(document.activeElement))return;  // the owner is typing a member's limit
+  if(body.contains(document.activeElement)&&document.activeElement.matches("input,textarea,select"))return;
   body.innerHTML="";
   srv.members.forEach(m=>{
-    const name=el("span");name.append(el("span","av",m.is_owner?t("you"):m.user_id.slice(0,2)),m.is_owner?t("owner_name"):t("member_name",m.user_id.slice(0,8)));
+    const name=el("span");name.append(el("span","av",m.is_owner?t("you"):Array.from(memberName(srv,m.user_id)).slice(0,2).join("")),m.is_owner?t("owner_name"):memberName(srv,m.user_id));
+    if(!m.is_owner)name.append(el("small","member-id",m.user_id.slice(0,8)));
+    if(m.access_paused)name.append(el("small","member-id",t("member_paused")));
     const tr=el("tr");
     if(m.is_owner){body.append(cells(tr,name,fmt(m.joined_at),"—",""));return}
     const used=el("span",null,t("m_used_short",m.tasks_last_24h||0,m.minutes_last_24h||0));
     const cap=m.max_tasks_per_day||g.max_tasks_per_day, mini=el("span","mini"), fill=el("i");
-    fill.style.width=Math.min(100,100*(m.tasks_last_24h||0)/Math.max(1,cap))+"%";mini.append(fill);used.append(mini);
+    fill.style.width=Math.min(100,100*(m.tasks_last_24h||0)/Math.max(1,cap))+"%";mini.append(fill);if(cap!=null)used.append(mini);
     if(m.max_tasks_per_day||m.max_minutes_per_day)used.append(el("small",null," · "+t("m_capped")));
     const btn=el("button","s",t("limits_btn"));btn.type="button";
     btn.onclick=()=>{openEditor=openEditor===m.user_id?null:m.user_id;renderMembers(srv)};
-    body.append(cells(tr,name,fmt(m.joined_at),used,btn));
+    const actions=el("div","row"), access=el("button","s",t(m.access_paused?"reconnect_member":"disconnect_member"));access.type="button";
+    access.onclick=()=>{if(m.access_paused||confirm(t("confirm_disconnect")))act("member-access",{user_id:m.user_id,paused:!m.access_paused})};
+    const rm=el("button","s",t("remove"));rm.type="button";
+    rm.onclick=()=>{if(confirm(t("confirm_remove"))){openEditor=null;act("remove-member",{user_id:m.user_id})}};
+    actions.append(btn,access,rm);body.append(cells(tr,name,fmt(m.joined_at),used,actions));
     if(openEditor!==m.user_id)return;
     const ed=el("tr","editor"), td=el("td"), row=el("div","row");td.colSpan=4;
+    const noteRow=el("div","row"), noteLabel=el("label",null,t("member_note")), note=el("input");
+    note.type="text";note.maxLength=40;note.value=(S.member_notes||{})[m.user_id]||"";noteLabel.append(note);
+    const noteSave=el("button","s",t("save_note"));noteSave.type="button";
+    noteSave.onclick=()=>{note.blur();act("member-note",{user_id:m.user_id,note:note.value})};
+    noteRow.append(noteLabel,noteSave);td.append(noteRow,el("small",null,t("member_note_hint")));
     const field=(key,max,label)=>{const l=el("label",null,label);const i=el("input");i.type="number";i.min="1";i.max=String(max);
       i.placeholder=t("m_no_cap");i.value=m[key]??"";l.append(i);row.append(l);return i};
     const ti=field("max_tasks_per_day",50,t("m_task_cap")), mi=field("max_minutes_per_day",1440,t("m_min_cap"));
@@ -780,9 +795,7 @@ function renderMembers(srv){
       const bad=[[b.max_tasks_per_day,50],[b.max_minutes_per_day,1440]].some(([x,hi])=>x!==null&&(!Number.isInteger(x)||x<1||x>hi));
       if(bad){localErr={code:"invalid_input",detail:t("m_cap_range")};render();return}
       openEditor=null;act("member-limits",b)};
-    const rm=el("button","s",t("remove"));rm.type="button";
-    rm.onclick=()=>{if(confirm(t("confirm_remove"))){openEditor=null;act("remove-member",{user_id:m.user_id})}};
-    row.append(save,rm);td.append(row,el("small",null,t("m_caps_help")));ed.append(td);body.append(ed)});
+    row.append(save);td.append(row,el("small",null,t("m_caps_help")));ed.append(td);body.append(ed)});
 }
 function taskChip(x){
   if(x.status==="SUCCEEDED")return ["ok",label("s_",x.status)];
@@ -799,7 +812,8 @@ function renderTasks(srv){
   const tasks=srv.tasks||[];
   if(!tasks.length){emptyRow(body,4,t("tasks_none"));return}
   tasks.forEach(x=>{
-    const [cls,text]=taskChip(x), name=el("span",null,kindLabel(x));
+    const [cls,text]=taskChip(x), name=el("span","task-summary",taskSummary(x));
+    name.append(el("small","member-id",kindLabel(x)));
     if(x.execution_mode==="SIMULATED")name.append(el("small",null," · "+t("m_SIMULATED")));
     body.append(cells(el("tr"),name,memberName(srv,x.requester_id),fmt(x.created_at),el("span","st "+cls,text)))});
 }
@@ -822,22 +836,6 @@ function renderNetworks(ph){
   $("net_note").textContent=(cur?t("net_using",cur.label)+" · ":"")+t("net_hint");
 }
 const TOOL_ORDER=["git","python-data","doc","code","network"];
-function hasTool(srv,x){return x==="code"||x==="doc"||x==="network"||(S.tools&&(x==="git"?S.tools.git:S.tools[x]&&S.tools[x].state==="READY"))}
-function renderKinds(srv){
-  const box=$("kinds"); box.innerHTML="";
-  const allowed=new Set((srv.sharing&&srv.sharing.allowed_task_types)||(srv.kinds||[]).map(k=>k.kind));
-  (srv.kinds||[]).filter(k=>k.offered&&k.status!=="DISABLED").forEach(k=>{
-    const l=document.createElement("label"); const c=document.createElement("input");
-    c.type="checkbox"; c.dataset.kind=k.kind; c.checked=allowed.has(k.kind);
-    c.addEventListener("change",()=>settingsEditing=true);
-    const name=document.createElement("span"); name.textContent=lang==="zh"?k.name_zh:k.name_en;
-    const st=document.createElement("small"); st.textContent=t("ks_"+k.status);
-    const need=k.required_tools.filter(x=>x!=="code"&&x!=="doc");
-    l.append(c,name,st);
-    if(need.length){const n=document.createElement("small");
-      n.textContent=t("needs")+need.map(x=>t("tool_"+x).split("（")[0].split(" (")[0]+(hasTool(srv,x)?"":t("missing_tool"))).join("、");l.append(n)}
-    box.append(l)});
-}
 function renderTools(srv){
   const box=$("tools"); box.innerHTML="";
   const allowed=new Set((srv.sharing&&srv.sharing.allowed_tools)||TOOL_ORDER);
@@ -845,7 +843,8 @@ function renderTools(srv){
     const l=document.createElement("label"); const c=document.createElement("input");
     c.type="checkbox"; c.dataset.tool=tool; c.checked=allowed.has(tool); c.title=t("allow");
     c.addEventListener("change",()=>{settingsEditing=true;
-      if(tool==="network"&&c.checked&&!confirm(t("network_confirm")))c.checked=false});
+      if(tool==="network"&&c.checked&&!confirm(t("network_confirm")))c.checked=false;
+      renderToolStates()});
     const name=document.createElement("span"); name.textContent=t("tool_"+tool);
     const st=document.createElement("small"); st.id="tool_state_"+tool;
     l.append(c,name,st);
@@ -861,7 +860,8 @@ function renderToolStates(){
   if(!st||!b)return;
   const label={READY:t("installed"),MISSING:t("not_installed"),INSTALLING:t("installing")+" "+(d.detail||""),
     FAILED:t("install_failed")+(d.detail||""),UNAVAILABLE:t("not_installed")}[d.state]||d.state;
-  st.textContent=label;
+  const allowed=document.querySelector('input[data-tool="python-data"]')?.checked;
+  st.textContent=t(!allowed?"tool_blocked":d.state==="READY"?"tool_ready":"tool_pending")+" · "+label;
   b.classList.toggle("hidden",d.state==="UNAVAILABLE"||d.state==="INSTALLING");
   b.textContent=d.state==="READY"?t("remove_btn"):t("install_btn",d.size_mb||40);
   b.onclick=()=>act(d.state==="READY"?"remove-tool":"install-tool",{tool:"python-data"});
@@ -917,21 +917,18 @@ $("copy").onclick=async()=>{try{await copyText(inviteMessage(S.invite_link,!(S.s
   setTimeout(()=>$("copy").textContent=t("copy"),1500)}catch(e){}};
 function checkLimits(v){
   const lo=Math.max(2,S&&S.server?S.server.members.length:2), hi=S&&S.server?S.server.group.member_cap:v.max_members;
-  if(![v.max_members,v.max_tasks_per_day,v.max_task_minutes].every(Number.isInteger))return t("r_integer");
+  if(![v.max_members,v.max_tasks_per_day,v.max_task_minutes].every(x=>x==null||Number.isInteger(x)))return t("r_integer");
   if(v.max_members<lo||v.max_members>hi)return t("r_members",lo,hi);
-  if(v.max_tasks_per_day<1||v.max_tasks_per_day>50)return t("r_tasks");
-  if(v.max_task_minutes<1||v.max_task_minutes>60)return t("r_minutes");
+  if(v.max_tasks_per_day!=null&&(v.max_tasks_per_day<1||v.max_tasks_per_day>50))return t("r_tasks");
+  if(v.max_task_minutes!=null&&(v.max_task_minutes<1||v.max_task_minutes>60))return t("r_minutes");
   if(!Number.isInteger(v.max_concurrent_tasks)||v.max_concurrent_tasks<1||v.max_concurrent_tasks>3)return t("r_concurrency");
-  if(v.allowed_task_types&&!v.allowed_task_types.length)return t("r_kinds");
   return "";
 }
 function setFlash(text,ms){flash=text;render();if(ms)setTimeout(()=>{flash="";render()},ms)}
 $("save").onclick=async()=>{
-  const v={max_members:Number($("max_members").value),max_tasks_per_day:Number($("max_tasks").value),
-    max_task_minutes:Number($("max_minutes").value),auto_approve_members:$("auto").checked,
+  const v={max_members:Number($("max_members").value),max_tasks_per_day:$("max_tasks").value.trim()===""?null:Number($("max_tasks").value),
+    max_task_minutes:$("max_minutes").value.trim()===""?null:Number($("max_minutes").value),auto_approve_members:$("auto").checked,
     max_concurrent_tasks:Number($("concurrency").value)};
-  const kinds=[...document.querySelectorAll("#kinds input[data-kind]")];
-  if(kinds.length)v.allowed_task_types=kinds.filter(c=>c.checked).map(c=>c.dataset.kind);
   const tools=[...document.querySelectorAll("#tools input[data-tool]")];
   if(tools.length)v.allowed_tools=tools.filter(c=>c.checked).map(c=>c.dataset.tool);
   const bad=checkLimits(v);
